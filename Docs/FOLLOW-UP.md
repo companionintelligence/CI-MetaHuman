@@ -5,6 +5,32 @@ Reference north star (planning doc "Existing Tech on RPM / Whisper / Piper"): a 
 of Google Astra / Meta AI with a locally-embodied agent — pluggable AI backend over an
 OpenAI-style API, Whisper STT, Piper TTS, viseme lip-sync, on Quest 3 / XREAL / mobile.
 
+## AMD Strix Halo render wall — DEFINITIVE (2026-07-15)
+
+The containerized Pixel Streaming stack works end to end on core-2 (AMD Strix Halo,
+Radeon 8060S) EXCEPT the GPU render, which crashes in RADV. Exhaustively ruled out,
+every combination SIGABRT/SIGSEGVs in `libvulkan_radeon.so` mid-render:
+
+- Mesa userspace: Ubuntu stock **26.0.3** (SIGABRT @0x15a79f) AND **git main / 26.1-dev
+  compiled from source** (SIGSEGV, different offset). Two independent builds, two crashes.
+- RADV backends: ACO and LLVM; debug flags nodcc / zerovram / nongg (nongg only *delays*
+  it to ~416 frames). Feature levels SM6 and SM5. llvmpipe: UE won't init its RHI.
+- **GPU firmware**: updated to upstream linux-firmware git and rebooted (twice — first boot
+  loaded stale `.bin.zst` over the new `.bin`; fixed by recompressing). `amdgpu_firmware_info`
+  confirms the loaded gfx1151 microcode versions are **identical** (PFP 0x32, MEC 0x23,
+  IMU 0x0b352300) — the firmware was **already at the latest available version**. No change.
+- Kernel: amdgpu 6.19.4 / 7.0.0-27-generic (already very new). No GPU ring-timeouts in dmesg
+  (so it's a driver-code/userspace abort, not a microcode hang).
+
+**Conclusion:** brand-new gfx1151 silicon + UE 5.8's Vulkan render path hits a RADV bug that
+is not fixed in any currently-available Mesa (stable or git) or firmware. Working paths:
+(a) an **NVIDIA render node** (NVENC + mature driver; `docker-compose.nvidia.yml` is ready) —
+reliable today; (b) a mainline-git **kernel** on core-2 — last AMD lever, but low-probability
+and boot-risky on a production host; (c) wait for RADV gfx1151 maturity / file a Mesa bug with
+the deterministic repro. Everything below the render is proven: image build, non-root run,
+Vulkan init on the 8060S, VP8 encode, PixelStreaming2, signalling on :8090, streamer
+registration, ollama gemma4:e2b backend.
+
 ## Status snapshot (2026-07-14)
 
 **Working, compiled, and unit-tested (62 tests: 57 backend + 5 frontend, all green):**

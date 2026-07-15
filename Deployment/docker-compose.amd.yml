@@ -29,7 +29,7 @@ services:
       # ACO+SM5 still SIGABRT's in the SkyLight cubemap capture on Strix Halo. Under SM5 the
       # LLVM backend has no mesh-shader gate (that only blocked it under SM6), so it can init
       # the RHI AND uses different codegen that may dodge the ACO crash. Last software lever.
-      RADV_DEBUG: "llvm,nongg,nodcc"
+      RADV_DEBUG: "${RADV_DEBUG:-}"
       # Some Vulkan/offscreen paths want a runtime dir; silence the warning and give one.
       XDG_RUNTIME_DIR: "/tmp"
     command:
