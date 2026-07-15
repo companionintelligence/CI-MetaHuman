@@ -15,13 +15,13 @@ services:
       OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://127.0.0.1:11434}"
       OLLAMA_MODEL: "${OLLAMA_MODEL:-gemma4:e2b}"
 
-  # Replace the stock start.sh (which binds port 80 via --https_redirect) with a launcher
-  # that runs on an explicit free HTTP port. Mounted from the host, so it's outside the
-  # image and unaffected by the build.
+  # Run the stock image entrypoint (bash .../start.sh --nosudo), but mount a patched start.sh
+  # over the stock path: --https_redirect removed (it binds taken port 80) + explicit ports.
+  # setup's npm install/link/build stays stock, so it builds and runs correctly on :8090.
   signalling:
-    entrypoint: ["/bin/bash", "/signalling-start.sh"]
+    entrypoint: ["bash", "/SignallingWebServer/platform_scripts/bash/start.sh", "--nosudo"]
     command: []
     environment:
       PUBLIC_IP: "${PUBLIC_IP:-127.0.0.1}"
     volumes:
-      - "./signalling-start.sh:/signalling-start.sh:ro"
+      - "./signalling-start.sh:/SignallingWebServer/platform_scripts/bash/start.sh:ro"
