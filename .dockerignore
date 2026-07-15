@@ -1,0 +1,11 @@
+# Keep the Docker build context small — the packager regenerates all of this.
+Binaries/
+Intermediate/
+Saved/
+DerivedDataCache/
+.vs/
+.vscode/
+*.sln
+Deployment/.env
+Deployment/dist/
+dist/

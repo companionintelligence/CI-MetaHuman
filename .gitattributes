@@ -1,0 +1,14 @@
+# Git LFS for Unreal binary assets (some exceed GitHub's 100 MB per-file limit).
+*.uasset filter=lfs diff=lfs merge=lfs -text
+*.umap   filter=lfs diff=lfs merge=lfs -text
+*.ubulk  filter=lfs diff=lfs merge=lfs -text
+*.uexp   filter=lfs diff=lfs merge=lfs -text
+*.upack  filter=lfs diff=lfs merge=lfs -text
+*.mhpkg  filter=lfs diff=lfs merge=lfs -text
+
+# Normalize text line endings for source
+*.cpp   text
+*.h     text
+*.cs    text
+*.ps1   text
+*.md    text

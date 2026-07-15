@@ -1,0 +1,25 @@
+# Unreal Engine generated / build output
+Binaries/
+Intermediate/
+DerivedDataCache/
+Saved/
+*.tmp
+
+# IDE / project files
+.vs/
+.vscode/
+.idea/
+*.sln
+*.suo
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.opendb
+
+# OS cruft
+Thumbs.db
+.DS_Store
+
+# Local secrets — never commit real OIDC/hub credentials
+Deployment/.env
+*.local.env

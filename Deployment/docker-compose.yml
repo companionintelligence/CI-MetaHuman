@@ -1,0 +1,108 @@
+# Containerized MetaHumanLocalLLM Pixel Streaming agent.
+#
+#   browser ──▶ oidc-proxy (:8080, CI-portal OIDC)  ──▶ signalling (:8090 player, :8888 streamer)
+#                                                            ▲
+#   coturn (:3478, WebRTC relay)  ◀── WebRTC media ──────────┤
+#                                                            │
+#   project (packaged UE app, GPU)  ── streamer ws ──────────┘
+#                                  └── chat ──▶ CI-hub Ollama (OpenAI-compatible, via env)
+#
+# All services use host networking (lowest WebRTC latency, per Epic's guidance). Only the
+# OIDC proxy's :8080 should be exposed publicly; keep the signalling HTTP port internal.
+
+services:
+
+  # WebRTC TURN relay. Needs TCP/UDP 3478 and the UDP relay range 49152-65535 reachable.
+  turnserver:
+    image: "coturn/coturn:4.6.2"
+    init: true
+    network_mode: "host"
+    command:
+      - "-a"
+      - "-v"
+      - "-n"
+      - "-u"
+      - "${TURN_USER}:${TURN_PASSWORD}"
+      - "-p"
+      - "3478"
+      - "-r"
+      - "ci-realm"
+      - "--no-dtls"
+      - "--no-tls"
+
+  # Epic's Pixel Streaming signalling server. Player HTTP on 8090 (kept internal, fronted by
+  # the OIDC proxy); streamer WebSocket on 8888 for the UE app.
+  signalling:
+    image: "ghcr.io/epicgames/pixel-streaming-signalling-server:${UE_RELEASE_SHORT}"
+    init: true
+    network_mode: "host"
+    command:
+      - "--publicIp=${PUBLIC_IP}"
+      - "--HttpPort=8090"
+      - "--StreamerPort=8888"
+      - >-
+        --peerConnectionOptions={
+            "iceServers":[
+              { "urls":["stun:stun.l.google.com:19302"] },
+              { "urls":["turn:${PUBLIC_IP}:3478"], "username":"${TURN_USER}", "credential":"${TURN_PASSWORD}" }
+            ]
+          }
+    depends_on:
+      - turnserver
+
+  # CI-portal OIDC gate. Users authenticate against ci-portal before the player page or its
+  # signalling WebSocket are reachable. Secrets/issuer come from .env (never bake them in).
+  oidc-proxy:
+    image: "quay.io/oauth2-proxy/oauth2-proxy:v7.6.0"
+    init: true
+    network_mode: "host"
+    command: ["--config=/etc/oauth2-proxy.cfg"]
+    volumes:
+      - "./oauth2-proxy.cfg:/etc/oauth2-proxy.cfg:ro"
+    environment:
+      OAUTH2_PROXY_CLIENT_ID: "${CI_PORTAL_CLIENT_ID}"
+      OAUTH2_PROXY_CLIENT_SECRET: "${CI_PORTAL_CLIENT_SECRET}"
+      OAUTH2_PROXY_OIDC_ISSUER_URL: "${CI_PORTAL_ISSUER_URL}"
+      OAUTH2_PROXY_REDIRECT_URL: "${CI_PORTAL_REDIRECT_URL}"
+      OAUTH2_PROXY_COOKIE_SECRET: "${OIDC_COOKIE_SECRET}"
+    depends_on:
+      - signalling
+
+  # The packaged UE app. GPU-accelerated, renders offscreen, streams via the signalling
+  # server, and reads its LLM/voice config from the environment (CI-hub Ollama, etc.).
+  project:
+    image: "ci/metahuman-local-llm:${UE_RELEASE}"
+    build:
+      context: ".."
+      dockerfile: "Deployment/Dockerfile"
+      args:
+        RELEASE: "${UE_RELEASE}"
+    init: true
+    network_mode: "host"
+    environment:
+      MHLLM_BACKEND: "openai"
+      CI_HUB_URL: "${CI_HUB_URL}"
+      CI_HUB_TOKEN: "${CI_HUB_TOKEN}"
+      CI_HUB_MODEL: "${CI_HUB_MODEL}"
+      WHISPER_SERVER_URL: "${WHISPER_SERVER_URL}"
+      PIPER_SERVER_URL: "${PIPER_SERVER_URL}"
+      MHLLM_SYSTEM_PROMPT: "${MHLLM_SYSTEM_PROMPT}"
+    command:
+      - "-RenderOffscreen"
+      - "-Windowed"
+      - "-ForceRes"
+      - "-ResX=1920"
+      - "-ResY=1080"
+      - "-PixelStreamingUrl=ws://127.0.0.1:8888"
+      - "-Unattended"
+      - "-StdOut"
+      - "-FullStdOutLogOutput"
+    depends_on:
+      - signalling
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: "nvidia"
+              capabilities: ["gpu"]
+              count: 1
