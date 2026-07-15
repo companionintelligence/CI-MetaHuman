@@ -1,6 +1,6 @@
 # Containerized MetaHumanLocalLLM Pixel Streaming agent.
 #
-#   browser ──▶ oidc-proxy (:8080, CI-portal OIDC)  ──▶ signalling (:8090 player, :8888 streamer)
+#   browser ──▶ oidc-proxy (:8095, CI-portal OIDC)  ──▶ signalling (:8090 player, :8888 streamer)
 #                                                            ▲
 #   coturn (:3478, WebRTC relay)  ◀── WebRTC media ──────────┤
 #                                                            │
@@ -8,7 +8,8 @@
 #                                  └── chat ──▶ CI-hub Ollama (OpenAI-compatible, via env)
 #
 # All services use host networking (lowest WebRTC latency, per Epic's guidance). Only the
-# OIDC proxy's :8080 should be exposed publicly; keep the signalling HTTP port internal.
+# OIDC proxy's :8095 should be exposed publicly; keep the signalling HTTP port internal.
+# (:8095, not :8080 — :8080 is already in use on core-2 by the CI marketplace stack.)
 
 services:
 

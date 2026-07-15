@@ -7,12 +7,13 @@ through environment variables. Built on Epic's official Pixel Streaming containe
 (`Engine/Extras/Containers/Examples/PixelStreaming`), plus an `oauth2-proxy` login gate.
 
 ```
-browser ──▶ oidc-proxy :8080 ──▶ signalling :8090 (player) / :8888 (streamer)
+browser ──▶ oidc-proxy :8095 ──▶ signalling :8090 (player) / :8888 (streamer)
    (CI-portal OIDC)                     ▲
                                         │ WebRTC media ⇄ coturn :3478
    packaged UE app (GPU) ──────────────┘
         └── chat ──▶ CI-hub Ollama (OpenAI-compatible, via CI_HUB_URL)
 ```
+(OIDC proxy on :8095 — :8080 is taken on core-2 by the CI stack.)
 
 ## Components (`docker-compose.yml`)
 

@@ -65,7 +65,7 @@ vainfo --display drm --device /dev/dri/renderD128 | grep H264   # host-side enco
 ## Access over Tailscale
 
 core-2 is `100.101.156.33` on the tailnet. With host networking, the OIDC proxy is on
-`:8080`. From a tailnet client: browse `http://core-2:8080/` → redirected to CI-portal login →
+`:8095` (:8080 is already taken on core-2). From a tailnet client: browse `http://core-2:8095/` → redirected to CI-portal login →
 Pixel Streaming player loads. For anything beyond a tailnet test, terminate TLS in front of
 `oidc-proxy` and set `cookie_secure = true` (see README).
 
@@ -76,5 +76,11 @@ bring up everything except `project`:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.amd.yml up -d turnserver signalling oidc-proxy
-# browse http://core-2:8080/  → CI-portal login should gate the (streamer-less) player page
+# browse http://core-2:8095/  -> CI-portal login should gate the (streamer-less) player page
 ```
+
+Image auth note: `coturn` and `oauth2-proxy` images are public, but the **signalling-server
+image is Epic-gated** (`ghcr.io/epicgames/pixel-streaming-signalling-server` needs
+`docker login ghcr.io`). Without Epic GHCR access, build the signalling server from its
+open-source repo (`github.com/EpicGamesExt/PixelStreamingInfrastructure`, plain Node.js, no
+Epic auth). Ports verified free on core-2: 8090, 8888, 3478 (8080 is taken -> we use 8095).
