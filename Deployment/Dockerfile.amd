@@ -24,7 +24,10 @@ RUN /home/ue4/UnrealEngine/Engine/Build/BatchFiles/RunUAT.sh BuildCookRun \
     -platform=Linux
 
 # ---- AMD runtime image -----------------------------------------------------------------
-FROM ubuntu:24.04
+# Match the HOST's Ubuntu 26.04 / Mesa 26.x. ubuntu:24.04's Mesa (~24.0) is too old to
+# support the Strix Halo (RDNA 3.5) GPU and yields VK_ERROR_INCOMPATIBLE_DRIVER when UE's
+# Vulkan RHI creates its instance. A Mesa new enough for the GPU is the fix.
+FROM ubuntu:26.04
 
 # Mesa RADV (Vulkan) + radeonsi (VAAPI H.264/HEVC/AV1 encode) + the shared libs a packaged
 # UE Linux app links against. renderD128 is passed in at runtime via docker-compose.amd.yml.
@@ -42,8 +45,11 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
         libnss3 libatk1.0-0 libcups2 \
     && rm -rf /var/lib/apt/lists/*
 
-# Match Epic's runtime user so the staged files' ownership lines up.
-RUN useradd -m -u 1000 -s /bin/bash ue4 || true
+# Packaged UE Linux binaries hard-refuse to run as root ("Refusing to run with the root
+# privileges"), so we need a non-root user — at uid 1001, since ubuntu:24.04 already ships a
+# default user at uid 1000. Device access to /dev/dri comes from the container's group_add
+# (render/video GIDs) in docker-compose.amd.yml, not from this user's own groups.
+RUN useradd -m -u 1001 -s /bin/bash ue4
 COPY --from=builder --chown=ue4:ue4 /home/ue4/project-src/dist/Linux /home/ue4/project
 
 USER ue4

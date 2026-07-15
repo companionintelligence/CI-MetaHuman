@@ -1,0 +1,27 @@
+# Direct-Ollama override — point the agent at a local Ollama (native /api/chat), no auth.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.amd.yml -f docker-compose.ollama.yml \
+#     up -d project signalling turnserver      # note: oidc-proxy omitted = no login gate
+#
+# Use this for a tailnet-only smoke test where the agent talks straight to the Ollama that
+# CI-Hub already runs on the host (127.0.0.1:11434, no token). Overrides the base file's
+# MHLLM_BACKEND=openai. Model defaults to gemma4:e2b (gemma4:4b is not in the public Ollama
+# registry; e2b/31b are the host's installed gemma4 tags) — override with OLLAMA_MODEL.
+
+services:
+  project:
+    environment:
+      MHLLM_BACKEND: "ollama"
+      OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://127.0.0.1:11434}"
+      OLLAMA_MODEL: "${OLLAMA_MODEL:-gemma4:e2b}"
+
+  # Replace the stock start.sh (which binds port 80 via --https_redirect) with a launcher
+  # that runs on an explicit free HTTP port. Mounted from the host, so it's outside the
+  # image and unaffected by the build.
+  signalling:
+    entrypoint: ["/bin/bash", "/signalling-start.sh"]
+    command: []
+    environment:
+      PUBLIC_IP: "${PUBLIC_IP:-127.0.0.1}"
+    volumes:
+      - "./signalling-start.sh:/signalling-start.sh:ro"

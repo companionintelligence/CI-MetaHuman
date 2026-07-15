@@ -16,24 +16,38 @@ services:
     devices:
       - "/dev/dri:/dev/dri"
     group_add:
-      - "render"
-      - "video"
+      # Numeric host GIDs that own /dev/dri — the group NAMES ("render"/"video") may not
+      # exist inside the container, so pass GIDs. Defaults are core-2's; override
+      # RENDER_GID / VIDEO_GID (getent group render video) for a different host.
+      - "${RENDER_GID:-992}"
+      - "${VIDEO_GID:-44}"
     environment:
-      # Force Mesa to use the discrete-class RADV path and the AMD VAAPI driver.
+      # AMD VAAPI driver for the video encoder.
       LIBVA_DRIVER_NAME: "radeonsi"
-      # Prefer the Vulkan RADV ICD for offscreen rendering.
-      VK_ICD_FILENAMES: "/usr/share/vulkan/icd.d/radeon_icd.x86_64.json"
+      # AMD RADV hardware Vulkan ICD (exact filename is radeon_icd.json on Mesa 26).
+      VK_ICD_FILENAMES: "/usr/share/vulkan/icd.d/radeon_icd.json"
+      # Strix Halo is brand-new silicon; RADV's default ACO shader compiler SIGABRTs deep in
+      # the driver mid-render. Force the LLVM backend, which frequently avoids ACO-specific
+      # bugs on new GPUs. (llvmpipe software Vulkan is not an option — UE refuses to init its
+      # RHI on it.)
+      RADV_DEBUG: "llvm"
+      # Some Vulkan/offscreen paths want a runtime dir; silence the warning and give one.
+      XDG_RUNTIME_DIR: "/tmp"
     command:
       - "-RenderOffscreen"
       - "-Vulkan"
+      # RADV on the Strix Halo iGPU crashes in hardware ray tracing (Lumen HWRT / RT dynamic
+      # geometry) — disable RT and force software Lumen off; a talking-head avatar needs
+      # neither, and this keeps the GPU stable.
+      - "-noraytracing"
+      - "-ExecCmds=r.RayTracing 0; r.Lumen.HardwareRayTracing 0; r.DynamicGlobalIlluminationMethod 0; r.ReflectionMethod 0; r.SkyLight.RealTimeReflectionCapture 0; r.SkyAtmosphere 0; r.ReflectionCaptureResolution 0"
       - "-ForceRes"
-      - "-ResX=1920"
-      - "-ResY=1080"
+      - "-ResX=1280"
+      - "-ResY=720"
       - "-PixelStreamingUrl=ws://127.0.0.1:8888"
-      # VAAPI H.264 hardware encode (confirmed available on core-2's renderD128). If a build
-      # lacks the VAAPI encoder, drop this line to fall back to the software VP8 encoder.
-      - "-PixelStreamingEncoderCodec=H264"
-      - "-PixelStreamingVAAPIDevice=/dev/dri/renderD128"
+      # NVENC isn't present on an AMD host, so PixelStreaming falls back to VP8 software
+      # encode anyway; select VP8 directly to skip the failing NVENC probe.
+      - "-PixelStreamingEncoderCodec=VP8"
       - "-Unattended"
       - "-StdOut"
       - "-FullStdOutLogOutput"
