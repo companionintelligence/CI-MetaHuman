@@ -31,7 +31,15 @@ FROM ubuntu:26.04
 
 # Mesa RADV (Vulkan) + radeonsi (VAAPI H.264/HEVC/AV1 encode) + the shared libs a packaged
 # UE Linux app links against. renderD128 is passed in at runtime via docker-compose.amd.yml.
+#
+# The stock ubuntu:26.04 Mesa (26.0.3) RADV ACO backend SIGABRTs mid-render on the brand-new
+# Strix Halo GPU with UE 5.8's SM6/mesh-shader path. Pull newer Mesa from the oibaf mesa-git
+# PPA, which tracks main and may carry a Strix Halo ACO fix landed after 26.0.3. Best-effort:
+# if the PPA has no build for this Ubuntu, dist-upgrade is a no-op and the stock Mesa remains.
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        software-properties-common \
+    && add-apt-repository -y ppa:oibaf/graphics-drivers 2>/dev/null || true \
+    && apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         mesa-vulkan-drivers \
         mesa-va-drivers \
         libvulkan1 \
@@ -43,6 +51,8 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
         libasound2t64 libpulse0 \
         libssl3 ca-certificates \
         libnss3 libatk1.0-0 libcups2 \
+    && DEBIAN_FRONTEND=noninteractive apt-get -y dist-upgrade \
+    && (vulkaninfo --summary 2>/dev/null | grep -iE 'driverInfo|Mesa' | head -2 || true) \
     && rm -rf /var/lib/apt/lists/*
 
 # Packaged UE Linux binaries hard-refuse to run as root ("Refusing to run with the root

@@ -26,10 +26,9 @@ services:
       LIBVA_DRIVER_NAME: "radeonsi"
       # AMD RADV hardware Vulkan ICD (exact filename is radeon_icd.json on Mesa 26).
       VK_ICD_FILENAMES: "/usr/share/vulkan/icd.d/radeon_icd.json"
-      # Strix Halo is brand-new silicon; RADV's default ACO shader compiler SIGABRTs deep in
-      # the driver mid-render. Force the LLVM backend, which frequently avoids ACO-specific
-      # bugs on new GPUs. (llvmpipe software Vulkan is not an option — UE refuses to init its
-      # RHI on it.)
+      # ACO+SM5 still SIGABRT's in the SkyLight cubemap capture on Strix Halo. Under SM5 the
+      # LLVM backend has no mesh-shader gate (that only blocked it under SM6), so it can init
+      # the RHI AND uses different codegen that may dodge the ACO crash. Last software lever.
       RADV_DEBUG: "llvm"
       # Some Vulkan/offscreen paths want a runtime dir; silence the warning and give one.
       XDG_RUNTIME_DIR: "/tmp"
