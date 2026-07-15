@@ -1,0 +1,26 @@
+# NVIDIA override — NVENC hardware encode via the NVIDIA Container Toolkit.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up
+#
+# Use the default Dockerfile (Epic's runtime-pixel-streaming base bundles the NVIDIA
+# userspace + NVENC). Requires the NVIDIA Container Toolkit installed on the host.
+
+services:
+  project:
+    command:
+      - "-RenderOffscreen"
+      - "-ForceRes"
+      - "-ResX=1920"
+      - "-ResY=1080"
+      - "-PixelStreamingUrl=ws://127.0.0.1:8888"
+      - "-PixelStreamingEncoderCodec=H264"
+      - "-Unattended"
+      - "-StdOut"
+      - "-FullStdOutLogOutput"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: "nvidia"
+              capabilities: ["gpu"]
+              count: 1

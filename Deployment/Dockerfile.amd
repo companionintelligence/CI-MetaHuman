@@ -1,0 +1,51 @@
+# syntax=docker/dockerfile:1
+#
+# AMD-runtime variant of the Pixel Streaming image for hosts with an AMD GPU (e.g. core-2,
+# a Strix Halo APU). Stage 1 packages the project on Epic's dev image exactly as the default
+# Dockerfile; stage 2 swaps Epic's NVIDIA runtime for an Ubuntu base with Mesa RADV (Vulkan)
+# and radeonsi (VAAPI) so the app renders with Vulkan and hardware-encodes H.264 over /dev/dri.
+#
+# Build:  DOCKER_BUILDKIT=1 docker build -f Deployment/Dockerfile.amd -t ci/metahuman-local-llm:5.8 ..
+# (or set PROJECT_DOCKERFILE=Deployment/Dockerfile.amd and use run.sh / compose.)
+#
+# Prereq: access to ghcr.io/epicgames/unreal-engine:dev-* (link GitHub↔Epic, accept the EULA,
+# then `docker login ghcr.io`). Only the BUILDER stage needs it; the runtime base is public.
+
+ARG RELEASE=5.8
+FROM ghcr.io/epicgames/unreal-engine:dev-${RELEASE} AS builder
+
+COPY --chown=ue4:ue4 . /home/ue4/project-src
+
+RUN /home/ue4/UnrealEngine/Engine/Build/BatchFiles/RunUAT.sh BuildCookRun \
+    -project=/home/ue4/project-src/MetaHumanLocalLLM.uproject \
+    -clientconfig=Development -utf8output -nodebuginfo -allmaps -noP4 \
+    -cook -build -stage -prereqs -pak -archive \
+    -archivedirectory=/home/ue4/project-src/dist \
+    -platform=Linux
+
+# ---- AMD runtime image -----------------------------------------------------------------
+FROM ubuntu:24.04
+
+# Mesa RADV (Vulkan) + radeonsi (VAAPI H.264/HEVC/AV1 encode) + the shared libs a packaged
+# UE Linux app links against. renderD128 is passed in at runtime via docker-compose.amd.yml.
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        mesa-vulkan-drivers \
+        mesa-va-drivers \
+        libvulkan1 \
+        vulkan-tools \
+        vainfo \
+        libva2 libva-drm2 \
+        libgl1 libglu1-mesa \
+        libsm6 libxext6 libxrender1 libxi6 libxkbcommon0 \
+        libasound2t64 libpulse0 \
+        libssl3 ca-certificates \
+        libnss3 libatk1.0-0 libcups2 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Match Epic's runtime user so the staged files' ownership lines up.
+RUN useradd -m -u 1000 -s /bin/bash ue4 || true
+COPY --from=builder --chown=ue4:ue4 /home/ue4/project-src/dist/Linux /home/ue4/project
+
+USER ue4
+ENV LIBVA_DRIVER_NAME=radeonsi
+ENTRYPOINT ["/home/ue4/project/MetaHumanLocalLLM.sh"]

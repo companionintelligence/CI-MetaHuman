@@ -68,13 +68,17 @@ services:
     depends_on:
       - signalling
 
-  # The packaged UE app. GPU-accelerated, renders offscreen, streams via the signalling
-  # server, and reads its LLM/voice config from the environment (CI-hub Ollama, etc.).
+  # The packaged UE app. Renders offscreen and streams via the signalling server, reading its
+  # LLM/voice config from the environment (CI-hub Ollama, etc.). GPU access is intentionally
+  # NOT specified here — layer a vendor override on top so one base file serves both fleets:
+  #   AMD/core-2 (VAAPI):  docker compose -f docker-compose.yml -f docker-compose.amd.yml up
+  #   NVIDIA (NVENC):      docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up
+  # With no override it falls back to the software VP8 encoder (CPU, portable, slower).
   project:
     image: "ci/metahuman-local-llm:${UE_RELEASE}"
     build:
       context: ".."
-      dockerfile: "Deployment/Dockerfile"
+      dockerfile: "${PROJECT_DOCKERFILE:-Deployment/Dockerfile}"
       args:
         RELEASE: "${UE_RELEASE}"
     init: true
@@ -89,20 +93,14 @@ services:
       MHLLM_SYSTEM_PROMPT: "${MHLLM_SYSTEM_PROMPT}"
     command:
       - "-RenderOffscreen"
-      - "-Windowed"
+      - "-Vulkan"
       - "-ForceRes"
       - "-ResX=1920"
       - "-ResY=1080"
       - "-PixelStreamingUrl=ws://127.0.0.1:8888"
+      - "-PixelStreamingEncoderCodec=VP8"
       - "-Unattended"
       - "-StdOut"
       - "-FullStdOutLogOutput"
     depends_on:
       - signalling
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: "nvidia"
-              capabilities: ["gpu"]
-              count: 1

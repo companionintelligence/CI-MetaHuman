@@ -28,9 +28,12 @@ browser ──▶ oidc-proxy :8080 ──▶ signalling :8090 (player) / :8888 (
 1. **Epic image access** — link your GitHub account to Epic Games and accept the UE EULA,
    then `docker login ghcr.io`. Grants access to `ghcr.io/epicgames/unreal-engine:*` and the
    signalling-server image.
-2. **GPU host** — a Linux host with an NVIDIA GPU and the
-   [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/).
-   Pixel Streaming needs hardware NVENC.
+2. **GPU host** — a Linux host that can render (Vulkan) and hardware-encode video. Two paths:
+   - **NVIDIA** — GPU + [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/),
+     NVENC. Use the default `Dockerfile` + `docker-compose.nvidia.yml`.
+   - **AMD** (e.g. core-2, a Strix Halo APU) — VAAPI encode via `/dev/dri`. Use
+     `Dockerfile.amd` + `docker-compose.amd.yml`. See [`core-2-runbook.md`](core-2-runbook.md).
+   - No GPU / fallback — the software VP8 encoder (CPU) runs anywhere but is slower.
 3. **Docker + Compose v2.**
 4. **CI-portal OIDC client** — register this deployment as an OIDC client in ci-portal and
    note the issuer/discovery URL, client id, and client secret.
@@ -48,9 +51,18 @@ openssl rand -base64 32   # value for OIDC_COOKIE_SECRET
 ## Build & run
 
 ```bash
-./run.sh --rebuild     # first time: packages the UE app into an image (long — full cook)
-./run.sh               # subsequent starts
+# NVIDIA host:
+./run.sh --rebuild                                                    # or the compose lines below
+docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up -d
+
+# AMD host (core-2): use the AMD Dockerfile + VAAPI override
+PROJECT_DOCKERFILE=Deployment/Dockerfile.amd \
+  docker compose -f docker-compose.yml -f docker-compose.amd.yml up -d --build
 ```
+
+First build also runs the initial Linux cook (long, multi-GB). For core-2 specifically,
+follow [`core-2-runbook.md`](core-2-runbook.md) — it has the measured GPU/VAAPI facts, the
+box prep, and a control-plane-only smoke test you can run before the cook finishes.
 
 Then browse to the proxy (e.g. `https://agent.example.com/` → `http://<host>:8080/` in dev).
 You are redirected to ci-portal to sign in; after login the Pixel Streaming player loads and

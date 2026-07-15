@@ -1,0 +1,39 @@
+# AMD / Strix Halo override — VAAPI hardware encode via /dev/dri.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.amd.yml up
+#
+# Measured on core-2 (AMD Ryzen AI Max+ 395, Radeon 8060S, RADV/Mesa 26): Vulkan renders and
+# VAAPI exposes H.264 (Baseline/Main/High), HEVC, and AV1 encode on /dev/dri/renderD128.
+# WebRTC uses H.264, so we select the VAAPI H.264 encoder here rather than NVENC.
+#
+# Prereq on the host: the packaged app must be an AMD-runtime image (Mesa + Vulkan + VAAPI),
+# so point the build at Dockerfile.amd:  PROJECT_DOCKERFILE=Deployment/Dockerfile.amd
+
+services:
+  project:
+    # Pass the AMD render node into the container; group_add gives access to the
+    # render/video device groups that own /dev/dri/renderD128 and card1.
+    devices:
+      - "/dev/dri:/dev/dri"
+    group_add:
+      - "render"
+      - "video"
+    environment:
+      # Force Mesa to use the discrete-class RADV path and the AMD VAAPI driver.
+      LIBVA_DRIVER_NAME: "radeonsi"
+      # Prefer the Vulkan RADV ICD for offscreen rendering.
+      VK_ICD_FILENAMES: "/usr/share/vulkan/icd.d/radeon_icd.x86_64.json"
+    command:
+      - "-RenderOffscreen"
+      - "-Vulkan"
+      - "-ForceRes"
+      - "-ResX=1920"
+      - "-ResY=1080"
+      - "-PixelStreamingUrl=ws://127.0.0.1:8888"
+      # VAAPI H.264 hardware encode (confirmed available on core-2's renderD128). If a build
+      # lacks the VAAPI encoder, drop this line to fall back to the software VP8 encoder.
+      - "-PixelStreamingEncoderCodec=H264"
+      - "-PixelStreamingVAAPIDevice=/dev/dri/renderD128"
+      - "-Unattended"
+      - "-StdOut"
+      - "-FullStdOutLogOutput"
