@@ -1,0 +1,23 @@
+# mesa-git override — run the project against the freshly-compiled Mesa main (newest RADV)
+# layered into ci/metahuman-local-llm:5.8-mesagit, instead of the base image's stock Mesa
+# 26.0.3. Point the Vulkan loader at /opt/mesa-git.
+#
+#   docker build -f Deployment/Dockerfile.mesagit -t ci/metahuman-local-llm:5.8-mesagit .
+#   docker compose -f docker-compose.yml -f docker-compose.amd.yml -f docker-compose.ollama.yml \
+#     -f docker-compose.mesagit.yml up -d project
+#
+# NOTE: confirm the two /opt/mesa-git paths below against the actual install
+# (docker run --rm ci/metahuman-local-llm:5.8-mesagit find /opt/mesa-git -name 'radeon_icd*'
+#  -o -name 'libvulkan_radeon.so'); meson's libdir can be lib/ or lib/x86_64-linux-gnu/.
+
+services:
+  project:
+    image: ci/metahuman-local-llm:5.8-mesagit
+    environment:
+      # Prefer the mesa-git libraries over the system ones.
+      LD_LIBRARY_PATH: "/opt/mesa-git/lib/x86_64-linux-gnu:/opt/mesa-git/lib"
+      # Use the mesa-git RADV ICD (verify the exact filename post-build).
+      VK_ICD_FILENAMES: "/opt/mesa-git/share/vulkan/icd.d/radeon_icd.x86_64.json"
+      # Start with the default ACO backend on the newest driver — the whole point is that a
+      # current RADV should render without workarounds. Fall back to llvm/nongg only if needed.
+      RADV_DEBUG: "llvm,nongg"

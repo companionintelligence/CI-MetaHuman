@@ -1,0 +1,67 @@
+# syntax=docker/dockerfile:1
+#
+# Builds Mesa `main` (mesa-git) — the newest RADV — and layers it onto the already-cooked UE
+# image (ci/metahuman-local-llm:5.8). Ubuntu 26.04's stock Mesa 26.0.3 SIGABRTs mid-render on
+# the brand-new Strix Halo (gfx1151); RADV/gfx1151 fixes land in Mesa main continuously, so
+# this is the definitive newest-userspace-driver attempt without touching the host.
+#
+#   docker build -f Deployment/Dockerfile.mesagit -t ci/metahuman-local-llm:5.8-mesagit .
+#
+# Then run with LD_LIBRARY_PATH + VK_ICD_FILENAMES pointed at /opt/mesa-git (see
+# docker-compose.mesagit.yml).
+
+FROM ubuntu:26.04 AS mesa-builder
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git ca-certificates build-essential meson ninja-build pkg-config \
+      python3 python3-pip python3-mako python3-yaml python3-ply \
+      bison flex \
+      llvm-21-dev libclang-cpp21-dev clang-21 libclc-21-dev spirv-tools glslang-tools \
+      libdrm-dev libelf-dev libexpat1-dev zlib1g-dev libzstd-dev \
+      libwayland-dev wayland-protocols libwayland-egl-backend-dev \
+      libx11-dev libx11-xcb-dev libxext-dev libxfixes-dev libxdamage-dev libxshmfence-dev \
+      libxxf86vm-dev libxrandr-dev \
+      libxcb1-dev libxcb-glx0-dev libxcb-shm0-dev libxcb-dri2-0-dev libxcb-dri3-dev \
+      libxcb-present-dev libxcb-sync-dev libxcb-randr0-dev libxcb-xfixes0-dev libxcb-keysyms1-dev \
+      libvulkan-dev \
+      rustc cargo bindgen \
+  && rm -rf /var/lib/apt/lists/*
+
+# Mesa main needs libdrm >= 2.4.133, but Ubuntu 26.04 ships 2.4.131 — build libdrm from
+# source first (into /usr so Mesa's pkgconfig finds it). Small, ~1 min.
+RUN git clone --depth 1 https://gitlab.freedesktop.org/mesa/drm.git /drm \
+ && cd /drm \
+ && meson setup build -Dprefix=/usr -Dbuildtype=release \
+ && ninja -C build && ninja -C build install
+
+RUN git clone --depth 1 https://gitlab.freedesktop.org/mesa/mesa.git /mesa
+WORKDIR /mesa
+# radeonsi + RADV + llvmpipe, hardware video, LLVM shader backend. Release build.
+RUN meson setup build \
+      -Dprefix=/opt/mesa-git \
+      -Dvulkan-drivers=amd \
+      -Dgallium-drivers=radeonsi,llvmpipe \
+      -Dvideo-codecs=all \
+      -Dllvm=enabled -Dshared-llvm=enabled \
+      -Dglx=disabled -Dplatforms=x11,wayland \
+      -Dbuildtype=release \
+  && ninja -C build \
+  && ninja -C build install
+
+# ---- layer mesa-git onto the cooked UE image ----
+FROM ci/metahuman-local-llm:5.8
+# mesa-git's RADV links X11/Wayland WSI libs the slim runtime image lacks (e.g.
+# libxcb-keysyms.so.1) — install the runtime set. Needs root; restore ue4 after (UE refuses
+# to run as root).
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      libxcb-keysyms1 libxcb-randr0 libxcb-sync1 libxcb-present0 libxcb-dri3-0 libxcb-dri2-0 \
+      libxcb-glx0 libxcb-shm0 libxcb-xfixes0 libxcb1 libxshmfence1 \
+      libwayland-client0 libwayland-server0 libx11-xcb1 libx11-6 libxext6 libxcb-randr0 \
+  && rm -rf /var/lib/apt/lists/*
+USER ue4
+COPY --from=mesa-builder /opt/mesa-git /opt/mesa-git
+# mesa-git's RADV was built against libdrm 2.4.133; the base image ships only 2.4.131, so the
+# driver .so fails to load ("Failed loading library associated with ICD JSON"). Ship the
+# newer libdrm next to it — LD_LIBRARY_PATH=/opt/mesa-git/lib/... makes the loader prefer it.
+COPY --from=mesa-builder /usr/lib/x86_64-linux-gnu/libdrm*.so* /opt/mesa-git/lib/x86_64-linux-gnu/
