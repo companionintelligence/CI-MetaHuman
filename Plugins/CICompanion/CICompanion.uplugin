@@ -1,0 +1,21 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "CI Companion",
+	"Description": "Reusable embodied-companion tech for Unreal (5.5-5.8): pluggable local-LLM backends (Ollama native + OpenAI-compatible/CI-hub), Whisper STT, Piper TTS with amplitude visemes, avatar orchestrator, emotion mapping, HUD, and container env-config. Drop into any Unreal project.",
+	"Category": "AI",
+	"CreatedBy": "Companion Intelligence",
+	"CreatedByURL": "https://github.com/companionintelligence",
+	"CanContainContent": true,
+	"IsBetaVersion": false,
+	"Installed": false,
+	"EnabledByDefault": true,
+	"Modules": [
+		{
+			"Name": "CICompanion",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	]
+}

@@ -12,6 +12,10 @@
 	],
 	"Plugins": [
 		{
+			"Name": "CICompanion",
+			"Enabled": true
+		},
+		{
 			"Name": "PixelStreaming2",
 			"Enabled": true,
 			"SupportedTargetPlatforms": [
