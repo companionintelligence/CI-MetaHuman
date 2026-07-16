@@ -78,37 +78,60 @@ try:
     les.new_level("/Game/Maps/CompanionStage")
     w("new_level ok")
 
-    def spawn(cls, loc=(0,0,0), rot=(0,0,0)):
-        return eas.spawn_actor_from_class(cls, unreal.Vector(*loc), unreal.Rotator(*rot))
+    # NOTE: unreal.Rotator's Python constructor is (roll, pitch, yaw) — NOT pitch-first like
+    # C++ FRotator. Passing positionally silently set pitch where yaw was meant, which tilted
+    # every prop onto its face and rolled the camera horizon. Always pass by keyword.
+    def spawn(cls, loc=(0,0,0), yaw=0.0, pitch=0.0, roll=0.0):
+        return eas.spawn_actor_from_class(
+            cls, unreal.Vector(*loc), unreal.Rotator(roll=roll, pitch=pitch, yaw=yaw))
 
     # ---------- lighting: diegetic warm key, cool CI rim ----------
+    # CRITICAL: the Pixel Streaming app runs with GI DISABLED (r.DynamicGlobalIlluminationMethod 0
+    # and friends — the RADV stability workarounds), so DIRECT light is all there is. Do not tune
+    # these against a local editor preview: Lumen is on by default there and will bounce a
+    # 2.5-lux directional into a convincingly-lit room, while the real stream renders black.
+    # Every value below is chosen for a no-GI, direct-light-only scene.
     MOVABLE = unreal.ComponentMobility.MOVABLE
-    dl = spawn(unreal.DirectionalLight, (0,0,600), (-42,-25,0))
+    dl = spawn(unreal.DirectionalLight, (0,0,600), pitch=-42.0, yaw=-25.0)
     c = dl.get_component_by_class(unreal.DirectionalLightComponent)
     c.set_editor_property("mobility", MOVABLE)
-    c.set_intensity(2.5); c.set_light_color(unreal.LinearColor(1.0, 0.82, 0.62))  # tungsten
-    def point(pos, color, inten, radius=1600.0):
+    c.set_intensity(8.0); c.set_light_color(unreal.LinearColor(1.0, 0.82, 0.62))  # tungsten
+    def point(pos, color, inten, radius=2000.0):
         p = spawn(unreal.PointLight, pos)
         c = p.get_component_by_class(unreal.PointLightComponent)
         c.set_editor_property("mobility", MOVABLE)
         c.set_intensity(inten); c.set_attenuation_radius(radius)
         c.set_light_color(unreal.LinearColor(*color))
-    point(( 50,  260, 220), (0.91, 0.64, 0.29), 8000)    # warm tungsten over terminal row
-    point(( 450, -300, 300), (0.0, 0.66, 0.65), 5000)    # CI aqua rim on big iron (left)
-    point(( 450,  300, 300), (0.35, 0.92, 0.75), 3000)   # mint accent (right)
-    point((-150, 0, 250), (1.0, 0.85, 0.70), 4500)       # camera-side warm fill
+    point(( 50,  260, 220), (0.91, 0.64, 0.29), 20000)   # warm tungsten over terminal row
+    point(( 450, -300, 300), (0.0, 0.66, 0.65), 15000)   # CI aqua rim on big iron (left)
+    point(( 450,  300, 300), (0.35, 0.92, 0.75), 10000)  # mint accent (right)
+    point((-150, 0, 250), (1.0, 0.85, 0.70), 45000)      # camera-side warm fill (reads the resident)
+    point(( 250, -150, 260), (1.0, 0.88, 0.72), 12000)   # mid-room fill (no GI to carry it)
+    point(( 100, -320, 160), (0.95, 0.70, 0.35), 8000, 900.0)  # desk-lamp practical
     sky = spawn(unreal.SkyLight, (0,0,300))
-    sky.get_component_by_class(unreal.SkyLightComponent).set_editor_property("mobility", MOVABLE)
-    # deterministic exposure for the fixed streamed camera
+    skyc = sky.get_component_by_class(unreal.SkyLightComponent)
+    skyc.set_editor_property("mobility", MOVABLE)
+    # A captured SkyLight contributes nothing with sky-capture disabled; drive it from a
+    # constant color so it acts as a cheap ambient floor instead of dead weight.
+    skyc.set_editor_property("source_type", unreal.SkyLightSourceType.SLS_SPECIFIED_CUBEMAP)
+    skyc.set_editor_property("lower_hemisphere_is_black", False)
+    skyc.set_intensity(1.0)
+    # Auto exposure (histogram) with tight bounds: self-corrects if the direct-light budget
+    # drifts, so a lighting tweak can never ship a black stream again. Bounds keep it stable
+    # for a fixed camera (no visible ramping).
     ppv = spawn(unreal.PostProcessVolume, (0,0,0))
     ppv.set_editor_property("unbound", True)
     s = ppv.get_editor_property("settings")
     s.set_editor_property("override_auto_exposure_method", True)
-    s.set_editor_property("auto_exposure_method", unreal.AutoExposureMethod.AEM_MANUAL)
+    s.set_editor_property("auto_exposure_method", unreal.AutoExposureMethod.AEM_HISTOGRAM)
+    s.set_editor_property("override_auto_exposure_min_brightness", True)
+    s.set_editor_property("auto_exposure_min_brightness", 0.25)
+    s.set_editor_property("override_auto_exposure_max_brightness", True)
+    s.set_editor_property("auto_exposure_max_brightness", 0.55)
     s.set_editor_property("override_auto_exposure_bias", True)
-    s.set_editor_property("auto_exposure_bias", 2.0)
+    s.set_editor_property("auto_exposure_bias", 1.0)
     ppv.set_editor_property("settings", s)
-    w("lights ok (movable, tuned, manual exposure)")
+    w("lights ok (no-GI budget: dir=8lux, 6 points, auto-exposure 0.25-0.55)")
 
     # ---------- room shell ----------
     plane = unreal.load_asset('/Engine/BasicShapes/Plane')
@@ -125,7 +148,7 @@ try:
     w("shell ok")
 
     # ---------- desk under the small artifacts ----------
-    desk = spawn(unreal.StaticMeshActor, (115,-320,66), (0,0,0))
+    desk = spawn(unreal.StaticMeshActor, (115,-320,66))
     desk.static_mesh_component.set_static_mesh(cube)
     desk.set_actor_scale3d(unreal.Vector(1.6,1.4,0.12))   # 160x140cm top at ~72cm
     w("desk ok")
@@ -136,7 +159,7 @@ try:
         sm = imported.get(name)
         if not sm:
             w("SKIP place %s (no mesh)" % name); continue
-        a = spawn(unreal.StaticMeshActor, pos, (0, yaw, 0))
+        a = spawn(unreal.StaticMeshActor, pos, yaw=yaw)
         a.static_mesh_component.set_static_mesh(sm)
         a.set_actor_label("prop_" + name)
 
@@ -164,7 +187,7 @@ try:
     w("resident blockout ok")
 
     # ---------- camera ----------
-    spawn(unreal.PlayerStart, (-320, 0, 165), (-6, 0, 0))
+    spawn(unreal.PlayerStart, (-320, 0, 165), pitch=-6.0)
     w("playerstart ok")
 
     ok = les.save_current_level()
