@@ -4,6 +4,7 @@
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
+#include "AudioCapture.h"
 #include "CICompanion.h"
 
 namespace
@@ -71,15 +72,167 @@ bool UWhisperSpeechToText::ParseTranscriptionResponse(const FString& ResponseBod
 void UWhisperSpeechToText::StartListening()
 {
 	bIsListening = true;
-	// Live mic capture is bound by a subclass/Blueprint capture source; on StopListening it
-	// should hand the buffered WAV to TranscribeWav(). See class comment.
-	UE_LOG(LogMetaHumanLLM, Verbose, TEXT("WhisperSpeechToText: StartListening (awaiting a bound capture source to buffer audio)"));
+
+	if (!AudioCapture)
+	{
+		AudioCapture = NewObject<UAudioCapture>(this, TEXT("AudioCapture"));
+	}
+
+	if (AudioCapture)
+	{
+		if (AudioCapture->OpenDefaultAudioStream())
+		{
+			{
+				FScopeLock Lock(&CapturedFloatsMutex);
+				CapturedFloats.Empty();
+			}
+
+			AudioCaptureHandle = AudioCapture->AddGeneratorDelegate([this](const float* InAudio, int32 NumSamples)
+			{
+				if (bIsListening && AudioCapture)
+				{
+					int32 Channels = AudioCapture->GetNumChannels();
+					if (Channels > 0)
+					{
+						FScopeLock Lock(&CapturedFloatsMutex);
+						int32 NumFrames = NumSamples / Channels;
+						for (int32 Frame = 0; Frame < NumFrames; ++Frame)
+						{
+							float Sum = 0.0f;
+							for (int32 Channel = 0; Channel < Channels; ++Channel)
+							{
+								Sum += InAudio[Frame * Channels + Channel];
+							}
+							CapturedFloats.Add(Sum / Channels);
+						}
+					}
+				}
+			});
+
+			AudioCapture->StartCapturingAudio();
+			UE_LOG(LogMetaHumanLLM, Log, TEXT("WhisperSpeechToText: Started live microphone capture"));
+		}
+		else
+		{
+			UE_LOG(LogMetaHumanLLM, Error, TEXT("WhisperSpeechToText: Failed to open default audio stream"));
+		}
+	}
 }
 
 void UWhisperSpeechToText::StopListening()
 {
+	if (!bIsListening)
+	{
+		return;
+	}
+
 	bIsListening = false;
-	UE_LOG(LogMetaHumanLLM, Verbose, TEXT("WhisperSpeechToText: StopListening"));
+
+	if (AudioCapture)
+	{
+		AudioCapture->StopCapturingAudio();
+		AudioCapture->RemoveGeneratorDelegate(AudioCaptureHandle);
+	}
+
+	TArray<float> CapturedBuffer;
+	{
+		FScopeLock Lock(&CapturedFloatsMutex);
+		CapturedBuffer = MoveTemp(CapturedFloats);
+		CapturedFloats.Empty();
+	}
+
+	UE_LOG(LogMetaHumanLLM, Log, TEXT("WhisperSpeechToText: Stopped live microphone capture. Captured %d samples."), CapturedBuffer.Num());
+
+	if (CapturedBuffer.Num() > 0)
+	{
+		int32 DeviceSampleRate = 48000;
+		if (AudioCapture)
+		{
+			FAudioCaptureDeviceInfo DeviceInfo;
+			if (AudioCapture->GetAudioCaptureDeviceInfo(DeviceInfo) && DeviceInfo.SampleRate > 0)
+			{
+				DeviceSampleRate = DeviceInfo.SampleRate;
+			}
+		}
+
+		TArray<uint8> WavBytes = ConvertToWav(CapturedBuffer, DeviceSampleRate);
+		TranscribeWav(WavBytes);
+	}
+}
+
+TArray<uint8> UWhisperSpeechToText::ConvertToWav(const TArray<float>& FloatSamples, int32 InputSampleRate)
+{
+	int32 TargetSampleRate = 16000;
+	TArray<float> ResampledSamples;
+
+	if (InputSampleRate == TargetSampleRate || FloatSamples.Num() == 0)
+	{
+		ResampledSamples = FloatSamples;
+	}
+	else
+	{
+		double Ratio = (double)InputSampleRate / TargetSampleRate;
+		int32 OutputLength = FMath::TruncToInt(FloatSamples.Num() / Ratio);
+		ResampledSamples.SetNumZeroed(OutputLength);
+
+		for (int32 i = 0; i < OutputLength; ++i)
+		{
+			double SourceIndex = i * Ratio;
+			int32 IndexA = FMath::TruncToInt(SourceIndex);
+			int32 IndexB = FMath::Min(IndexA + 1, FloatSamples.Num() - 1);
+			double Fraction = SourceIndex - IndexA;
+
+			ResampledSamples[i] = FMath::Lerp(FloatSamples[IndexA], FloatSamples[IndexB], (float)Fraction);
+		}
+	}
+
+	TArray<int16> Pcm16Samples;
+	Pcm16Samples.SetNumUninitialized(ResampledSamples.Num());
+	for (int32 i = 0; i < ResampledSamples.Num(); ++i)
+	{
+		float ScaledSample = ResampledSamples[i] * 32767.0f;
+		Pcm16Samples[i] = static_cast<int16>(FMath::Clamp(ScaledSample, -32768.0f, 32767.0f));
+	}
+
+	TArray<uint8> WavBytes;
+	int32 NumSamples = Pcm16Samples.Num();
+	int32 NumChannels = 1;
+	int32 BitsPerSample = 16;
+	int32 Subchunk2Size = NumSamples * NumChannels * BitsPerSample / 8;
+	int32 ChunkSize = 36 + Subchunk2Size;
+	int32 ByteRate = TargetSampleRate * NumChannels * BitsPerSample / 8;
+	int32 BlockAlign = NumChannels * BitsPerSample / 8;
+
+	WavBytes.SetNumUninitialized(44 + Subchunk2Size);
+	uint8* Data = WavBytes.GetData();
+
+	FMemory::Memcpy(Data + 0, "RIFF", 4);
+	FMemory::Memcpy(Data + 4, &ChunkSize, 4);
+	FMemory::Memcpy(Data + 8, "WAVE", 4);
+
+	FMemory::Memcpy(Data + 12, "fmt ", 4);
+	int32 Subchunk1Size = 16;
+	FMemory::Memcpy(Data + 16, &Subchunk1Size, 4);
+	int16 AudioFormat = 1;
+	FMemory::Memcpy(Data + 20, &AudioFormat, 2);
+	int16 ChannelsVal = NumChannels;
+	FMemory::Memcpy(Data + 22, &ChannelsVal, 2);
+	FMemory::Memcpy(Data + 24, &TargetSampleRate, 4);
+	FMemory::Memcpy(Data + 28, &ByteRate, 4);
+	int16 AlignVal = BlockAlign;
+	FMemory::Memcpy(Data + 32, &AlignVal, 2);
+	int16 BitsVal = BitsPerSample;
+	FMemory::Memcpy(Data + 34, &BitsVal, 2);
+
+	FMemory::Memcpy(Data + 36, "data", 4);
+	FMemory::Memcpy(Data + 40, &Subchunk2Size, 4);
+
+	if (Subchunk2Size > 0)
+	{
+		FMemory::Memcpy(Data + 44, Pcm16Samples.GetData(), Subchunk2Size);
+	}
+
+	return WavBytes;
 }
 
 void UWhisperSpeechToText::TranscribeWav(const TArray<uint8>& WavBytes)

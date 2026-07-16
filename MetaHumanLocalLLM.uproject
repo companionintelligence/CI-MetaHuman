@@ -16,12 +16,18 @@
 			"Enabled": true
 		},
 		{
-			"Name": "PixelStreaming2",
+			"Name": "MoverTests",
 			"Enabled": true,
-			"SupportedTargetPlatforms": [
-				"Win64",
-				"Linux"
-			]
+			"Optional": true
+		},
+		{
+			"Name": "PythonScriptPlugin",
+			"Enabled": true,
+			"Optional": true
+		},
+		{
+			"Name": "PixelStreaming2",
+			"Enabled": true
 		},
 		{
 			"Name": "OpenXR",
@@ -46,6 +52,11 @@
 		},
 		{
 			"Name": "ModelContextProtocol",
+			"Enabled": true,
+			"Optional": true
+		},
+		{
+			"Name": "AllToolsets",
 			"Enabled": true,
 			"Optional": true
 		},
