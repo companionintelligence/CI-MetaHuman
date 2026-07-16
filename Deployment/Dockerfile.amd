@@ -36,7 +36,7 @@ USER ue4
 
 RUN /home/ue4/UnrealEngine/Engine/Build/BatchFiles/RunUAT.sh BuildCookRun \
     -project=/home/ue4/project-src/MetaHumanLocalLLM.uproject \
-    -clientconfig=Development -utf8output -nodebuginfo -allmaps -noP4 \
+    -clientconfig=Development -utf8output -nodebuginfo -map=/Game/Maps/CompanionStage -noP4 \
     -cook -build -stage -prereqs -pak -archive \
     -archivedirectory=/home/ue4/project-src/dist \
     -platform=Linux
