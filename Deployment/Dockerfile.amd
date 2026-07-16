@@ -1,20 +1,37 @@
 # syntax=docker/dockerfile:1
 #
-# AMD-runtime variant of the Pixel Streaming image for hosts with an AMD GPU (e.g. core-2,
-# a Strix Halo APU). Stage 1 packages the project on Epic's dev image exactly as the default
-# Dockerfile; stage 2 swaps Epic's NVIDIA runtime for an Ubuntu base with Mesa RADV (Vulkan)
-# and radeonsi (VAAPI) so the app renders with Vulkan and hardware-encodes H.264 over /dev/dri.
+# AMD Pixel Streaming image — parameterized by engine version. Build a 5.5 OR a 5.8 container
+# from ONE file:
 #
-# Build:  DOCKER_BUILDKIT=1 docker build -f Deployment/Dockerfile.amd -t ci/metahuman-local-llm:5.8 ..
-# (or set PROJECT_DOCKERFILE=Deployment/Dockerfile.amd and use run.sh / compose.)
+#   docker build -f Deployment/Dockerfile.amd -t ci/metahuman-local-llm:5.8 ..                     # 5.8 (default)
+#   docker build -f Deployment/Dockerfile.amd --build-arg RELEASE=5.5 -t ci/metahuman-local-llm:5.5 ..
 #
-# Prereq: access to ghcr.io/epicgames/unreal-engine:dev-* (link GitHub↔Epic, accept the EULA,
-# then `docker login ghcr.io`). Only the BUILDER stage needs it; the runtime base is public.
+# Nothing else needs to change between versions: Target.cs uses BuildSettingsVersion.Latest, and
+# MetaHumanLocalLLM.uproject marks the 5.8-only plugins (Unreal-MCP, MetaHuman*) "Optional" so the
+# same project opens in the 5.8 dev editor yet cooks clean on 5.5. The only per-version step below
+# is dropping the 5.8 MetaHumanCharacter *assets* when the target engine predates them (<5.6).
+#
+# Stage 1 packages on Epic's dev image; stage 2 is an Ubuntu+Mesa (RADV/VAAPI) runtime so the app
+# renders with Vulkan and hardware-encodes over /dev/dri. Prereq: ghcr.io/epicgames access.
 
 ARG RELEASE=5.8
 FROM ghcr.io/epicgames/unreal-engine:dev-${RELEASE} AS builder
+ARG RELEASE
 
 COPY --chown=ue4:ue4 . /home/ue4/project-src
+
+USER root
+RUN cd /home/ue4/project-src \
+ && rm -rf Intermediate Saved Binaries DerivedDataCache \
+ && python3 -c "import json; p=json.load(open('MetaHumanLocalLLM.uproject')); p['EngineAssociation']='${RELEASE}'; json.dump(p, open('MetaHumanLocalLLM.uproject','w'), indent='\t')" \
+ && MINOR="$(echo "${RELEASE}" | cut -d. -f2)" \
+ && if [ "${MINOR:-8}" -lt 6 ]; then \
+        echo "RELEASE ${RELEASE} < 5.6 — dropping 5.8-only MetaHumanCharacter assets from the cook"; \
+        rm -rf Content/MetaHumans Content/KhaosMDF492 Content/TestMetaHumanCharacter.uasset \
+               Content/OA_KhaosMDF492.uasset Content/WI_KhaosMDF492.uasset; \
+    fi \
+ && chown -R ue4:ue4 /home/ue4/project-src
+USER ue4
 
 RUN /home/ue4/UnrealEngine/Engine/Build/BatchFiles/RunUAT.sh BuildCookRun \
     -project=/home/ue4/project-src/MetaHumanLocalLLM.uproject \
@@ -23,45 +40,21 @@ RUN /home/ue4/UnrealEngine/Engine/Build/BatchFiles/RunUAT.sh BuildCookRun \
     -archivedirectory=/home/ue4/project-src/dist \
     -platform=Linux
 
-# ---- AMD runtime image -----------------------------------------------------------------
-# Match the HOST's Ubuntu 26.04 / Mesa 26.x. ubuntu:24.04's Mesa (~24.0) is too old to
-# support the Strix Halo (RDNA 3.5) GPU and yields VK_ERROR_INCOMPATIBLE_DRIVER when UE's
-# Vulkan RHI creates its instance. A Mesa new enough for the GPU is the fix.
+# ---- AMD runtime image ----
+# Ubuntu 26.04 matches the host's Mesa 26.x (needed for the Strix Halo / RDNA 3.5 GPU; older
+# Mesa yields VK_ERROR_INCOMPATIBLE_DRIVER). /dev/dri is passed in at runtime by the compose.
 FROM ubuntu:26.04
-
-# Mesa RADV (Vulkan) + radeonsi (VAAPI H.264/HEVC/AV1 encode) + the shared libs a packaged
-# UE Linux app links against. renderD128 is passed in at runtime via docker-compose.amd.yml.
-#
-# The stock ubuntu:26.04 Mesa (26.0.3) RADV ACO backend SIGABRTs mid-render on the brand-new
-# Strix Halo GPU with UE 5.8's SM6/mesh-shader path. Pull newer Mesa from the oibaf mesa-git
-# PPA, which tracks main and may carry a Strix Halo ACO fix landed after 26.0.3. Best-effort:
-# if the PPA has no build for this Ubuntu, dist-upgrade is a no-op and the stock Mesa remains.
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        software-properties-common \
-    && add-apt-repository -y ppa:oibaf/graphics-drivers 2>/dev/null || true \
-    && apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        mesa-vulkan-drivers \
-        mesa-va-drivers \
-        libvulkan1 \
-        vulkan-tools \
-        vainfo \
-        libva2 libva-drm2 \
-        libgl1 libglu1-mesa \
+        mesa-vulkan-drivers mesa-va-drivers libvulkan1 vulkan-tools vainfo \
+        libva2 libva-drm2 libgl1 libglu1-mesa \
         libsm6 libxext6 libxrender1 libxi6 libxkbcommon0 \
-        libasound2t64 libpulse0 \
-        libssl3 ca-certificates \
-        libnss3 libatk1.0-0 libcups2 \
-    && DEBIAN_FRONTEND=noninteractive apt-get -y dist-upgrade \
-    && (vulkaninfo --summary 2>/dev/null | grep -iE 'driverInfo|Mesa' | head -2 || true) \
+        libasound2t64 libpulse0 libssl3 ca-certificates libnss3 libatk1.0-0 libcups2 \
     && rm -rf /var/lib/apt/lists/*
 
-# Packaged UE Linux binaries hard-refuse to run as root ("Refusing to run with the root
-# privileges"), so we need a non-root user — at uid 1001, since ubuntu:24.04 already ships a
-# default user at uid 1000. Device access to /dev/dri comes from the container's group_add
-# (render/video GIDs) in docker-compose.amd.yml, not from this user's own groups.
+# Packaged UE Linux binaries refuse to run as root; use a non-root user at uid 1001 (ubuntu:26.04
+# already owns 1000). /dev/dri access comes from the container's group_add in docker-compose.amd.yml.
 RUN useradd -m -u 1001 -s /bin/bash ue4
 COPY --from=builder --chown=ue4:ue4 /home/ue4/project-src/dist/Linux /home/ue4/project
-
 USER ue4
 ENV LIBVA_DRIVER_NAME=radeonsi
 ENTRYPOINT ["/home/ue4/project/MetaHumanLocalLLM.sh"]

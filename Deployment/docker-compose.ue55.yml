@@ -1,0 +1,12 @@
+# UE 5.5 override — run the 5.5-built image instead of the default 5.8 one.
+#
+# Build the 5.5 image from the SAME parameterized Dockerfile.amd:
+#   docker build -f Deployment/Dockerfile.amd --build-arg RELEASE=5.5 -t ci/metahuman-local-llm:5.5 .
+#
+# Then run it with the AMD runtime env from docker-compose.amd.yml:
+#   docker compose -f docker-compose.yml -f docker-compose.amd.yml -f docker-compose.ollama.yml \
+#     -f docker-compose.ue55.yml up -d project
+
+services:
+  project:
+    image: ci/metahuman-local-llm:5.5

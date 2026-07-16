@@ -12,29 +12,6 @@
 	],
 	"Plugins": [
 		{
-			"Name": "ModelingToolsEditorMode",
-			"Enabled": true,
-			"TargetAllowList": [
-				"Editor"
-			]
-		},
-		{
-			"Name": "MCPClientToolset",
-			"Enabled": true
-		},
-		{
-			"Name": "ModelContextProtocol",
-			"Enabled": true
-		},
-		{
-			"Name": "OpenXRHandTracking",
-			"Enabled": true
-		},
-		{
-			"Name": "OpenXR",
-			"Enabled": true
-		},
-		{
 			"Name": "PixelStreaming2",
 			"Enabled": true,
 			"SupportedTargetPlatforms": [
@@ -43,8 +20,35 @@
 			]
 		},
 		{
+			"Name": "OpenXR",
+			"Enabled": true
+		},
+		{
+			"Name": "OpenXRHandTracking",
+			"Enabled": true
+		},
+		{
+			"Name": "ModelingToolsEditorMode",
+			"Enabled": true,
+			"Optional": true,
+			"TargetAllowList": [
+				"Editor"
+			]
+		},
+		{
+			"Name": "MCPClientToolset",
+			"Enabled": true,
+			"Optional": true
+		},
+		{
+			"Name": "ModelContextProtocol",
+			"Enabled": true,
+			"Optional": true
+		},
+		{
 			"Name": "MetaHuman",
 			"Enabled": true,
+			"Optional": true,
 			"SupportedTargetPlatforms": [
 				"Win64",
 				"Linux",
@@ -53,11 +57,13 @@
 		},
 		{
 			"Name": "MetaHumanCharacter",
-			"Enabled": true
+			"Enabled": true,
+			"Optional": true
 		},
 		{
 			"Name": "MetaHumanCalibrationProcessing",
 			"Enabled": true,
+			"Optional": true,
 			"SupportedTargetPlatforms": [
 				"Win64",
 				"Linux",
@@ -66,23 +72,28 @@
 		},
 		{
 			"Name": "MetaHumanCoreTech",
-			"Enabled": true
+			"Enabled": true,
+			"Optional": true
 		},
 		{
 			"Name": "MetaHumanLiveLink",
-			"Enabled": true
+			"Enabled": true,
+			"Optional": true
 		},
 		{
 			"Name": "MetaHumanGenerator",
-			"Enabled": true
+			"Enabled": true,
+			"Optional": true
 		},
 		{
 			"Name": "MetaHumanCharacterUAF",
-			"Enabled": true
+			"Enabled": true,
+			"Optional": true
 		},
 		{
 			"Name": "MetaHumanCalibrationDiagnostics",
 			"Enabled": true,
+			"Optional": true,
 			"SupportedTargetPlatforms": [
 				"Win64",
 				"Linux",

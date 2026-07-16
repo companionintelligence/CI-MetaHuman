@@ -39,7 +39,7 @@ services:
       # geometry) — disable RT and force software Lumen off; a talking-head avatar needs
       # neither, and this keeps the GPU stable.
       - "-noraytracing"
-      - "-ExecCmds=r.RayTracing 0; r.Lumen.HardwareRayTracing 0; r.DynamicGlobalIlluminationMethod 0; r.ReflectionMethod 0; r.SkyLight.RealTimeReflectionCapture 0; r.SkyAtmosphere 0; r.ReflectionCaptureResolution 0"
+      - "-ExecCmds=r.RayTracing 0; r.Lumen.HardwareRayTracing 0; r.DynamicGlobalIlluminationMethod 0; r.ReflectionMethod 0; r.SkyLight.RealTimeReflectionCapture 0; r.SkyAtmosphere 0; r.ReflectionCaptureResolution 0; r.Vulkan.WaitForIdleOnSubmit 2; r.GenerateMeshDistanceFields 0; r.Nanite 0"
       - "-ForceRes"
       - "-ResX=1280"
       - "-ResY=720"
