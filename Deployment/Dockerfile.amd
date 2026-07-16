@@ -26,6 +26,7 @@ RUN cd /home/ue4/project-src \
  && python3 -c "import json; p=json.load(open('MetaHumanLocalLLM.uproject')); p['EngineAssociation']='${RELEASE}'; json.dump(p, open('MetaHumanLocalLLM.uproject','w'), indent='\t')" \
  && MINOR="$(echo "${RELEASE}" | cut -d. -f2)" \
  && if [ "${MINOR:-8}" -lt 6 ]; then \
+        python3 -c "import json; path='MetaHumanLocalLLM.uproject'; p=json.load(open(path)); disabled={'MCPClientToolset','ModelContextProtocol','AllToolsets','MetaHuman','MetaHumanCharacter','MetaHumanCalibrationProcessing','MetaHumanCoreTech','MetaHumanLiveLink','MetaHumanGenerator','MetaHumanCharacterUAF','MetaHumanCalibrationDiagnostics'}; p['Plugins']=[plugin for plugin in p.get('Plugins', []) if plugin.get('Name') not in disabled]; json.dump(p, open(path,'w'), indent='\t')"; \
         echo "RELEASE ${RELEASE} < 5.6 — dropping 5.8-only MetaHumanCharacter assets from the cook"; \
         rm -rf Content/MetaHumans Content/KhaosMDF492 Content/TestMetaHumanCharacter.uasset \
                Content/OA_KhaosMDF492.uasset Content/WI_KhaosMDF492.uasset; \
