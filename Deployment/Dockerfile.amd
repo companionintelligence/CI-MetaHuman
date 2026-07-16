@@ -27,9 +27,14 @@ RUN cd /home/ue4/project-src \
  && MINOR="$(echo "${RELEASE}" | cut -d. -f2)" \
  && if [ "${MINOR:-8}" -lt 6 ]; then \
         python3 -c "import json; path='MetaHumanLocalLLM.uproject'; p=json.load(open(path)); disabled={'MCPClientToolset','ModelContextProtocol','AllToolsets','MetaHuman','MetaHumanCharacter','MetaHumanCalibrationProcessing','MetaHumanCoreTech','MetaHumanLiveLink','MetaHumanGenerator','MetaHumanCharacterUAF','MetaHumanCalibrationDiagnostics'}; p['Plugins']=[plugin for plugin in p.get('Plugins', []) if plugin.get('Name') not in disabled]; json.dump(p, open(path,'w'), indent='\t')"; \
-        echo "RELEASE ${RELEASE} < 5.6 — dropping 5.8-only MetaHumanCharacter assets from the cook"; \
+        echo "RELEASE ${RELEASE} < 5.6: regenerating the stage and dropping 5.8-only MetaHumanCharacter assets"; \
         rm -rf Content/MetaHumans Content/KhaosMDF492 Content/TestMetaHumanCharacter.uasset \
                Content/OA_KhaosMDF492.uasset Content/WI_KhaosMDF492.uasset; \
+        rm -f Content/Maps/CompanionStage.umap; \
+        python3 -c "import json; p={'FileVersion':3,'EngineAssociation':'${RELEASE}','Plugins':[{'Name':'MoverTests','Enabled':True},{'Name':'PythonScriptPlugin','Enabled':True}]}; json.dump(p, open('StageAuthoring.uproject','w'), indent='\t')"; \
+        /home/ue4/UnrealEngine/Engine/Binaries/Linux/UnrealEditor-Cmd /home/ue4/project-src/StageAuthoring.uproject -run=pythonscript -script=/home/ue4/project-src/Deployment/author_companion_stage.py -unattended -nop4 -nosplash -nullrhi; \
+        rm -f StageAuthoring.uproject; \
+        test -f Content/Maps/CompanionStage.umap; \
     fi \
  && chown -R ue4:ue4 /home/ue4/project-src
 USER ue4
