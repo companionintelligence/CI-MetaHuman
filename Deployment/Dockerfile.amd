@@ -31,9 +31,11 @@ RUN cd /home/ue4/project-src \
         rm -rf Content/MetaHumans Content/KhaosMDF492 Content/TestMetaHumanCharacter.uasset \
                Content/OA_KhaosMDF492.uasset Content/WI_KhaosMDF492.uasset; \
         rm -f Content/Maps/CompanionStage.umap; \
-        python3 -c "import json; p={'FileVersion':3,'EngineAssociation':'${RELEASE}','Plugins':[{'Name':'MoverTests','Enabled':True},{'Name':'PythonScriptPlugin','Enabled':True}]}; json.dump(p, open('StageAuthoring.uproject','w'), indent='\t')"; \
-        /home/ue4/UnrealEngine/Engine/Binaries/Linux/UnrealEditor-Cmd /home/ue4/project-src/StageAuthoring.uproject -run=pythonscript -script=/home/ue4/project-src/Deployment/author_companion_stage.py -unattended -nop4 -nosplash -nullrhi; \
-        rm -f StageAuthoring.uproject; \
+        mkdir -p /tmp/stage-authoring/Content Content/Maps; \
+        python3 -c "import json; p={'FileVersion':3,'EngineAssociation':'${RELEASE}','Plugins':[{'Name':'MoverTests','Enabled':True},{'Name':'PythonScriptPlugin','Enabled':True}]}; json.dump(p, open('/tmp/stage-authoring/StageAuthoring.uproject','w'), indent='\t')"; \
+        /home/ue4/UnrealEngine/Engine/Binaries/Linux/UnrealEditor-Cmd /tmp/stage-authoring/StageAuthoring.uproject -run=pythonscript -script=/home/ue4/project-src/Deployment/author_companion_stage.py -unattended -nop4 -nosplash -nullrhi; \
+        cp /tmp/stage-authoring/Content/Maps/CompanionStage.umap Content/Maps/CompanionStage.umap; \
+        rm -rf /tmp/stage-authoring; \
         test -f Content/Maps/CompanionStage.umap; \
     fi
 
