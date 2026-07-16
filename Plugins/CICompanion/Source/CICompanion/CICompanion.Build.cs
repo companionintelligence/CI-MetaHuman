@@ -23,6 +23,7 @@ public class CICompanion : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
+			"AudioCapture",
 			"AudioCaptureCore",
 			"AudioMixer"
 		});

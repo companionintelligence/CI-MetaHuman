@@ -4,12 +4,15 @@
 #include "LLM/OpenAIChatClient.h"
 #include "Voice/NullSpeechToText.h"
 #include "Voice/NullTextToSpeech.h"
+#include "Voice/WhisperSpeechToText.h"
+#include "Voice/PiperTextToSpeech.h"
 #include "Settings/MetaHumanLLMSettings.h"
 #include "CICompanion.h"
 
 AMetaHumanCompanionCharacter::AMetaHumanCompanionCharacter()
 {
-	PrimaryActorTick.bCanEverTick = false;
+	PrimaryActorTick.bCanEverTick = true;
+	PrimaryActorTick.bStartWithTickEnabled = false;
 
 	Conversation = CreateDefaultSubobject<UOllamaConversation>(TEXT("Conversation"));
 	SpeechToText = CreateDefaultSubobject<UNullSpeechToText>(TEXT("SpeechToText"));
@@ -23,9 +26,90 @@ void AMetaHumanCompanionCharacter::BeginPlay()
 	const UMetaHumanLLMSettings* Settings = GetDefault<UMetaHumanLLMSettings>();
 	Conversation->Initialize(Settings->SystemPrompt);
 
+	// Dynamically instantiate real voice components if server URLs are configured
+	if (!Settings->WhisperServerUrl.IsEmpty())
+	{
+		UWhisperSpeechToText* RealSTT = NewObject<UWhisperSpeechToText>(this, TEXT("RealSpeechToText"));
+		if (RealSTT)
+		{
+			if (SpeechToText)
+			{
+				SpeechToText->DestroyComponent();
+			}
+			SpeechToText = RealSTT;
+			SpeechToText->RegisterComponent();
+		}
+	}
+
+	if (!Settings->PiperServerUrl.IsEmpty())
+	{
+		UPiperTextToSpeech* RealTTS = NewObject<UPiperTextToSpeech>(this, TEXT("RealTextToSpeech"));
+		if (RealTTS)
+		{
+			if (TextToSpeech)
+			{
+				TextToSpeech->DestroyComponent();
+			}
+			TextToSpeech = RealTTS;
+			TextToSpeech->RegisterComponent();
+		}
+	}
+
 	if (SpeechToText)
 	{
 		SpeechToText->OnTranscribed.AddDynamic(this, &AMetaHumanCompanionCharacter::HandleTranscribed);
+	}
+
+	UPiperTextToSpeech* PiperTTS = Cast<UPiperTextToSpeech>(TextToSpeech);
+	if (PiperTTS)
+	{
+		PiperTTS->OnVisemeEnvelopeReady.AddDynamic(this, &AMetaHumanCompanionCharacter::HandleVisemesReady);
+	}
+}
+
+void AMetaHumanCompanionCharacter::Tick(float DeltaTime)
+{
+	Super::Tick(DeltaTime);
+
+	if (bPlayingVisemes)
+	{
+		float Elapsed = GetWorld()->GetTimeSeconds() - SpeechStartTime;
+		float CurrentJawOpen = 0.0f;
+
+		if (ActiveVisemeKeys.Num() > 0)
+		{
+			float LastKeyTime = ActiveVisemeKeys.Last().TimeSeconds;
+			if (Elapsed >= LastKeyTime)
+			{
+				CurrentJawOpen = ActiveVisemeKeys.Last().JawOpen;
+				bPlayingVisemes = false;
+				SetActorTickEnabled(false);
+			}
+			else
+			{
+				// Find the two keyframes to interpolate between
+				int32 KeyIndex = 0;
+				for (int32 i = 0; i < ActiveVisemeKeys.Num() - 1; ++i)
+				{
+					if (Elapsed >= ActiveVisemeKeys[i].TimeSeconds && Elapsed <= ActiveVisemeKeys[i + 1].TimeSeconds)
+					{
+						KeyIndex = i;
+						break;
+					}
+				}
+
+				const FVisemeKey& KeyA = ActiveVisemeKeys[KeyIndex];
+				const FVisemeKey& KeyB = ActiveVisemeKeys[KeyIndex + 1];
+
+				float TimeDelta = KeyB.TimeSeconds - KeyA.TimeSeconds;
+				float Alpha = TimeDelta > 0.001f ? (Elapsed - KeyA.TimeSeconds) / TimeDelta : 0.0f;
+				CurrentJawOpen = FMath::Lerp(KeyA.JawOpen, KeyB.JawOpen, Alpha);
+			}
+		}
+
+		TMap<FName, float> Weights;
+		Weights.Add(TEXT("jawOpen"), CurrentJawOpen);
+		OnSetVisemeWeights(Weights);
 	}
 }
 
@@ -76,6 +160,11 @@ void AMetaHumanCompanionCharacter::SubmitUserText(const FString& Text)
 		CurrentRequestHandle = InvalidOllamaRequestHandle;
 	}
 
+	// Stop any active lipsync playing
+	bPlayingVisemes = false;
+	ActiveVisemeKeys.Empty();
+	SetActorTickEnabled(false);
+
 	Conversation->AppendUserMessage(Text);
 
 	CurrentRequestHandle = Backend->SendChat(
@@ -93,6 +182,10 @@ void AMetaHumanCompanionCharacter::ResetConversation()
 		Backend->CancelRequest(CurrentRequestHandle);
 	}
 	CurrentRequestHandle = InvalidOllamaRequestHandle;
+
+	bPlayingVisemes = false;
+	ActiveVisemeKeys.Empty();
+	SetActorTickEnabled(false);
 
 	const UMetaHumanLLMSettings* Settings = GetDefault<UMetaHumanLLMSettings>();
 	Conversation->Reset(Settings->SystemPrompt);
@@ -124,4 +217,15 @@ void AMetaHumanCompanionCharacter::HandleError(const FString& ErrorMessage)
 	CurrentRequestHandle = InvalidOllamaRequestHandle;
 	UE_LOG(LogMetaHumanLLM, Warning, TEXT("Ollama chat error: %s"), *ErrorMessage);
 	OnConversationError(ErrorMessage);
+}
+
+void AMetaHumanCompanionCharacter::HandleVisemesReady(const TArray<FVisemeKey>& Keys)
+{
+	ActiveVisemeKeys = Keys;
+	SpeechStartTime = GetWorld()->GetTimeSeconds();
+	bPlayingVisemes = ActiveVisemeKeys.Num() > 0;
+	if (bPlayingVisemes)
+	{
+		SetActorTickEnabled(true);
+	}
 }

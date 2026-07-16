@@ -4,7 +4,10 @@
 #include "Voice/SpeechToTextComponent.h"
 #include "Interfaces/IHttpRequest.h"
 #include "Interfaces/IHttpResponse.h"
+#include "Generators/AudioGenerator.h"
 #include "WhisperSpeechToText.generated.h"
+
+class UAudioCapture;
 
 // Speech-to-text against a local whisper.cpp HTTP server (`whisper-server`), matching the
 // planning doc's Whisper reference (chat/stt-whisper.js in CI-Embodied-Companion-Web).
@@ -51,5 +54,14 @@ public:
 private:
 	void HandleTranscriptionComplete(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful);
 
+	TArray<uint8> ConvertToWav(const TArray<float>& FloatSamples, int32 InputSampleRate);
+
 	bool bIsListening = false;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UAudioCapture> AudioCapture;
+
+	FAudioGeneratorHandle AudioCaptureHandle;
+	TArray<float> CapturedFloats;
+	FCriticalSection CapturedFloatsMutex;
 };
