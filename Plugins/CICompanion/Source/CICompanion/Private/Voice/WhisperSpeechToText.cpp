@@ -71,52 +71,79 @@ bool UWhisperSpeechToText::ParseTranscriptionResponse(const FString& ResponseBod
 
 void UWhisperSpeechToText::StartListening()
 {
-	bIsListening = true;
+	if (bIsListening)
+	{
+		return;
+	}
 
 	if (!AudioCapture)
 	{
 		AudioCapture = NewObject<UAudioCapture>(this, TEXT("AudioCapture"));
 	}
 
-	if (AudioCapture)
+	if (!AudioCapture)
 	{
-		if (AudioCapture->OpenDefaultAudioStream())
-		{
-			{
-				FScopeLock Lock(&CapturedFloatsMutex);
-				CapturedFloats.Empty();
-			}
+		UE_LOG(LogMetaHumanLLM, Error, TEXT("WhisperSpeechToText: Failed to create audio capture"));
+		return;
+	}
 
-			AudioCaptureHandle = AudioCapture->AddGeneratorDelegate([this](const float* InAudio, int32 NumSamples)
-			{
-				if (bIsListening && AudioCapture)
-				{
-					int32 Channels = AudioCapture->GetNumChannels();
-					if (Channels > 0)
-					{
-						FScopeLock Lock(&CapturedFloatsMutex);
-						int32 NumFrames = NumSamples / Channels;
-						for (int32 Frame = 0; Frame < NumFrames; ++Frame)
-						{
-							float Sum = 0.0f;
-							for (int32 Channel = 0; Channel < Channels; ++Channel)
-							{
-								Sum += InAudio[Frame * Channels + Channel];
-							}
-							CapturedFloats.Add(Sum / Channels);
-						}
-					}
-				}
-			});
-
-			AudioCapture->StartCapturingAudio();
-			UE_LOG(LogMetaHumanLLM, Log, TEXT("WhisperSpeechToText: Started live microphone capture"));
-		}
-		else
+	if (!bCaptureStreamOpened)
+	{
+		if (!AudioCapture->OpenDefaultAudioStream())
 		{
 			UE_LOG(LogMetaHumanLLM, Error, TEXT("WhisperSpeechToText: Failed to open default audio stream"));
+			return;
 		}
+		bCaptureStreamOpened = true;
 	}
+
+	{
+		FScopeLock Lock(&CapturedFloatsMutex);
+		CapturedFloats.Empty();
+	}
+
+	if (!bCaptureDelegateRegistered)
+	{
+		AudioCaptureHandle = AudioCapture->AddGeneratorDelegate([this](const float* InAudio, int32 NumSamples)
+		{
+			if (!bIsListening || !AudioCapture)
+			{
+				return;
+			}
+
+			const int32 Channels = AudioCapture->GetNumChannels();
+			if (Channels <= 0)
+			{
+				return;
+			}
+
+			FScopeLock Lock(&CapturedFloatsMutex);
+			const int32 NumFrames = NumSamples / Channels;
+			for (int32 Frame = 0; Frame < NumFrames; ++Frame)
+			{
+				float Sum = 0.0f;
+				for (int32 Channel = 0; Channel < Channels; ++Channel)
+				{
+					Sum += InAudio[Frame * Channels + Channel];
+				}
+				CapturedFloats.Add(Sum / Channels);
+			}
+		});
+		bCaptureDelegateRegistered = true;
+	}
+
+	bIsListening = true;
+	AudioCapture->StartCapturingAudio();
+	if (!AudioCapture->IsCapturingAudio())
+	{
+		bIsListening = false;
+		AudioCapture->RemoveGeneratorDelegate(AudioCaptureHandle);
+		bCaptureDelegateRegistered = false;
+		UE_LOG(LogMetaHumanLLM, Error, TEXT("WhisperSpeechToText: Failed to start default audio capture"));
+		return;
+	}
+
+	UE_LOG(LogMetaHumanLLM, Log, TEXT("WhisperSpeechToText: Started default microphone capture"));
 }
 
 void UWhisperSpeechToText::StopListening()
@@ -131,7 +158,11 @@ void UWhisperSpeechToText::StopListening()
 	if (AudioCapture)
 	{
 		AudioCapture->StopCapturingAudio();
-		AudioCapture->RemoveGeneratorDelegate(AudioCaptureHandle);
+		if (bCaptureDelegateRegistered)
+		{
+			AudioCapture->RemoveGeneratorDelegate(AudioCaptureHandle);
+			bCaptureDelegateRegistered = false;
+		}
 	}
 
 	TArray<float> CapturedBuffer;

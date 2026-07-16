@@ -6,6 +6,8 @@
 #include "Voice/NullTextToSpeech.h"
 #include "Voice/WhisperSpeechToText.h"
 #include "Voice/PiperTextToSpeech.h"
+#include "Voice/SpeechToTextComponent.h"
+#include "Voice/TextToSpeechComponent.h"
 #include "Settings/MetaHumanLLMSettings.h"
 #include "CICompanion.h"
 
@@ -65,52 +67,67 @@ void AMetaHumanCompanionCharacter::BeginPlay()
 	{
 		PiperTTS->OnVisemeEnvelopeReady.AddDynamic(this, &AMetaHumanCompanionCharacter::HandleVisemesReady);
 	}
+
+	if (TextToSpeech)
+	{
+		TextToSpeech->OnSpeechFinished.AddDynamic(this, &AMetaHumanCompanionCharacter::HandleSpeechFinished);
+	}
 }
 
 void AMetaHumanCompanionCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
-	if (bPlayingVisemes)
+	if (!bPlayingVisemes)
 	{
-		float Elapsed = GetWorld()->GetTimeSeconds() - SpeechStartTime;
-		float CurrentJawOpen = 0.0f;
+		return;
+	}
 
-		if (ActiveVisemeKeys.Num() > 0)
+	if (ActiveVisemeKeys.IsEmpty() || !GetWorld())
+	{
+		StopVisemePlayback();
+		return;
+	}
+
+	const float Elapsed = GetWorld()->GetTimeSeconds() - SpeechStartTime;
+	float CurrentJawOpen = 0.0f;
+	const FVisemeKey& FirstKey = ActiveVisemeKeys[0];
+	const FVisemeKey& LastKey = ActiveVisemeKeys.Last();
+
+	if (Elapsed <= FirstKey.TimeSeconds)
+	{
+		CurrentJawOpen = FirstKey.JawOpen;
+	}
+	else if (Elapsed >= LastKey.TimeSeconds)
+	{
+		CurrentJawOpen = LastKey.JawOpen;
+		bPlayingVisemes = false;
+		SetActorTickEnabled(false);
+	}
+	else
+	{
+		int32 KeyIndex = 0;
+		for (int32 Index = 0; Index < ActiveVisemeKeys.Num() - 1; ++Index)
 		{
-			float LastKeyTime = ActiveVisemeKeys.Last().TimeSeconds;
-			if (Elapsed >= LastKeyTime)
+			if (Elapsed >= ActiveVisemeKeys[Index].TimeSeconds && Elapsed <= ActiveVisemeKeys[Index + 1].TimeSeconds)
 			{
-				CurrentJawOpen = ActiveVisemeKeys.Last().JawOpen;
-				bPlayingVisemes = false;
-				SetActorTickEnabled(false);
-			}
-			else
-			{
-				// Find the two keyframes to interpolate between
-				int32 KeyIndex = 0;
-				for (int32 i = 0; i < ActiveVisemeKeys.Num() - 1; ++i)
-				{
-					if (Elapsed >= ActiveVisemeKeys[i].TimeSeconds && Elapsed <= ActiveVisemeKeys[i + 1].TimeSeconds)
-					{
-						KeyIndex = i;
-						break;
-					}
-				}
-
-				const FVisemeKey& KeyA = ActiveVisemeKeys[KeyIndex];
-				const FVisemeKey& KeyB = ActiveVisemeKeys[KeyIndex + 1];
-
-				float TimeDelta = KeyB.TimeSeconds - KeyA.TimeSeconds;
-				float Alpha = TimeDelta > 0.001f ? (Elapsed - KeyA.TimeSeconds) / TimeDelta : 0.0f;
-				CurrentJawOpen = FMath::Lerp(KeyA.JawOpen, KeyB.JawOpen, Alpha);
+				KeyIndex = Index;
+				break;
 			}
 		}
 
-		TMap<FName, float> Weights;
-		Weights.Add(TEXT("jawOpen"), CurrentJawOpen);
-		OnSetVisemeWeights(Weights);
+		const FVisemeKey& KeyA = ActiveVisemeKeys[KeyIndex];
+		const FVisemeKey& KeyB = ActiveVisemeKeys[KeyIndex + 1];
+		const float TimeDelta = KeyB.TimeSeconds - KeyA.TimeSeconds;
+		const float Alpha = TimeDelta > KINDA_SMALL_NUMBER
+			? FMath::Clamp((Elapsed - KeyA.TimeSeconds) / TimeDelta, 0.0f, 1.0f)
+			: 0.0f;
+		CurrentJawOpen = FMath::Lerp(KeyA.JawOpen, KeyB.JawOpen, Alpha);
 	}
+
+	TMap<FName, float> Weights;
+	Weights.Add(TEXT("jawOpen"), CurrentJawOpen);
+	OnSetVisemeWeights(Weights);
 }
 
 IChatBackend* AMetaHumanCompanionCharacter::GetBackend() const
@@ -132,6 +149,30 @@ IChatBackend* AMetaHumanCompanionCharacter::GetBackend() const
 	default:
 		return GameInstance->GetSubsystem<UOllamaClient>();
 	}
+}
+
+bool AMetaHumanCompanionCharacter::StartListening()
+{
+	if (!SpeechToText)
+	{
+		return false;
+	}
+
+	SpeechToText->StartListening();
+	return SpeechToText->IsListening();
+}
+
+void AMetaHumanCompanionCharacter::StopListening()
+{
+	if (SpeechToText)
+	{
+		SpeechToText->StopListening();
+	}
+}
+
+bool AMetaHumanCompanionCharacter::IsListening() const
+{
+	return SpeechToText && SpeechToText->IsListening();
 }
 
 void AMetaHumanCompanionCharacter::HandleTranscribed(const FString& Text)
@@ -160,10 +201,11 @@ void AMetaHumanCompanionCharacter::SubmitUserText(const FString& Text)
 		CurrentRequestHandle = InvalidOllamaRequestHandle;
 	}
 
-	// Stop any active lipsync playing
-	bPlayingVisemes = false;
-	ActiveVisemeKeys.Empty();
-	SetActorTickEnabled(false);
+	if (TextToSpeech)
+	{
+		TextToSpeech->StopSpeaking();
+	}
+	StopVisemePlayback();
 
 	Conversation->AppendUserMessage(Text);
 
@@ -183,9 +225,11 @@ void AMetaHumanCompanionCharacter::ResetConversation()
 	}
 	CurrentRequestHandle = InvalidOllamaRequestHandle;
 
-	bPlayingVisemes = false;
-	ActiveVisemeKeys.Empty();
-	SetActorTickEnabled(false);
+	if (TextToSpeech)
+	{
+		TextToSpeech->StopSpeaking();
+	}
+	StopVisemePlayback();
 
 	const UMetaHumanLLMSettings* Settings = GetDefault<UMetaHumanLLMSettings>();
 	Conversation->Reset(Settings->SystemPrompt);
@@ -222,10 +266,30 @@ void AMetaHumanCompanionCharacter::HandleError(const FString& ErrorMessage)
 void AMetaHumanCompanionCharacter::HandleVisemesReady(const TArray<FVisemeKey>& Keys)
 {
 	ActiveVisemeKeys = Keys;
-	SpeechStartTime = GetWorld()->GetTimeSeconds();
-	bPlayingVisemes = ActiveVisemeKeys.Num() > 0;
+	bPlayingVisemes = ActiveVisemeKeys.Num() > 0 && GetWorld();
 	if (bPlayingVisemes)
 	{
+		SpeechStartTime = GetWorld()->GetTimeSeconds();
 		SetActorTickEnabled(true);
 	}
+	else
+	{
+		StopVisemePlayback();
+	}
+}
+
+void AMetaHumanCompanionCharacter::HandleSpeechFinished(const FString& SpokenText)
+{
+	StopVisemePlayback();
+}
+
+void AMetaHumanCompanionCharacter::StopVisemePlayback()
+{
+	bPlayingVisemes = false;
+	ActiveVisemeKeys.Empty();
+	SetActorTickEnabled(false);
+
+	TMap<FName, float> Weights;
+	Weights.Add(TEXT("jawOpen"), 0.0f);
+	OnSetVisemeWeights(Weights);
 }

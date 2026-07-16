@@ -41,8 +41,40 @@ void UCompanionHUDWidget::HandleTextSubmitted(const FString& Text)
 
 void UCompanionHUDWidget::HandleMicToggled(bool bListening)
 {
-	// Real mic start/stop wiring happens once a real STT component replaces
-	// UNullSpeechToText (see Docs/FOLLOW-UP.md); for now this just reflects UI state.
+	if (!BoundCompanion)
+	{
+		if (HUD.IsValid())
+		{
+			HUD->SetMicListening(false);
+			HUD->SetStatusText(TEXT("No companion"));
+		}
+		return;
+	}
+
+	if (bListening)
+	{
+		if (BoundCompanion->StartListening())
+		{
+			if (HUD.IsValid())
+			{
+				HUD->SetStatusText(TEXT("Listening"));
+			}
+		}
+		else if (HUD.IsValid())
+		{
+			HUD->SetMicListening(false);
+			HUD->SetStatusText(TEXT("Microphone unavailable"));
+		}
+	}
+	else
+	{
+		BoundCompanion->StopListening();
+		if (HUD.IsValid())
+		{
+			HUD->SetMicListening(false);
+			HUD->SetStatusText(TEXT("Ready"));
+		}
+	}
 }
 
 void UCompanionHUDWidget::HandleCompanionSpoke(const FString& Text)

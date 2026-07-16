@@ -42,5 +42,7 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<UAudioComponent> ActiveAudio;
 
+	FHttpRequestPtr ActiveRequest;
+
 	FString PendingText;
 };

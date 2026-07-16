@@ -14,12 +14,9 @@ class UAudioCapture;
 // It POSTs captured audio as multipart/form-data to "<WhisperServerUrl>/inference" and
 // parses the JSON transcription, firing OnTranscribed.
 //
-// This component is a *server client*: capture is decoupled from transcription. Feed it a
-// finished WAV buffer via TranscribeWav() from whatever capture source you have (push-to-talk
-// buffer, UAudioCapture submix recording, an imported clip). StartListening/StopListening
-// track intent and are the documented seam where a live mic-capture source hands its buffered
-// WAV to TranscribeWav — the actual platform mic binding is left to a subclass/Blueprint so
-// this class stays free of the AudioCapture module and unit-testable.
+// StartListening/StopListening capture the host's default audio device, convert the recorded
+// mono buffer to WAV, and submit it to the server. Remote Pixel Streaming microphone audio
+// still needs a WebRTC-to-UE bridge; UAudioCapture only sees the host device.
 UCLASS(ClassGroup = (MetaHumanLLM), meta = (BlueprintSpawnableComponent))
 class CICOMPANION_API UWhisperSpeechToText : public USpeechToTextComponent
 {
@@ -34,9 +31,8 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM|Voice")
 	void TranscribeWav(const TArray<uint8>& WavBytes);
 
-	// True between StartListening and StopListening.
-	UFUNCTION(BlueprintPure, Category = "MetaHumanLLM|Voice")
-	bool IsListening() const { return bIsListening; }
+	// True only while the local capture device is actively recording.
+	virtual bool IsListening() const override { return bIsListening; }
 
 	// --- Pure helpers, exposed for unit testing without a live server ---
 
@@ -62,6 +58,8 @@ private:
 	TObjectPtr<UAudioCapture> AudioCapture;
 
 	FAudioGeneratorHandle AudioCaptureHandle;
+	bool bCaptureStreamOpened = false;
+	bool bCaptureDelegateRegistered = false;
 	TArray<float> CapturedFloats;
 	FCriticalSection CapturedFloatsMutex;
 };

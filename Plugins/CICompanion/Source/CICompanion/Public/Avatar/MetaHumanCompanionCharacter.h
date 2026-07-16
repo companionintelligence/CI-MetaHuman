@@ -38,6 +38,17 @@ public:
  
 	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM")
 	void ResetConversation();
+
+	// Routes the HUD mic control through the configured STT backend. Returns false when the
+	// project is using the null backend or a live capture device could not be opened.
+	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM|Voice")
+	bool StartListening();
+
+	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM|Voice")
+	void StopListening();
+
+	UFUNCTION(BlueprintPure, Category = "MetaHumanLLM|Voice")
+	bool IsListening() const;
  
 	UFUNCTION(BlueprintPure, Category = "MetaHumanLLM")
 	bool IsWaitingForResponse() const { return CurrentRequestHandle != InvalidOllamaRequestHandle; }
@@ -62,9 +73,8 @@ protected:
 	UFUNCTION(BlueprintImplementableEvent, Category = "MetaHumanLLM")
 	void OnSetEmotion(EEmotionType Emotion);
  
-	// Hook point for a real TTS/lip-sync backend to drive MetaHuman ARKit curves.
-	// UNullTextToSpeech never calls this (it has no viseme data); wire it once a real
-	// local TTS/lip-sync plugin is chosen (see Docs/FOLLOW-UP.md).
+	// Receives the active TTS jaw timeline. The Blueprint layer maps these weights to the
+	// concrete MetaHuman face rig / ARKit curves.
 	UFUNCTION(BlueprintImplementableEvent, Category = "MetaHumanLLM")
 	void OnSetVisemeWeights(const TMap<FName, float>& Weights);
  
@@ -92,8 +102,12 @@ private:
  
 	UFUNCTION()
 	void HandleVisemesReady(const TArray<FVisemeKey>& Keys);
- 
+
+	UFUNCTION()
+	void HandleSpeechFinished(const FString& SpokenText);
+
 	IChatBackend* GetBackend() const;
+	void StopVisemePlayback();
  
 	FOllamaRequestHandle CurrentRequestHandle = InvalidOllamaRequestHandle;
  

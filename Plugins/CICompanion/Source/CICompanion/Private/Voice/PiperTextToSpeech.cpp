@@ -30,6 +30,8 @@ void UPiperTextToSpeech::Speak(const FString& Text)
 		return;
 	}
 
+	StopSpeaking();
+
 	const UMetaHumanLLMSettings* Settings = GetDefault<UMetaHumanLLMSettings>();
 	FString BaseUrl = Settings->PiperServerUrl;
 	if (BaseUrl.IsEmpty())
@@ -52,20 +54,32 @@ void UPiperTextToSpeech::Speak(const FString& Text)
 	Request->SetHeader(TEXT("Accept"), TEXT("audio/wav"));
 	Request->SetContentAsString(BuildRequestBody(Text));
 	Request->OnProcessRequestComplete().BindUObject(this, &UPiperTextToSpeech::HandleSynthesisComplete);
+	ActiveRequest = Request;
 
 	if (!Request->ProcessRequest())
 	{
+		ActiveRequest.Reset();
 		UE_LOG(LogMetaHumanLLM, Warning, TEXT("PiperTextToSpeech: failed to start synthesis request"));
 		OnSpeechFinished.Broadcast(Text);
+		PendingText.Empty();
 	}
 }
 
 void UPiperTextToSpeech::HandleSynthesisComplete(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful)
 {
+	if (!ActiveRequest.IsValid() || ActiveRequest.Get() != Request.Get())
+	{
+		return;
+	}
+
+	ActiveRequest.Reset();
+	const FString CompletedText = PendingText;
+
 	if (!bWasSuccessful || !Response.IsValid())
 	{
 		UE_LOG(LogMetaHumanLLM, Warning, TEXT("PiperTextToSpeech: synthesis request failed"));
-		OnSpeechFinished.Broadcast(PendingText);
+		OnSpeechFinished.Broadcast(CompletedText);
+		PendingText.Empty();
 		return;
 	}
 
@@ -73,21 +87,24 @@ void UPiperTextToSpeech::HandleSynthesisComplete(FHttpRequestPtr Request, FHttpR
 	if (!FWavAudioReader::Parse(Response->GetContent(), Wav) || Wav.MonoSamples.Num() == 0)
 	{
 		UE_LOG(LogMetaHumanLLM, Warning, TEXT("PiperTextToSpeech: response was not a decodable PCM WAV"));
-		OnSpeechFinished.Broadcast(PendingText);
+		OnSpeechFinished.Broadcast(CompletedText);
+		PendingText.Empty();
 		return;
 	}
 
-	// Publish the jaw-open timeline for the avatar layer, then start audio playback.
 	const TArray<FVisemeKey> Envelope = FVisemeEnvelope::Compute(Wav.MonoSamples, Wav.SampleRate);
-	OnVisemeEnvelopeReady.Broadcast(Envelope);
-
 	PlayDecodedWav(Wav);
 
-	// If playback couldn't start (e.g. headless / no audio device), signal completion now so
-	// downstream logic isn't left waiting; otherwise wait for the audio-finished callback.
-	if (!ActiveAudio)
+	if (ActiveAudio)
 	{
-		OnSpeechFinished.Broadcast(PendingText);
+		// Start the face clock only after the sound component exists, so it is anchored to the
+		// same game frame as audio playback rather than to the completed HTTP request.
+		OnVisemeEnvelopeReady.Broadcast(Envelope);
+	}
+	else
+	{
+		OnSpeechFinished.Broadcast(CompletedText);
+		PendingText.Empty();
 	}
 }
 
@@ -122,15 +139,25 @@ void UPiperTextToSpeech::HandleAudioFinished()
 		ActiveAudio->OnAudioFinished.RemoveDynamic(this, &UPiperTextToSpeech::HandleAudioFinished);
 		ActiveAudio = nullptr;
 	}
-	OnSpeechFinished.Broadcast(PendingText);
+	const FString CompletedText = MoveTemp(PendingText);
+	OnSpeechFinished.Broadcast(CompletedText);
 }
 
 void UPiperTextToSpeech::StopSpeaking()
 {
+	if (ActiveRequest.IsValid())
+	{
+		ActiveRequest->OnProcessRequestComplete().Unbind();
+		ActiveRequest->CancelRequest();
+		ActiveRequest.Reset();
+	}
+
 	if (ActiveAudio)
 	{
 		ActiveAudio->OnAudioFinished.RemoveDynamic(this, &UPiperTextToSpeech::HandleAudioFinished);
 		ActiveAudio->Stop();
 		ActiveAudio = nullptr;
 	}
+
+	PendingText.Empty();
 }

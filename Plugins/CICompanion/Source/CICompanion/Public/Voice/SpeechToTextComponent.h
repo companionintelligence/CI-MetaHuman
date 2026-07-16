@@ -23,4 +23,8 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM|Voice")
 	virtual void StopListening() PURE_VIRTUAL(USpeechToTextComponent::StopListening, );
+
+	// Backends with a live capture path override this so callers can distinguish a requested
+	// mic state from an active one (for example, when no host audio device is available).
+	virtual bool IsListening() const { return false; }
 };

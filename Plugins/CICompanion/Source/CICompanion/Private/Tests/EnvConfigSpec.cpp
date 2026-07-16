@@ -36,6 +36,8 @@ void FEnvConfigSpec::Define()
 		TestEqual("nothing applied", Applied, 0);
 		TestEqual("backend unchanged", Settings->BackendType, DefaultBackend);
 		TestEqual("ollama url unchanged", Settings->OllamaBaseUrl, DefaultOllama);
+		TestTrue("whisper remains opt-in", Settings->WhisperServerUrl.IsEmpty());
+		TestTrue("piper remains opt-in", Settings->PiperServerUrl.IsEmpty());
 	});
 
 	It("points the agent at CI-hub and flips to the OpenAI-compatible backend", [this, MakeLookup]()
