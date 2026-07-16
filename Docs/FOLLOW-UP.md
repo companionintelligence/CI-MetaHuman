@@ -5,6 +5,29 @@ Reference north star (planning doc "Existing Tech on RPM / Whisper / Piper"): a 
 of Google Astra / Meta AI with a locally-embodied agent — pluggable AI backend over an
 OpenAI-style API, Whisper STT, Piper TTS, viseme lip-sync, on Quest 3 / XREAL / mobile.
 
+## SOLVED — UE 5.5 renders on AMD Strix Halo (2026-07-16)
+
+**The blocker was UE 5.8, not the AMD hardware.** After exhausting every AMD driver/firmware/
+flag avenue (see the "DEFINITIVE" section below), research pointed at UE 5.8's known-fragile
+Linux-Vulkan path (it crashes on NVIDIA/Linux too). We rebuilt the project on **UE 5.5** and it
+**renders on the Radeon 8060S (RADV STRIX_HALO) without crashing** — container `Up` and stable,
+`Player (DefaultStreamer) joined`, player page serving HTTP 200 on :8090, VP8 encode, `gemma4:e2b`
+backend live. The whole pipeline works end to end on AMD on 5.5.
+
+To keep both engines easy, the project is now **version-agnostic (5.5-5.8)**:
+- `Target.cs` uses `BuildSettingsVersion.Latest` (compiles on any of 5.5-5.8).
+- The 5.8-only plugins (Unreal-MCP, MetaHuman*) are marked `"Optional"` in the `.uproject`, so the
+  same project opens in the 5.8 dev editor (with MCP) yet cooks clean on 5.5.
+- ONE parameterized `Deployment/Dockerfile.amd` builds either: `--build-arg RELEASE=5.5` or `=5.8`.
+- All companion code lives in a reusable `Plugins/CICompanion` plugin (drop into a 2nd Unreal project).
+
+**Remaining for a talking avatar on 5.5:** the `DefaultCompanion` MetaHuman is a UE 5.8
+`MetaHumanCharacter` asset, excluded from the 5.5 cook (that asset type doesn't exist in 5.5). The
+render/stream/LLM pipeline all work; the avatar itself needs a 5.5-compatible MetaHuman (import via
+5.5's MetaHuman plugin / Quixel Bridge) placed in a map, wired to the CICompanion character's
+OnSetVisemeWeights/OnSetEmotion hooks. Dev that part in the 5.8 editor with the MCP, keep the
+assets 5.5-importable.
+
 ## AMD Strix Halo render wall — DEFINITIVE (2026-07-15)
 
 The containerized Pixel Streaming stack works end to end on core-2 (AMD Strix Halo,
