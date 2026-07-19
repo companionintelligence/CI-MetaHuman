@@ -76,12 +76,18 @@ try:
     les.new_level("/Game/Maps/CompanionStage")
     w("new_level ok")
 
-    # NOTE: unreal.Rotator's Python constructor is (roll, pitch, yaw) — NOT pitch-first like
-    # C++ FRotator. Passing positionally silently set pitch where yaw was meant, which tilted
-    # every prop onto its face and rolled the camera horizon. Always pass by keyword.
+    # The streamed pawn spawns at the WORLD ORIGIN, not at our PlayerStart: GameModeBase does
+    # not honour it here (verified — the map's PlayerStart is correct at (-250,-60,175) yet
+    # the live view sits at (0,0,0), inside the floor plane, which is why the stream showed a
+    # grazing checkerboard). Rather than fight the spawn, the whole set is authored around the
+    # camera: SET_OFFSET shifts every actor so that world origin IS the intended camera pose,
+    # looking down +X. That keeps the DefaultPawn (and therefore live WASD/mouse input) while
+    # framing the shot deterministically — no CameraActor hijacking the view target.
+    SET_OFFSET = (0.0, 0.0, 0.0)   # set authored in world space; view comes from StageCamera
     def spawn(cls, loc=(0,0,0), yaw=0.0, pitch=0.0, roll=0.0):
+        world = (loc[0] + SET_OFFSET[0], loc[1] + SET_OFFSET[1], loc[2] + SET_OFFSET[2])
         return eas.spawn_actor_from_class(
-            cls, unreal.Vector(*loc), unreal.Rotator(roll=roll, pitch=pitch, yaw=yaw))
+            cls, unreal.Vector(*world), unreal.Rotator(roll=roll, pitch=pitch, yaw=yaw))
 
     # ---------- lighting: diegetic warm key, cool CI rim ----------
     # CRITICAL: the Pixel Streaming app runs with GI DISABLED (r.DynamicGlobalIlluminationMethod 0
@@ -190,24 +196,163 @@ try:
         placed += 1
     w("placed %d/12 props" % placed)
 
-    # ---------- blockout resident (until the MetaHuman lands) ----------
-    cyl = unreal.load_asset('/Engine/BasicShapes/Cylinder')
-    sph = unreal.load_asset('/Engine/BasicShapes/Sphere')
-    body = spawn(unreal.StaticMeshActor, (60, -40, 90))
-    body.static_mesh_component.set_static_mesh(cyl)
-    body.set_actor_scale3d(unreal.Vector(0.85, 0.5, 1.8))
-    head = spawn(unreal.StaticMeshActor, (60, -40, 205))
-    head.static_mesh_component.set_static_mesh(sph)
-    head.set_actor_scale3d(unreal.Vector(0.55, 0.55, 0.6))
-    w("resident blockout ok")
+    # ---------- the resident: MetaHuman "Seo" ----------
+    # Converted from mhc_seo.mhpkg (5.6 EditableCharacter): assembled in a local 5.8 editor,
+    # exported Face+Body+Outfit to FBX (version-agnostic), re-imported HERE into 5.5 as
+    # skeletal meshes. Face carries 849 morph targets = the MetaHuman facial-blendshape rig
+    # (the future viseme source). Placed at the camera's look target; default (gray) materials
+    # for this first pass — skin textures + the DNA/RigLogic face are the next iteration.
+    # RES_YAW=-90: a re-imported MetaHuman FBX has its visual front 90deg off the actor's
+    # forward axis, so yaw 180 rendered her in profile. -90 turns her visual front to -X =
+    # toward the StageCamera. (Verified by probing the mesh forward vector vs the framed view.)
+    RES_POS, RES_YAW = (330, 20, 0), -90.0
+    def import_skel(fbx, dest):
+        ui = unreal.FbxImportUI()
+        ui.set_editor_property("import_mesh", True)
+        ui.set_editor_property("import_as_skeletal", True)
+        ui.set_editor_property("import_materials", True)
+        ui.set_editor_property("import_textures", False)
+        ui.set_editor_property("mesh_type_to_import", unreal.FBXImportType.FBXIT_SKELETAL_MESH)
+        ui.skeletal_mesh_import_data.set_editor_property("import_morph_targets", True)
+        ui.skeletal_mesh_import_data.set_editor_property("convert_scene", True)
+        t = unreal.AssetImportTask()
+        t.set_editor_property("filename", fbx)
+        t.set_editor_property("destination_path", dest)
+        t.set_editor_property("automated", True); t.set_editor_property("save", True)
+        t.set_editor_property("replace_existing", True); t.set_editor_property("options", ui)
+        unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([t])
+        ar2 = unreal.AssetRegistryHelpers.get_asset_registry()
+        for a in ar2.get_assets_by_path(dest, recursive=True):
+            if str(a.asset_class_path.asset_name) == "SkeletalMesh":
+                return unreal.load_asset(str(a.package_name))
+        return None
 
-    # ---------- camera ----------
-    # A CameraActor that auto-activates for Player0 is the deterministic way to frame a
-    # fixed-camera product: relying on PlayerStart means trusting GameModeBase's DefaultPawn
-    # spawn (and its collision push-out) to land where you meant, which it did not. The
-    # PlayerStart stays as a fallback for anyone who possesses a pawn.
+    # --- skin materials: wire the exported baked textures onto the MetaHuman slots ---
+    # A simplified skin (baked base color -> a lit opaque material), plus a masked "hidden"
+    # material for the transparent overlay slots (eyeshell/eyelashes/lacrimal/M_Hide) so none
+    # render as white. Not the full MetaHuman skin shader, but turns her from gray to skinned
+    # and removes the white body-garment slab (all under the one Body slot).
+    tools = unreal.AssetToolsHelpers.get_asset_tools()
+    MEL = unreal.MaterialEditingLibrary
+    seo_mats = {}
+    try:
+        def imp_tex(name):
+            t = unreal.AssetImportTask()
+            t.set_editor_property("filename", "/mh/tex/%s.tga" % name)
+            t.set_editor_property("destination_path", "/Game/Seo/Tex")
+            t.set_editor_property("automated", True); t.set_editor_property("save", True)
+            t.set_editor_property("replace_existing", True)
+            unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([t])
+            return unreal.load_asset("/Game/Seo/Tex/%s" % name)
+        # The exported MetaHuman baked textures are un-tintable neutral bakes (T_Head_BC is flat
+        # gray 94,94,94 — meant to be tinted by the full MetaHuman skin shader we don't have), so
+        # a plain texture sample renders gray. Use a CONSTANT skin-tone color instead: robust,
+        # guaranteed non-gray, and a clean base to iterate the real skin material from later.
+        M_Skin = tools.create_asset("M_SeoSkin", "/Game/Seo/Mat", unreal.Material, unreal.MaterialFactoryNew())
+        cp = MEL.create_material_expression(M_Skin, unreal.MaterialExpressionVectorParameter, -380, 0)
+        cp.set_editor_property("parameter_name", "BaseColor")
+        cp.set_editor_property("default_value", unreal.LinearColor(0.80, 0.58, 0.50, 1.0))
+        cok = MEL.connect_material_property(cp, "RGB", unreal.MaterialProperty.MP_BASE_COLOR)
+        if not cok:
+            cok = MEL.connect_material_property(cp, "", unreal.MaterialProperty.MP_BASE_COLOR)
+        w("  M_SeoSkin base-color connect ok=%s" % cok)
+        rg = MEL.create_material_expression(M_Skin, unreal.MaterialExpressionConstant, -380, 250)
+        rg.set_editor_property("r", 0.55)
+        MEL.connect_material_property(rg, "", unreal.MaterialProperty.MP_ROUGHNESS)
+        MEL.recompile_material(M_Skin)
+
+        # masked "hidden" material (opacity mask 0) for the transparent overlay slots
+        M_Hidden = tools.create_asset("M_SeoHidden", "/Game/Seo/Mat", unreal.Material, unreal.MaterialFactoryNew())
+        M_Hidden.set_editor_property("blend_mode", unreal.BlendMode.BLEND_MASKED)
+        z = MEL.create_material_expression(M_Hidden, unreal.MaterialExpressionConstant, -380, 0)
+        z.set_editor_property("r", 0.0)
+        MEL.connect_material_property(z, "", unreal.MaterialProperty.MP_OPACITY_MASK)
+        MEL.recompile_material(M_Hidden)
+
+        def mic(name, color):
+            m = tools.create_asset(name, "/Game/Seo/Mat", unreal.MaterialInstanceConstant,
+                                   unreal.MaterialInstanceConstantFactoryNew())
+            m.set_editor_property("parent", M_Skin)
+            MEL.set_material_instance_vector_parameter_value(m, "BaseColor", unreal.LinearColor(*color))
+            return m
+        seo_mats = {
+            "head":  mic("MI_SeoHead",  (0.82, 0.60, 0.52, 1.0)),  # skin
+            "body":  mic("MI_SeoBody",  (0.80, 0.58, 0.50, 1.0)),  # skin
+            "teeth": mic("MI_SeoTeeth", (0.90, 0.88, 0.82, 1.0)),  # off-white
+            "eye":   mic("MI_SeoEye",   (0.10, 0.08, 0.07, 1.0)),  # dark iris
+            "hidden": M_Hidden,
+        }
+        unreal.EditorLoadingAndSavingUtils.save_dirty_packages(True, True)
+        w("skin materials built: %s" % list(seo_mats.keys()))
+    except Exception as e:
+        import traceback as _tb
+        w("MATERIALS ERROR (mesh will stay gray): %s\n%s" % (e, _tb.format_exc()[:500]))
+
+    # slot index -> material key, per the probed slot layout
+    BODY_SLOTS = {0: "body"}
+    FACE_SLOTS = {0: "head", 1: "teeth", 2: "hidden", 3: "eye", 4: "eye",
+                  5: "hidden", 6: "hidden", 7: "hidden", 8: "hidden"}
+
+    seo_parts = [("/mh/fbx/SKM_MHC_Seo_BodyMesh.fbx", "/Game/Seo/Body", BODY_SLOTS),
+                 ("/mh/fbx/SKM_MHC_Seo_FaceMesh.fbx", "/Game/Seo/Face", FACE_SLOTS)]
+    placed_seo = 0
+    for fbx, dest, slotmap in seo_parts:
+        m = import_skel(fbx, dest)
+        if not m:
+            w("resident: import FAIL %s" % fbx); continue
+        # Assign materials by building FRESH SkeletalMaterial structs (mutating the array
+        # returned by get_editor_property is a copy and does NOT persist — probed & confirmed
+        # v16 stayed on defaults). Force-save the asset, then read back and log to verify.
+        try:
+            old = m.get_editor_property("materials")
+            new = []
+            for i, sm in enumerate(old):
+                nm = unreal.SkeletalMaterial()
+                nm.set_editor_property("material_slot_name", sm.get_editor_property("material_slot_name"))
+                chosen = seo_mats.get(slotmap.get(i))
+                nm.set_editor_property("material_interface",
+                                       chosen if chosen else sm.get_editor_property("material_interface"))
+                new.append(nm)
+            m.set_editor_property("materials", new)
+            unreal.EditorAssetLibrary.save_loaded_asset(m)
+            back = m.get_editor_property("materials")
+            names = ",".join((s.get_editor_property("material_interface").get_name()
+                              if s.get_editor_property("material_interface") else "NONE") for s in back)
+            w("  %s materials now: %s" % (dest.split("/")[-1], names))
+        except Exception as e:
+            import traceback as _t
+            w("  asset material assign warn: %s\n%s" % (e, _t.format_exc()[:400]))
+        a = spawn(unreal.SkeletalMeshActor, RES_POS, yaw=RES_YAW)
+        a.set_actor_label("Seo_" + dest.split("/")[-1])
+        a.skeletal_mesh_component.set_skeletal_mesh(m)
+        placed_seo += 1
+    w("resident: MetaHuman Seo placed (%d/2 parts, skinned) at %s yaw %.0f" % (placed_seo, RES_POS, RES_YAW))
+    if placed_seo == 0:
+        skm = unreal.load_asset('/MoverTests/Characters/Mannequins/Meshes/SKM_Manny')
+        if skm:
+            a = spawn(unreal.SkeletalMeshActor, RES_POS, yaw=RES_YAW); a.set_actor_label("Resident")
+            a.skeletal_mesh_component.set_skeletal_mesh(skm)
+            w("resident: FELL BACK to SKM_Manny (Seo import failed)")
+
+    # ---------- camera / player ----------
+    # The view comes from the DefaultPawn spawned at this PlayerStart — NOT from a
+    # CameraActor. An auto-activating CameraActor welds the view target to itself, so the
+    # pawn still receives input and still moves while the picture never changes: input looks
+    # dead. (The framing problem that CameraActor was added to solve was really the
+    # Rotator(roll,pitch,yaw) bug above, now fixed — PlayerStart aims correctly on its own.)
+    # PlayerStart rotation seeds the initial control rotation, so Pixel Streaming mouse/WASD
+    # fly the view from exactly this pose.
+    # The view comes from an auto-activating StageCamera, which is the only thing that has
+    # reliably framed this set. Driving the view from the GameModeBase DefaultPawn does NOT
+    # work here: the map's PlayerStart is provably correct (probed at (-250,-60,175) pitch
+    # -5.9) yet the pawn's view lands elsewhere and renders floor tiles — and re-authoring the
+    # whole set around the world origin did not change it either. Unresolved; tracked as a
+    # known issue. Framing the character beats free-look for a fixed-camera diorama, so the
+    # camera wins until the pawn spawn is understood.
+    # TRADE-OFF: an auto-activated CameraActor becomes the view target, so player input moves
+    # the pawn invisibly — free-look will stay dead until this is solved properly.
     CAM_POS = (-250.0, -60.0, 175.0)
-    LOOK_AT = (330.0, 20.0, 115.0)   # the resident, with the big-iron row behind them
+    LOOK_AT = (330.0, 20.0, 115.0)   # the resident, big-iron row behind them
     dx, dy, dz = (LOOK_AT[0]-CAM_POS[0], LOOK_AT[1]-CAM_POS[1], LOOK_AT[2]-CAM_POS[2])
     cam_yaw = math.degrees(math.atan2(dy, dx))
     cam_pitch = math.degrees(math.atan2(dz, math.sqrt(dx*dx + dy*dy)))
@@ -219,7 +364,8 @@ try:
     except Exception as e:
         w("fov warn " + str(e))
     spawn(unreal.PlayerStart, CAM_POS, yaw=cam_yaw, pitch=cam_pitch)
-    w("camera ok (yaw=%.1f pitch=%.1f fov=70)" % (cam_yaw, cam_pitch))
+    w("StageCamera ok (yaw=%.1f pitch=%.1f fov=70) — known issue: free-look input inert" %
+      (cam_yaw, cam_pitch))
 
     ok = les.save_current_level()
     w("save_current_level=%s" % ok)

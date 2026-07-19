@@ -1,0 +1,13 @@
+{
+  "FileVersion": 3,
+  "EngineAssociation": "5.8",
+  "Category": "",
+  "Description": "MetaHuman .mhpkg -> assemble -> export for 5.5",
+  "Modules": [],
+  "Plugins": [
+    { "Name": "PythonScriptPlugin", "Enabled": true },
+    { "Name": "MetaHumanCharacter", "Enabled": true },
+    { "Name": "MetaHumanCoreTech", "Enabled": true },
+    { "Name": "MetaHumanSDK", "Enabled": true }
+  ]
+}
