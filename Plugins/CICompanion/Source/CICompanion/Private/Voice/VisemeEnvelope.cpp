@@ -36,12 +36,18 @@ TArray<FVisemeKey> FVisemeEnvelope::Compute(const TArray<float>& MonoSamples, in
 
 	// Second pass: normalize to [0,1] and stamp times. If the whole clip is silent, every
 	// key stays at 0 (mouth closed) rather than dividing by zero.
-	Keys.Reserve(NumWindows);
+	Keys.Reserve(NumWindows + 1);
 	for (int32 Window = 0; Window < NumWindows; ++Window)
 	{
 		const float JawOpen = MaxRms > 0.0f ? FMath::Clamp(WindowRms[Window] / MaxRms, 0.0f, 1.0f) : 0.0f;
 		const float TimeSeconds = Window * WindowSeconds;
 		Keys.Add(FVisemeKey(TimeSeconds, JawOpen));
+	}
+
+	const float DurationSeconds = static_cast<float>(MonoSamples.Num()) / SampleRate;
+	if (Keys.Last().TimeSeconds < DurationSeconds)
+	{
+		Keys.Add(FVisemeKey(DurationSeconds, 0.0f));
 	}
 
 	return Keys;

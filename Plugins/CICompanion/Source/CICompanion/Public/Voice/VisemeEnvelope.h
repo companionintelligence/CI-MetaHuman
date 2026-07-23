@@ -35,6 +35,7 @@ public:
 	// Computes jaw-open keyframes from mono float samples ([-1,1]) by taking the RMS of each
 	// fixed-length window and normalizing to the loudest window, so the mouth uses its full
 	// range regardless of absolute recording volume. Pure silence yields all-zero keys.
-	// One key is emitted per window; TimeSeconds is the window's start time.
+	// One key is emitted per window plus a final closed-mouth key at the clip end, so callers
+	// can safely interpolate through the final audio window and reset the face deterministically.
 	static TArray<FVisemeKey> Compute(const TArray<float>& MonoSamples, int32 SampleRate, float WindowSeconds = 0.06f);
 };

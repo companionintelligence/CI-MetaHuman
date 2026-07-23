@@ -38,6 +38,10 @@ public:
 
 	void ClearChatLog();
 
+	// Used by the UMG host to roll back an optimistic mic-button toggle when the configured
+	// STT backend cannot acquire a real capture device.
+	void SetMicListening(bool bListening);
+
 	bool IsMicListening() const { return bMicListening; }
 
 	int32 NumChatEntries() const { return ChatEntries.Num(); }

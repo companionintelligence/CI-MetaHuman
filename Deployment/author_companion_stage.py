@@ -35,14 +35,24 @@ if plane:
     floor.static_mesh_component.set_static_mesh(plane)
     floor.set_actor_scale3d(unreal.Vector(40, 40, 1))
 
-# --- character: BP_CompanionCharacter in front of the default forward camera, facing it ---
+# --- character: use the project companion where it is compatible, otherwise use Manny ---
 unreal.load_asset("/Game/BP_CompanionCharacter")
 bp_class = unreal.load_object(None, "/Game/BP_CompanionCharacter.BP_CompanionCharacter_C")
 if bp_class:
     char = eas.spawn_actor_from_class(bp_class, unreal.Vector(400, 0, 96), unreal.Rotator(0, 180, 0))
     unreal.log("author_companion_stage: Spawned BP_CompanionCharacter")
 else:
-    unreal.log_error("author_companion_stage: Failed to load BP_CompanionCharacter class")
+    mannequin = unreal.load_asset(MANNY)
+    if mannequin:
+        char = eas.spawn_actor_from_class(
+            unreal.SkeletalMeshActor,
+            unreal.Vector(400, 0, 0),
+            unreal.Rotator(0, 180, 0),
+        )
+        char.skeletal_mesh_component.set_skeletal_mesh(mannequin)
+        unreal.log_warning("author_companion_stage: BP_CompanionCharacter is unavailable; spawned UE mannequin fallback")
+    else:
+        unreal.log_error("author_companion_stage: Failed to load companion character or mannequin fallback")
 
 # --- a PlayerStart at the streamed-camera pose, framing the character ---
 spawn(unreal.PlayerStart, (-150, 0, 130), (-5, 0, 0))

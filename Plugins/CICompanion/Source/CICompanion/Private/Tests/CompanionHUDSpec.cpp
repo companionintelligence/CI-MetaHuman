@@ -68,6 +68,15 @@ void FCompanionHUDSpec::Define()
 		TestFalse("callback received false", bLastMicState);
 	});
 
+	It("allows the host to roll back a mic toggle when capture cannot start", [this]()
+	{
+		HUD->SimulateMicToggleClick();
+		TestTrue("optimistically listening", HUD->IsMicListening());
+
+		HUD->SetMicListening(false);
+		TestFalse("rolled back", HUD->IsMicListening());
+	});
+
 	It("appends chat entries and tracks them", [this]()
 	{
 		HUD->AppendChatEntry(TEXT("You"), TEXT("Hi"));

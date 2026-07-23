@@ -8,8 +8,8 @@
 #
 # Nothing else needs to change between versions: Target.cs uses BuildSettingsVersion.Latest, and
 # MetaHumanLocalLLM.uproject marks the 5.8-only plugins (Unreal-MCP, MetaHuman*) "Optional" so the
-# same project opens in the 5.8 dev editor yet cooks clean on 5.5. The only per-version step below
-# is dropping the 5.8 MetaHumanCharacter *assets* when the target engine predates them (<5.6).
+# same project opens in the 5.8 dev editor yet cooks clean on 5.5. For pre-5.6 targets, the build
+# regenerates the stage with compatible engine assets and drops 5.8 MetaHumanCharacter assets.
 #
 # Stage 1 packages on Epic's dev image; stage 2 is an Ubuntu+Mesa (RADV/VAAPI) runtime so the app
 # renders with Vulkan and hardware-encodes over /dev/dri. Prereq: ghcr.io/epicgames access.
@@ -20,22 +20,28 @@ ARG RELEASE
 
 COPY --chown=ue4:ue4 . /home/ue4/project-src
 
-USER root
+USER ue4
 RUN cd /home/ue4/project-src \
  && rm -rf Intermediate Saved Binaries DerivedDataCache \
  && python3 -c "import json; p=json.load(open('MetaHumanLocalLLM.uproject')); p['EngineAssociation']='${RELEASE}'; json.dump(p, open('MetaHumanLocalLLM.uproject','w'), indent='\t')" \
  && MINOR="$(echo "${RELEASE}" | cut -d. -f2)" \
  && if [ "${MINOR:-8}" -lt 6 ]; then \
-        echo "RELEASE ${RELEASE} < 5.6 — dropping 5.8-only MetaHumanCharacter assets from the cook"; \
+        python3 -c "import json; path='MetaHumanLocalLLM.uproject'; p=json.load(open(path)); disabled={'MCPClientToolset','ModelContextProtocol','AllToolsets','MetaHuman','MetaHumanCharacter','MetaHumanCalibrationProcessing','MetaHumanCoreTech','MetaHumanLiveLink','MetaHumanGenerator','MetaHumanCharacterUAF','MetaHumanCalibrationDiagnostics'}; p['Plugins']=[plugin for plugin in p.get('Plugins', []) if plugin.get('Name') not in disabled]; json.dump(p, open(path,'w'), indent='\t')"; \
+        echo "RELEASE ${RELEASE} < 5.6: regenerating the stage and dropping 5.8-only MetaHumanCharacter assets"; \
         rm -rf Content/MetaHumans Content/KhaosMDF492 Content/TestMetaHumanCharacter.uasset \
                Content/OA_KhaosMDF492.uasset Content/WI_KhaosMDF492.uasset; \
-    fi \
- && chown -R ue4:ue4 /home/ue4/project-src
-USER ue4
+        rm -f Content/Maps/CompanionStage.umap; \
+        mkdir -p /tmp/stage-authoring/Content Content/Maps; \
+        python3 -c "import json; p={'FileVersion':3,'EngineAssociation':'${RELEASE}','Plugins':[{'Name':'MoverTests','Enabled':True},{'Name':'PythonScriptPlugin','Enabled':True}]}; json.dump(p, open('/tmp/stage-authoring/StageAuthoring.uproject','w'), indent='\t')"; \
+        /home/ue4/UnrealEngine/Engine/Binaries/Linux/UnrealEditor-Cmd /tmp/stage-authoring/StageAuthoring.uproject -run=pythonscript -script=/home/ue4/project-src/Deployment/author_companion_stage.py -unattended -nop4 -nosplash -nullrhi; \
+        cp /tmp/stage-authoring/Content/Maps/CompanionStage.umap Content/Maps/CompanionStage.umap; \
+        rm -rf /tmp/stage-authoring; \
+        test -f Content/Maps/CompanionStage.umap; \
+    fi
 
 RUN /home/ue4/UnrealEngine/Engine/Build/BatchFiles/RunUAT.sh BuildCookRun \
     -project=/home/ue4/project-src/MetaHumanLocalLLM.uproject \
-    -clientconfig=Development -utf8output -nodebuginfo -allmaps -noP4 \
+    -clientconfig=Development -utf8output -nodebuginfo -map=/Game/Maps/CompanionStage -noP4 \
     -cook -build -stage -prereqs -pak -archive \
     -archivedirectory=/home/ue4/project-src/dist \
     -platform=Linux

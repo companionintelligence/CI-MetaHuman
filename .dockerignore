@@ -10,9 +10,10 @@ dist/
 
 # The UE cook only needs .uproject, Source/, Content/, Config/, Plugins/. Excluding the
 # rest means editing deployment/docs/scripts no longer invalidates the builder COPY layer
-# and re-triggers the (long) Linux cook. The Dockerfile itself is read via -f, not COPY,
-# so excluding Deployment/ from the context is safe.
-Deployment/
+# and re-triggers the (long) Linux cook. The Dockerfile itself is read via -f, not COPY;
+# the 5.5 compatibility stage intentionally includes its authoring script.
+Deployment/*
+!Deployment/author_companion_stage.py
 Docs/
 Scripts/
 .git/

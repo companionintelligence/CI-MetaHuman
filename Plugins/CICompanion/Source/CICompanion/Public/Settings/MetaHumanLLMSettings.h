@@ -71,14 +71,15 @@ public:
 	// --- Voice ---
 
 	// Base URL of a local whisper.cpp server (built with `whisper-server`). The Whisper STT
-	// component POSTs captured audio to "<url>/inference". Blank keeps UNullSpeechToText.
+	// component POSTs captured audio to "<url>/inference". Intentionally blank by default so
+	// host services must be configured explicitly rather than guessed from local ports.
 	UPROPERTY(Config, EditAnywhere, Category = "Voice")
-	FString WhisperServerUrl = TEXT("http://127.0.0.1:8080");
+	FString WhisperServerUrl;
 
 	// Base URL of a local Piper HTTP server. The Piper TTS component POSTs text and expects
-	// WAV audio back. Blank keeps UNullTextToSpeech.
+	// WAV audio back. Intentionally blank by default for the same reason as Whisper above.
 	UPROPERTY(Config, EditAnywhere, Category = "Voice")
-	FString PiperServerUrl = TEXT("http://127.0.0.1:5000");
+	FString PiperServerUrl;
 
 	// Filesystem path to a local speech-to-text model (e.g. a whisper.cpp GGML file), for
 	// in-process backends that load the model directly rather than calling a server.

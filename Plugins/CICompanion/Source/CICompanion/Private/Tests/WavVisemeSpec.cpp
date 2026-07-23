@@ -139,7 +139,7 @@ void FWavVisemeSpec::Define()
 			TestTrue("all jaw-open zero for silence", bAllZero);
 		});
 
-		It("opens fullest at the loudest window and stamps increasing times", [this]()
+		It("opens fullest at the loudest window and ends with a closed-mouth key", [this]()
 		{
 			// 3 windows: quiet, loud, medium.
 			const int32 SampleRate = 1000;
@@ -150,14 +150,16 @@ void FWavVisemeSpec::Define()
 			for (int32 i = 0; i < WindowSamples; ++i) { S.Add(0.5f); } // medium
 
 			const TArray<FVisemeKey> Keys = FVisemeEnvelope::Compute(S, SampleRate, 0.1f);
-			TestEqual("three windows", Keys.Num(), 3);
-			if (Keys.Num() == 3)
+			TestEqual("three windows plus final close", Keys.Num(), 4);
+			if (Keys.Num() == 4)
 			{
 				TestTrue("loud window is fully open", FMath::IsNearlyEqual(Keys[1].JawOpen, 1.0f, 0.001f));
 				TestTrue("quiet < loud", Keys[0].JawOpen < Keys[1].JawOpen);
 				TestTrue("medium between", Keys[2].JawOpen > Keys[0].JawOpen && Keys[2].JawOpen < Keys[1].JawOpen);
-				TestTrue("times increase", Keys[0].TimeSeconds < Keys[1].TimeSeconds && Keys[1].TimeSeconds < Keys[2].TimeSeconds);
+				TestTrue("times increase", Keys[0].TimeSeconds < Keys[1].TimeSeconds && Keys[1].TimeSeconds < Keys[2].TimeSeconds && Keys[2].TimeSeconds < Keys[3].TimeSeconds);
 				TestTrue("first key at t=0", FMath::IsNearlyZero(Keys[0].TimeSeconds));
+				TestTrue("final key is closed", FMath::IsNearlyZero(Keys[3].JawOpen));
+				TestTrue("final key matches audio duration", FMath::IsNearlyEqual(Keys[3].TimeSeconds, 0.3f, 0.001f));
 			}
 		});
 	});

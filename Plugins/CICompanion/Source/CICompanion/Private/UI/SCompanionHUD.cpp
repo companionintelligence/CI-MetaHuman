@@ -89,6 +89,11 @@ void SCompanionHUD::ClearChatLog()
 	}
 }
 
+void SCompanionHUD::SetMicListening(bool bListening)
+{
+	bMicListening = bListening;
+}
+
 FReply SCompanionHUD::HandleMicClicked()
 {
 	bMicListening = !bMicListening;
