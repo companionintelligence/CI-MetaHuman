@@ -200,12 +200,14 @@ try:
     # Converted from mhc_seo.mhpkg (5.6 EditableCharacter): assembled in a local 5.8 editor,
     # exported Face+Body+Outfit to FBX (version-agnostic), re-imported HERE into 5.5 as
     # skeletal meshes. Face carries 849 morph targets = the MetaHuman facial-blendshape rig
-    # (the future viseme source). Placed at the camera's look target; default (gray) materials
-    # for this first pass — skin textures + the DNA/RigLogic face are the next iteration.
-    # RES_YAW=-90: a re-imported MetaHuman FBX has its visual front 90deg off the actor's
-    # forward axis, so yaw 180 rendered her in profile. -90 turns her visual front to -X =
-    # toward the StageCamera. (Verified by probing the mesh forward vector vs the framed view.)
-    RES_POS, RES_YAW = (330, 20, 0), -90.0
+    # (the future viseme source). Placed at the camera's look target.
+    # RES_YAW: a re-imported MetaHuman FBX has its visual front 90deg off the actor's forward
+    # axis, so yaw 180 rendered her in profile. The earlier -90 was 180 degrees out: it turned
+    # her BACK to the StageCamera. Confirmed from the streamed frame — the head showed both ears
+    # and no face at all. (That went unnoticed while she was still untextured gray, which is why
+    # it was previously recorded as "verified".) +90 faces her at the camera. Always confirm
+    # facing by looking for EYES in a captured frame, not by reasoning about the forward vector.
+    RES_POS, RES_YAW = (330, 20, 0), 90.0
     def import_skel(fbx, dest):
         ui = unreal.FbxImportUI()
         ui.set_editor_property("import_mesh", True)
@@ -295,6 +297,11 @@ try:
             "teeth": mic("MI_SeoTeeth", (0.90, 0.88, 0.82, 1.0)),  # off-white
             "eye":   mic("MI_SeoEye",   (0.10, 0.08, 0.07, 1.0)),  # dark iris
             "hidden": M_Hidden,
+            # Garment. Reusing M_SeoSkin as the parent is deliberate: it already carries the
+            # skeletal-mesh/morph-target usage flags, without which the outfit would render as
+            # the default gray exactly like the body did.
+            "cloth_top": mic("MI_SeoClothTop", (0.30, 0.36, 0.40, 1.0)),  # slate shirt
+            "cloth_leg": mic("MI_SeoClothLeg", (0.20, 0.23, 0.27, 1.0)),  # darker shorts
         }
         unreal.EditorLoadingAndSavingUtils.save_dirty_packages(True, True)
         w("skin materials built: %s" % list(seo_mats.keys()))
@@ -307,8 +314,18 @@ try:
     FACE_SLOTS = {0: "head", 1: "teeth", 2: "hidden", 3: "eye", 4: "eye",
                   5: "hidden", 6: "hidden", 7: "hidden", 8: "hidden"}
 
+    # The OUTFIT is not cosmetic — it is load-bearing geometry. MetaHuman removes the body mesh
+    # that sits under clothing, so Body+Face alone render as head/neck + forearms + lower legs
+    # with the torso, upper arms and thighs simply ABSENT (verified in the streamed frame; the
+    # pale slab behind her there is a prop box, not a garment). The outfit fills that gap.
+    # Its slot count/order isn't probed, so resolve by slot NAME rather than index: MetaHuman's
+    # default garment slots are named ..._Shirt / ..._Short.
+    def OUTFIT_SLOTS(idx, slot_name):
+        return "cloth_leg" if "short" in str(slot_name).lower() else "cloth_top"
+
     seo_parts = [("/mh/fbx/SKM_MHC_Seo_BodyMesh.fbx", "/Game/Seo/Body", BODY_SLOTS),
-                 ("/mh/fbx/SKM_MHC_Seo_FaceMesh.fbx", "/Game/Seo/Face", FACE_SLOTS)]
+                 ("/mh/fbx/SKM_MHC_Seo_FaceMesh.fbx", "/Game/Seo/Face", FACE_SLOTS),
+                 ("/mh/fbx/MHC_Seo_Outfits.fbx",      "/Game/Seo/Outfit", OUTFIT_SLOTS)]
     placed_seo = 0
     for fbx, dest, slotmap in seo_parts:
         m = import_skel(fbx, dest)
@@ -322,8 +339,10 @@ try:
             new = []
             for i, sm in enumerate(old):
                 nm = unreal.SkeletalMaterial()
-                nm.set_editor_property("material_slot_name", sm.get_editor_property("material_slot_name"))
-                chosen = seo_mats.get(slotmap.get(i))
+                slot_name = sm.get_editor_property("material_slot_name")
+                nm.set_editor_property("material_slot_name", slot_name)
+                key = slotmap(i, slot_name) if callable(slotmap) else slotmap.get(i)
+                chosen = seo_mats.get(key)
                 nm.set_editor_property("material_interface",
                                        chosen if chosen else sm.get_editor_property("material_interface"))
                 new.append(nm)
@@ -340,7 +359,8 @@ try:
         a.set_actor_label("Seo_" + dest.split("/")[-1])
         a.skeletal_mesh_component.set_skeletal_mesh(m)
         placed_seo += 1
-    w("resident: MetaHuman Seo placed (%d/2 parts, skinned) at %s yaw %.0f" % (placed_seo, RES_POS, RES_YAW))
+    w("resident: MetaHuman Seo placed (%d/%d parts, skinned+clothed) at %s yaw %.0f"
+      % (placed_seo, len(seo_parts), RES_POS, RES_YAW))
     if placed_seo == 0:
         skm = unreal.load_asset('/MoverTests/Characters/Mannequins/Meshes/SKM_Manny')
         if skm:
