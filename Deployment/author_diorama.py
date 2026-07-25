@@ -208,6 +208,65 @@ try:
     # it was previously recorded as "verified".) +90 faces her at the camera. Always confirm
     # facing by looking for EYES in a captured frame, not by reasoning about the forward vector.
     RES_POS, RES_YAW = (330, 20, 0), 90.0
+
+    # ---------- preferred resident: Reallusion Character Creator "Nia" ----------
+    # Nia ships as a UE 5.3 project with NO plugin dependencies and PLAIN SkeletalMesh /
+    # Texture2D / AnimSequence assets, so UE 5.5 loads them directly — no FBX round-trip, and
+    # we keep her REAL PBR materials (M_HQSkin + per-region instances + SSS profiles) instead
+    # of the flat constant colours Seo needs. Those materials are properly authored by
+    # Reallusion, so they already carry the skeletal-mesh usage flags we had to add by hand.
+    # Her folder structure is preserved verbatim under /Game/CC_ControlRig_Nia/... because UE
+    # assets reference each other by PACKAGE PATH — relocating them silently breaks the refs.
+    # Her CC Control Rig is a Blueprint and is deliberately NOT used: it would not survive the
+    # Linux cook. A baked AnimSequence played on the component does, and gives us the idle.
+    NIA_SK   = "/Game/CC_ControlRig_Nia/RLContent/Nia/SK_Nia"
+    NIA_ANIM = ["/Game/CC_ControlRig_Nia/RLContent/Nia/Motions/MF_Idle",
+                "/Game/CC_ControlRig_Nia/RLContent/Nia/Motions/MM_Idle"]
+    # Facing, measured rather than assumed. At actor yaw 180 the streamed frame showed her in
+    # LEFT PROFILE, nose toward screen-left. The camera looks along +X with +Z up, so screen-left
+    # is -Y (visual yaw 270) => her mesh carries a +90 intrinsic offset (visual = actor + 90).
+    # Facing the camera means visual = 180 (-X), so actor = 90. (Same offset Seo's export had.)
+    # ALWAYS confirm facing by finding EYES in a captured frame, never by reasoning alone.
+    NIA_YAW = 90.0
+    nia_placed = False
+    try:
+        nia = unreal.load_asset(NIA_SK)
+        if nia:
+            a = spawn(unreal.SkeletalMeshActor, RES_POS, yaw=NIA_YAW)
+            a.set_actor_label("Nia")
+            comp = a.skeletal_mesh_component
+            comp.set_skeletal_mesh(nia)
+            try:
+                bb = nia.get_bounds().box_extent
+                w("Nia: mesh loaded, half-height=%.1fcm (expect ~85-90 for a ~175cm human)" % bb.z)
+            except Exception:
+                pass
+            mats = nia.get_editor_property("materials")
+            w("Nia: %d material slots, e.g. %s" % (len(mats), ",".join(
+                (s.get_editor_property("material_interface").get_name()
+                 if s.get_editor_property("material_interface") else "NONE") for s in mats[:4])))
+            # Idle animation. Set animation_data as a WHOLE struct — mutating the struct
+            # returned by get_editor_property does not persist (same trap as the materials array).
+            anim = next((x for x in (unreal.load_asset(p) for p in NIA_ANIM) if x), None)
+            if anim:
+                comp.set_editor_property("animation_mode", unreal.AnimationMode.ANIMATION_SINGLE_NODE)
+                ad = comp.get_editor_property("animation_data")
+                ad.set_editor_property("anim_to_play", anim)
+                ad.set_editor_property("saved_looping", True)
+                ad.set_editor_property("saved_playing", True)
+                comp.set_editor_property("animation_data", ad)
+                back = comp.get_editor_property("animation_data").get_editor_property("anim_to_play")
+                w("Nia: idle anim = %s (persisted=%s)" % (anim.get_name(), back.get_name() if back else "NONE"))
+            else:
+                w("Nia: NO idle anim found (tried %s) — she will stand in bind pose" % NIA_ANIM)
+            nia_placed = True
+            w("resident: NIA placed at %s yaw %.0f" % (RES_POS, NIA_YAW))
+        else:
+            w("Nia: %s not found — falling back to the MetaHuman Seo path" % NIA_SK)
+    except Exception as e:
+        import traceback as _tb
+        w("NIA ERROR (falling back to Seo): %s\n%s" % (e, _tb.format_exc()[:600]))
+
     def import_skel(fbx, dest):
         ui = unreal.FbxImportUI()
         ui.set_editor_property("import_mesh", True)
@@ -326,6 +385,8 @@ try:
     seo_parts = [("/mh/fbx/SKM_MHC_Seo_BodyMesh.fbx", "/Game/Seo/Body", BODY_SLOTS),
                  ("/mh/fbx/SKM_MHC_Seo_FaceMesh.fbx", "/Game/Seo/Face", FACE_SLOTS),
                  ("/mh/fbx/MHC_Seo_Outfits.fbx",      "/Game/Seo/Outfit", OUTFIT_SLOTS)]
+    if nia_placed:
+        seo_parts = []   # Nia is the resident; skip the Seo import entirely (saves ~2 min too)
     placed_seo = 0
     for fbx, dest, slotmap in seo_parts:
         m = import_skel(fbx, dest)
@@ -359,9 +420,10 @@ try:
         a.set_actor_label("Seo_" + dest.split("/")[-1])
         a.skeletal_mesh_component.set_skeletal_mesh(m)
         placed_seo += 1
-    w("resident: MetaHuman Seo placed (%d/%d parts, skinned+clothed) at %s yaw %.0f"
-      % (placed_seo, len(seo_parts), RES_POS, RES_YAW))
-    if placed_seo == 0:
+    if not nia_placed:
+        w("resident: MetaHuman Seo placed (%d/%d parts, skinned+clothed) at %s yaw %.0f"
+          % (placed_seo, len(seo_parts), RES_POS, RES_YAW))
+    if placed_seo == 0 and not nia_placed:
         skm = unreal.load_asset('/MoverTests/Characters/Mannequins/Meshes/SKM_Manny')
         if skm:
             a = spawn(unreal.SkeletalMeshActor, RES_POS, yaw=RES_YAW); a.set_actor_label("Resident")
