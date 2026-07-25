@@ -259,7 +259,19 @@ try:
         rg = MEL.create_material_expression(M_Skin, unreal.MaterialExpressionConstant, -380, 250)
         rg.set_editor_property("r", 0.55)
         MEL.connect_material_property(rg, "", unreal.MaterialProperty.MP_ROUGHNESS)
+        # *** THE gray-render root cause ***: a material created via MaterialFactoryNew has NO
+        # usage flags. Applying it to a SkeletalMesh with the skeletal-mesh variant uncompiled
+        # makes UE fall back to the DEFAULT (gray) material at runtime/cook (logs
+        # "Material with missing usage flag was applied to skeletal mesh") — which is why every
+        # prior attempt (component override, fresh SkeletalMaterial structs, textured, constant
+        # color) rendered pixel-identical gray. Flag both usages so the SM variants get compiled
+        # into the cook. Morph targets: the Face carries 849 (the viseme rig) so it needs it too.
+        for _flag in ("used_with_skeletal_mesh", "used_with_morph_targets"):
+            M_Skin.set_editor_property(_flag, True)
         MEL.recompile_material(M_Skin)
+        w("  M_SeoSkin usage: skel=%s morph=%s" % (
+            M_Skin.get_editor_property("used_with_skeletal_mesh"),
+            M_Skin.get_editor_property("used_with_morph_targets")))
 
         # masked "hidden" material (opacity mask 0) for the transparent overlay slots
         M_Hidden = tools.create_asset("M_SeoHidden", "/Game/Seo/Mat", unreal.Material, unreal.MaterialFactoryNew())
@@ -267,6 +279,8 @@ try:
         z = MEL.create_material_expression(M_Hidden, unreal.MaterialExpressionConstant, -380, 0)
         z.set_editor_property("r", 0.0)
         MEL.connect_material_property(z, "", unreal.MaterialProperty.MP_OPACITY_MASK)
+        for _flag in ("used_with_skeletal_mesh", "used_with_morph_targets"):
+            M_Hidden.set_editor_property(_flag, True)
         MEL.recompile_material(M_Hidden)
 
         def mic(name, color):
