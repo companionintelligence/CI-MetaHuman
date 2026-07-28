@@ -1,0 +1,21 @@
+# Face self-test overlay.
+#
+# UCompanionFaceSubsystem cycles every viseme in turn, so lip movement can be verified in a
+# captured frame BEFORE any TTS exists. This is the check that distinguishes "the rig has these
+# morph names in the editor" from "the shipped app can actually move them" — morph targets can be
+# stripped at import/cook, and SetMorphTarget on a missing name is a silent no-op, so the only
+# symptom of that failure is a face that never moves.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.amd.yml -f docker-compose.ollama.yml \
+#                  -f docker-compose.face.yml up -d project
+#
+# Drop this overlay (or set MHLLM_FACE_SELFTEST=0) once real speech drives the face.
+services:
+  project:
+    image: ci/metahuman-local-llm:5.5-face
+    environment:
+      # Cycle the viseme vocabulary on loop.
+      MHLLM_FACE_SELFTEST: "1"
+      # Rig naming for the resident. CC = Reallusion Character Creator (Nia's V_* morphs);
+      # ARKit = MetaHuman. The two are not interchangeable.
+      MHLLM_FACE_PROFILE: "CC"
