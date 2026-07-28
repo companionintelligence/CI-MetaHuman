@@ -234,6 +234,12 @@ try:
         if nia:
             a = spawn(unreal.SkeletalMeshActor, RES_POS, yaw=NIA_YAW)
             a.set_actor_label("Nia")
+            # TAG, not label: actor labels are EDITOR-ONLY and do not survive the cook, so a
+            # label-based lookup works in the editor and silently finds nothing in the shipped
+            # build. UCompanionFaceSubsystem finds the resident by this tag at BeginPlay and
+            # attaches the face driver — which is how behaviour reaches a map that is authored
+            # in a content-only project and therefore cannot reference plugin C++ or Blueprints.
+            a.set_editor_property("tags", ["CompanionFace"])
             comp = a.skeletal_mesh_component
             comp.set_skeletal_mesh(nia)
             try:
