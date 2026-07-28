@@ -15,6 +15,32 @@ Audio2Face runs a neural network on an NVIDIA GPU to *infer* mouth shapes from a
 
 An adversarial cross-platform review (see [§6](#6-cross-platform-reality-check--corrections)) confirmed the core thesis holds and found the real vendor exposure lives in the **delivery layer** (video encode) and one **linchpin** (Piper alignment needs a patched model) — both addressed there. Read §6 alongside the design sections; its corrections are authoritative where they conflict with an earlier optimistic phrasing.
 
+> ### Measured 2026-07-28 — the resident is CC-named, not ARKit-named
+>
+> This plan maps phoneme → viseme → **ARKit** curves throughout, which assumed a MetaHuman face.
+> The resident is now Reallusion CC **Nia** ([[nia-resident]]), and her rig was probed directly:
+>
+> - **ARKit-named morph targets: 0 of 10** sampled (`jawOpen`, `mouthFunnel`, `mouthPucker`,
+>   `eyeBlinkLeft`, … none present). The ARKit tables below therefore do **not** apply to her as
+>   written.
+> - **CC viseme morph targets: 15 of 15 present** — `V_Open`, `V_Wide`, `V_Tight`, `V_Tight_O`,
+>   `V_Explosive`, `V_Dental_Lip`, `V_Affricate`, `V_Lip_Open`, and the seven `V_Tongue_*`.
+> - 286 morph targets total, including a deep articulator set (`Jaw_Open/L/R/Forward/Up/Down`,
+>   `Mouth_Close`, `Mouth_Funnel_*`, `Mouth_Pucker_*`, `Mouth_Press_*`), plus an `ExpPoseAsset`
+>   carrying the CC phoneme poses (`Ah`, `EE`, `Ih`, `Oh`, `W_OO`, `S_Z`, `T_L_D_N`, `K_G_H_NG`,
+>   `Th`, `R`, `AE`) and FACS expressions (`Eye_Blink_L/R`, `Mouth_Smile_L/R`, `Brow_Raise_*`).
+>
+> **The design survives; only the output table is retargeted.** Make the phoneme→viseme stage
+> vendor-neutral (it already is) and put the rig-specific names behind a swappable **face profile**
+> — a CC profile for Nia, an ARKit profile for MetaHuman — so both are drivable from one mapper.
+>
+> One simplification this unlocks: because the 15 visemes are **real morph targets** rather than
+> only PoseAsset entries, they can be driven by `SetMorphTarget()` straight from C++. No AnimBP
+> node, no Control Rig, and critically **no Blueprint** — which matters because
+> `AMetaHumanCompanionCharacter` emits `BlueprintImplementableEvent`s that are inert without a
+> hand-authored `BP_CompanionCharacter`, and the diorama map is authored by Python in a
+> content-only project that cannot reference plugin C++ at all.
+
 ## Table of contents
 
 1. [Cross-Platform Viseme & Lip Pipeline (the Audio2Face alternative)](#1-cross-platform-viseme--lip-pipeline-the-audio2face-alternative)
