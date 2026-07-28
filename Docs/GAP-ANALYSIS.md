@@ -28,7 +28,7 @@ the missing piece is small and structural rather than a body of unwritten featur
 | **Body / presence** | ✅ Working | Nia renders with 23 authored PBR material slots, correct scale and facing. |
 | **Idle animation** | ✅ Working | `MF_Idle` on the component; verified by diffing two live frames (6.4% of her pixels changed). |
 | **Face rig** | ✅ Capable | 286 morph targets, all 15 CC visemes, full FACS expression set. `Docs/reference/nia-morph-targets.txt`. |
-| **Face driver** | ⚠️ Built, unproven | `UCompanionFaceComponent` + `UCompanionFaceSubsystem`, 69/69 tests green, compiles on Linux. Self-test cook in flight — morph targets can be stripped at cook, and `SetMorphTarget` on a missing name is a silent no-op. |
+| **Face driver** | ✅ Proven in the cooked build | `UCompanionFaceComponent` + `UCompanionFaceSubsystem`, 69/69 tests green. Cooked and deployed 2026-07-28: `Face profile 'CC': all 14 curves resolved on 'SK_Nia'` — morph targets **survive the cook**, which was the real risk. Self-test ran and mouth shape varies across captured frames. |
 | **Viseme mapping** | ⚠️ Partial | Viseme→curve done for CC and ARKit. **Phoneme→viseme does not exist.** |
 | **Phoneme timing** | ❌ Missing | `FVisemeEnvelope` is still 1-DOF RMS→jaw ("muppet mouth"). `FPhonemeSpan`/`FVisemeTrack` from ANIMATION-PLAN §1.2 are unwritten. Piper alignment extraction not started. |
 | **Speech out (TTS)** | ⚠️ Code only | `UPiperTextToSpeech` → `USoundWaveProcedural` → `AudioComponent` exists. **No Piper service deployed** (`PIPER_SERVER_URL=` empty). Audio over Pixel Streaming never verified. |

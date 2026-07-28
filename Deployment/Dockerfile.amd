@@ -9,7 +9,13 @@
 # Nothing else needs to change between versions: Target.cs uses BuildSettingsVersion.Latest, and
 # MetaHumanLocalLLM.uproject marks the 5.8-only plugins (Unreal-MCP, MetaHuman*) "Optional" so the
 # same project opens in the 5.8 dev editor yet cooks clean on 5.5. For pre-5.6 targets, the build
-# regenerates the stage with compatible engine assets and drops 5.8 MetaHumanCharacter assets.
+# drops 5.8-only plugins and MetaHumanCharacter assets, and synthesizes a stage ONLY if none was
+# supplied.
+#
+# The plugin strip-list below is a safety net, not redundancy: the 5.8 editor ADDS plugins to the
+# .uproject on its own (this is how AIAssistant appeared), and it adds them as REQUIRED rather than
+# "Optional": true, so a 5.5 cook hard-fails with "Unable to find plugin". Anything 5.8-only that
+# shows up must be listed here or the next cook from a full checkout breaks.
 #
 # Stage 1 packages on Epic's dev image; stage 2 is an Ubuntu+Mesa (RADV/VAAPI) runtime so the app
 # renders with Vulkan and hardware-encodes over /dev/dri. Prereq: ghcr.io/epicgames access.
@@ -26,7 +32,7 @@ RUN cd /home/ue4/project-src \
  && python3 -c "import json; p=json.load(open('MetaHumanLocalLLM.uproject')); p['EngineAssociation']='${RELEASE}'; json.dump(p, open('MetaHumanLocalLLM.uproject','w'), indent='\t')" \
  && MINOR="$(echo "${RELEASE}" | cut -d. -f2)" \
  && if [ "${MINOR:-8}" -lt 6 ]; then \
-        python3 -c "import json; path='MetaHumanLocalLLM.uproject'; p=json.load(open(path)); disabled={'MCPClientToolset','ModelContextProtocol','AllToolsets','MetaHuman','MetaHumanCharacter','MetaHumanCalibrationProcessing','MetaHumanCoreTech','MetaHumanLiveLink','MetaHumanGenerator','MetaHumanCharacterUAF','MetaHumanCalibrationDiagnostics'}; p['Plugins']=[plugin for plugin in p.get('Plugins', []) if plugin.get('Name') not in disabled]; json.dump(p, open(path,'w'), indent='\t')"; \
+        python3 -c "import json; path='MetaHumanLocalLLM.uproject'; p=json.load(open(path)); disabled={'MCPClientToolset','ModelContextProtocol','AllToolsets','MetaHuman','MetaHumanCharacter','MetaHumanCalibrationProcessing','MetaHumanCoreTech','MetaHumanLiveLink','MetaHumanGenerator','MetaHumanCharacterUAF','MetaHumanCalibrationDiagnostics','AIAssistant'}; p['Plugins']=[plugin for plugin in p.get('Plugins', []) if plugin.get('Name') not in disabled]; json.dump(p, open(path,'w'), indent='\t')"; \
         echo "RELEASE ${RELEASE} < 5.6: dropping 5.8-only MetaHumanCharacter assets"; \
         rm -rf Content/MetaHumans Content/KhaosMDF492 Content/TestMetaHumanCharacter.uasset \
                Content/OA_KhaosMDF492.uasset Content/WI_KhaosMDF492.uasset; \
