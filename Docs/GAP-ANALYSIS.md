@@ -8,6 +8,16 @@
 > with it. Rows marked ✅ **NEW** in the matrix changed as a result. One claim below was also WRONG
 > and is corrected in place: `gemma4:e2b` **does** exist on the host — I read that off a truncated
 > listing. The real problem with it is latency, not absence.
+>
+> **VERIFIED LIVE 2026-07-30.** Cooked, deployed, and confirmed on the stream with `CI_HUB_URL`
+> present and no workaround, so the backend-precedence fix is proven in a shipped build rather
+> than only in unit tests:
+> ```
+> Companion spawned and bound (backend=ollama model=gemma3:1b).
+> Companion replied (58 chars): Well hello there! Welcome to my little corner of the past.
+> Speaking: 52 viseme spans over 5.59s.
+> ```
+> Round trip 0.63s. Face curves resolve 16/16. 141 backend tests pass, 0 fail.
 
 ## The headline
 
