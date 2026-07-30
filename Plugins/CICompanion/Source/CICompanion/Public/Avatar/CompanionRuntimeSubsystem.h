@@ -39,6 +39,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM")
 	bool SubmitUserText(const FString& Text);
 
+	// Speaks an exact line WITHOUT consulting the LLM. The opening line is a brand statement: it
+	// must be word-for-word identical every run, and must not wait on a model round trip while the
+	// camera holds on her face. Drives the same face/TTS path a generated reply would.
+	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM")
+	bool SpeakLiteral(const FString& Text);
+
 private:
 	// Receives the finished reply and drives the mouth from it. Must be a UFUNCTION: the delegate
 	// is dynamic, so a lambda or raw member cannot bind to it.

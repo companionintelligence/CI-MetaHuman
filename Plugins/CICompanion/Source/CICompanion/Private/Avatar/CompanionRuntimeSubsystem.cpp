@@ -66,8 +66,10 @@ void UCompanionRuntimeSubsystem::OnWorldBeginPlay(UWorld& InWorld)
 	// An opening line, because there is still no input path: without it a correct build is
 	// indistinguishable from a broken one. Deferred rather than sent inline, since the LLM call is
 	// slow enough to stall level load and the streamer has not attached yet at BeginPlay.
-	const FString Greeting = GetEnv(TEXT("MHLLM_GREETING"),
-		TEXT("Greet the visitor in one short sentence."));
+	// Default is now "none": the opening line is scripted and delivered by
+	// UCompanionStageDirector at the end of the camera move. Two greetings would collide -- the
+	// LLM one would fire on a 5s timer while the camera was still flying.
+	const FString Greeting = GetEnv(TEXT("MHLLM_GREETING"), TEXT("none"));
 	if (!Greeting.IsEmpty() && !Greeting.Equals(TEXT("none"), ESearchCase::IgnoreCase))
 	{
 		FTimerHandle Handle;
@@ -98,6 +100,18 @@ UCompanionFaceComponent* UCompanionRuntimeSubsystem::ResolveFace() const
 	}
 	const UCompanionFaceSubsystem* FaceSubsystem = World->GetSubsystem<UCompanionFaceSubsystem>();
 	return FaceSubsystem ? FaceSubsystem->GetFace() : nullptr;
+}
+
+bool UCompanionRuntimeSubsystem::SpeakLiteral(const FString& Text)
+{
+	if (Text.IsEmpty())
+	{
+		return false;
+	}
+	// Deliberately routed through the same handler a generated reply uses, so scripted and live
+	// speech can never drift apart in how they drive the face.
+	HandleCompanionSpoke(Text);
+	return true;
 }
 
 void UCompanionRuntimeSubsystem::HandleCompanionSpoke(const FString& Text)

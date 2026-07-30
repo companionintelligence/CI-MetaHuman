@@ -40,4 +40,17 @@ services:
       # Opening line, sent a few seconds after level load. It exists because there is still no
       # input path: without an unprompted first turn, a fully working build and a completely
       # broken one look identical. Set to "none" to disable.
-      MHLLM_GREETING: "${MHLLM_GREETING:-Greet the visitor to your 1970s computer room in one short sentence.}"
+      # The opening is now a SCRIPTED shot, not a generated greeting: the camera flies the hall,
+      # settles behind her, she turns to the lens, and says this verbatim. A brand line has to be
+      # identical every run and must not wait on a model round trip while the camera holds on her.
+      MHLLM_GREETING: "${MHLLM_GREETING:-none}"
+      MHLLM_OPENING_LINE: "${MHLLM_OPENING_LINE:-Welcome to Companion Intelligence, I'm Eliza. How can I help you?}"
+      MHLLM_FLY_SECONDS: "${MHLLM_FLY_SECONDS:-11.0}"
+      # Set MHLLM_OPENING_SHOT=0 to land straight in the live call framing (useful when iterating
+      # on conversation rather than on the shot).
+      MHLLM_OPENING_SHOT: "${MHLLM_OPENING_SHOT:-1}"
+
+      # She is Eliza -- named for the 1966 program, which is the right joke for a machine room of
+      # this vintage. The persona has to agree with the scripted line or her first two sentences
+      # will introduce two different characters.
+      MHLLM_SYSTEM_PROMPT: "${MHLLM_SYSTEM_PROMPT:-You are Eliza, the resident intelligence of Companion Intelligence, speaking from a 1970s mainframe room. Warm, curious, concise. Reply in one or two short sentences.}"
