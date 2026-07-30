@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "Avatar/FaceProfile.h"
+#include "Voice/VisemePlanner.h"
 #include "CompanionFaceComponent.generated.h"
 
 class USkeletalMeshComponent;
@@ -67,6 +68,25 @@ public:
 	UFUNCTION(BlueprintPure, Category = "MetaHumanLLM|Face")
 	bool IsSelfTesting() const { return bSelfTesting; }
 
+	// Speaks a planned viseme track (see FVisemePlanner). Replaces any track already playing, so a
+	// new reply interrupts the old one rather than the two summing into mush.
+	void PlayVisemeTrack(const TArray<struct FVisemeSpan>& Track);
+
+	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM|Face")
+	void StopSpeaking();
+
+	UFUNCTION(BlueprintPure, Category = "MetaHumanLLM|Face")
+	bool IsSpeaking() const { return bSpeaking; }
+
+	// Involuntary blinking. Cheap, and its absence is precisely what makes an otherwise good
+	// render read as a mannequin — a still face with open eyes looks dead in a way a viewer
+	// notices immediately even when they cannot say why.
+	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM|Face")
+	void SetBlinkEnabled(bool bEnabled);
+
+	UFUNCTION(BlueprintPure, Category = "MetaHumanLLM|Face")
+	bool IsBlinkEnabled() const { return bBlinkEnabled; }
+
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
 protected:
@@ -76,6 +96,9 @@ private:
 	// Counts how many profile curves the bound mesh actually provides, and logs the missing ones
 	// once. Called on bind rather than per frame.
 	void ResolveCurvesAgainstMesh();
+
+	// Advances the blink clock and returns the current eyelid closure, 0..1.
+	float TickBlink(float DeltaTime);
 
 	UPROPERTY(Transient)
 	TObjectPtr<USkeletalMeshComponent> TargetMesh;
@@ -87,4 +110,13 @@ private:
 	bool bSelfTesting = false;
 	float SelfTestSecondsPerViseme = 0.4f;
 	float SelfTestElapsed = 0.0f;
+
+	TArray<FVisemeSpan> SpeechTrack;
+	bool bSpeaking = false;
+	float SpeechElapsed = 0.0f;
+
+	bool bBlinkEnabled = true;
+	float BlinkTimer = 0.0f;
+	float NextBlinkIn = 3.0f;
+	float BlinkProgress = -1.0f;	// <0 == eyes open
 };

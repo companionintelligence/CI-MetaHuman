@@ -13,6 +13,23 @@ both headless (no live Ollama server, no rendering required):
   meaningfully exercise; see "Not covered" below.
 - `EmotionMapperSpec.cpp` — table-driven text→emotion→animation-category mapping.
 - `ConversationHistorySpec.cpp` — system-prompt seeding, turn ordering, reset.
+- `CompatSpec.cpp` — the UE 5.5↔5.8 compatibility layer (`MetaHumanLocalLLM.Backend.Compat`).
+  Split so that a compile-time shim is genuinely testable: the *compatibility table*
+  (`FCICompatReport::ExpectedFor(major, minor)`) is a pure function with no `#if` in it, so the
+  5.5 answers are asserted even when only 5.8 is installed; a single *compiled binding* check
+  then proves the preprocessor selected the row the table specifies for the engine actually
+  running. Run it on both engines and both `#if` branches are covered.
+- `FaceVocabularySpec.cpp` — guards the curve **names** the face driver writes. The failure this
+  catches is silent: `SetMorphTarget` on a name the mesh lacks does nothing at all, so one typo
+  reads as a rig bug. Validates `FFaceProfile::ARKit()` against the canonical ARKit-52 allow-list
+  (the `mouthSmileLeft` vs `mouthSmile_L` trap from ANIMATION-PLAN §5.3), asserts CC and ARKit
+  stay disjoint vocabularies, and pins the 52-vs-61 distinction — `EARFaceBlendShape` declares
+  **61** enumerators, the last 9 being head/eye *pose* channels, so any `i < 52` loop is mis-sized.
+- `VisemeInteropSpec.cpp` — the bridge to the org's other embodied agents: the Oculus/OVR-15
+  viseme names spelled exactly as CI-Spatial-Companion-WebXR/Unity/WebSpatial spell them
+  (mixed case is load-bearing — `viseme_kk` lowercase, `viseme_PP` uppercase), and the
+  `{ words, wtimes, wdurations }` millisecond timing envelope those repos pass between TTS and
+  their viseme generator.
 
 Run: `Scripts/RunBackendTests.ps1`
 

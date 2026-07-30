@@ -133,8 +133,47 @@ void UCompanionFaceComponent::TickComponent(float DeltaTime, ELevelTick TickType
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
+	// Blink is involuntary and composites over whatever the mouth is doing, so it is computed
+	// every frame regardless of speech or self-test state.
+	const float Blink = TickBlink(DeltaTime);
+
+	// Speech wins over the self-test: once there is real dialogue to say, the diagnostic loop
+	// should get out of the way rather than fight it for the same curves.
+	if (bSpeaking)
+	{
+		SpeechElapsed += DeltaTime;
+
+		TMap<EViseme, float> Active = FVisemePlanner::SampleAt(SpeechTrack, SpeechElapsed);
+		TMap<FName, float> Curves;
+		for (const TPair<EViseme, float>& Pair : Active)
+		{
+			Profile.Accumulate(Pair.Key, Pair.Value, Curves);
+		}
+		for (const FName& BlinkCurve : Profile.BlinkCurves)
+		{
+			Curves.Add(BlinkCurve, Blink);
+		}
+		ApplyCurves(Curves);
+
+		if (SpeechElapsed >= FVisemePlanner::TrackDuration(SpeechTrack))
+		{
+			StopSpeaking();
+		}
+		return;
+	}
+
 	if (!bSelfTesting)
 	{
+		// Idle: nothing to say, but keep blinking so the face is not a waxwork.
+		if (Blink > 0.0f)
+		{
+			TMap<FName, float> Curves;
+			for (const FName& BlinkCurve : Profile.BlinkCurves)
+			{
+				Curves.Add(BlinkCurve, Blink);
+			}
+			ApplyCurves(Curves);
+		}
 		return;
 	}
 
@@ -152,4 +191,73 @@ void UCompanionFaceComponent::TickComponent(float DeltaTime, ELevelTick TickType
 	TMap<EViseme, float> Active;
 	Active.Add(static_cast<EViseme>(Index), Weight);
 	ApplyVisemes(Active);
+}
+
+void UCompanionFaceComponent::PlayVisemeTrack(const TArray<FVisemeSpan>& Track)
+{
+	// A new utterance replaces the old one outright. Blending two tracks would let a stale reply
+	// keep moving the mouth under a fresh one, which reads as a glitch rather than as speech.
+	SpeechTrack = Track;
+	SpeechElapsed = 0.0f;
+	bSpeaking = Track.Num() > 0;
+	if (bSpeaking)
+	{
+		bSelfTesting = false;	// real speech supersedes the diagnostic loop
+	}
+}
+
+void UCompanionFaceComponent::StopSpeaking()
+{
+	if (!bSpeaking)
+	{
+		return;
+	}
+	bSpeaking = false;
+	SpeechTrack.Reset();
+	SpeechElapsed = 0.0f;
+	ClearFace();
+}
+
+void UCompanionFaceComponent::SetBlinkEnabled(bool bEnabled)
+{
+	bBlinkEnabled = bEnabled;
+	if (!bEnabled)
+	{
+		BlinkProgress = -1.0f;
+	}
+}
+
+float UCompanionFaceComponent::TickBlink(float DeltaTime)
+{
+	if (!bBlinkEnabled || Profile.BlinkCurves.Num() == 0)
+	{
+		return 0.0f;
+	}
+
+	// Mid-blink: a fast close and a slightly slower open, roughly 120ms end to end. Symmetric
+	// linear motion looks mechanical, so the two halves differ.
+	if (BlinkProgress >= 0.0f)
+	{
+		constexpr float BlinkSeconds = 0.12f;
+		BlinkProgress += DeltaTime / BlinkSeconds;
+		if (BlinkProgress >= 1.0f)
+		{
+			BlinkProgress = -1.0f;
+			return 0.0f;
+		}
+		return BlinkProgress < 0.4f
+			? FMath::Clamp(BlinkProgress / 0.4f, 0.0f, 1.0f)			// closing
+			: FMath::Clamp(1.0f - ((BlinkProgress - 0.4f) / 0.6f), 0.0f, 1.0f);	// opening
+	}
+
+	// Between blinks. Humans blink irregularly every 2-6s; a fixed interval is immediately
+	// legible as a machine, so the next gap is randomised each time.
+	BlinkTimer += DeltaTime;
+	if (BlinkTimer >= NextBlinkIn)
+	{
+		BlinkTimer = 0.0f;
+		NextBlinkIn = FMath::FRandRange(2.0f, 6.0f);
+		BlinkProgress = 0.0f;
+	}
+	return 0.0f;
 }

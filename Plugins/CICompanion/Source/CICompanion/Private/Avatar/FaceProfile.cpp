@@ -16,6 +16,7 @@ namespace
 	{
 		FFaceProfile P;
 		P.ProfileName = TEXT("CC");
+		P.BlinkCurves = { TEXT("Eye_Blink_L"), TEXT("Eye_Blink_R") };
 		Add(P, EViseme::Sil, { { TEXT("Mouth_Close"), 0.15f } });
 		Add(P, EViseme::PP,  { { TEXT("V_Explosive"), 1.0f } });
 		Add(P, EViseme::FF,  { { TEXT("V_Dental_Lip"), 1.0f } });
@@ -40,6 +41,7 @@ namespace
 	{
 		FFaceProfile P;
 		P.ProfileName = TEXT("ARKit");
+		P.BlinkCurves = { TEXT("eyeBlinkLeft"), TEXT("eyeBlinkRight") };
 		Add(P, EViseme::Sil, { { TEXT("mouthClose"), 0.10f } });
 		Add(P, EViseme::PP,  { { TEXT("mouthPressLeft"), 0.70f }, { TEXT("mouthPressRight"), 0.70f }, { TEXT("mouthClose"), 0.60f } });
 		Add(P, EViseme::FF,  { { TEXT("mouthLowerDownLeft"), 0.40f }, { TEXT("mouthLowerDownRight"), 0.40f }, { TEXT("mouthShrugUpper"), 0.40f } });
@@ -81,6 +83,12 @@ TArray<FName> FFaceProfile::AllCurves() const
 		{
 			Unique.Add(Curve.Curve);
 		}
+	}
+	// Blink curves too: AllCurves is what the driver zeroes each frame, so omitting them would
+	// leave a blink latched shut the moment the eyes closed.
+	for (const FName& Blink : BlinkCurves)
+	{
+		Unique.Add(Blink);
 	}
 	return Unique.Array();
 }

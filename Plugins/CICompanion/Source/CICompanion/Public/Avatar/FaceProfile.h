@@ -76,6 +76,11 @@ struct CICOMPANION_API FFaceProfile
 	UPROPERTY(BlueprintReadOnly, Category = "MetaHumanLLM|Face")
 	TMap<EViseme, FVisemeShape> Shapes;
 
+	// Eyelid-closure curves, kept separate from Shapes because blinking is involuntary and must
+	// composite ON TOP of speech rather than being one of the shapes speech selects between.
+	UPROPERTY(BlueprintReadOnly, Category = "MetaHumanLLM|Face")
+	TArray<FName> BlinkCurves;
+
 	// Resolves a viseme to its weighted curves, accumulating into OutCurves so overlapping
 	// visemes (coarticulation) sum rather than overwrite. Unknown visemes contribute nothing.
 	void Accumulate(EViseme Viseme, float Weight, TMap<FName, float>& OutCurves) const;
