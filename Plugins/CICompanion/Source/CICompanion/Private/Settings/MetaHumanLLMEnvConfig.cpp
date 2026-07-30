@@ -54,6 +54,35 @@ int32 FMetaHumanLLMEnvConfig::Apply(UMetaHumanLLMSettings& Settings, FEnvLookup 
 	TryString(TEXT("CI_HUB_TOKEN"), Settings.OpenAIApiKey);
 	TryString(TEXT("CI_HUB_MODEL"), Settings.OpenAIModel);
 
+	// Vendor-neutral aliases, so this build is a THIN CLIENT for any OpenAI-compatible server --
+	// LM Studio, llama.cpp, vLLM, Lemonade -- with no code change and no CI-hub naming. Applied
+	// after the hub vars so an explicit OPENAI_* wins over an inherited CI_HUB_*.
+	//
+	// LM Studio serves /v1 on :1234 by default and ignores the key, but sends 401 without a
+	// header, hence the placeholder default rather than empty.
+	//   MHLLM_BACKEND=openai OPENAI_BASE_URL=http://host:1234/v1 OPENAI_MODEL=<id>
+	TryString(TEXT("OPENAI_BASE_URL"), Settings.OpenAIBaseUrl);
+	TryString(TEXT("OPENAI_MODEL"), Settings.OpenAIModel);
+	TryString(TEXT("OPENAI_API_KEY"), Settings.OpenAIApiKey);
+
+	// Convenience: naming the LM Studio endpoint alone is enough to select it, since nobody sets
+	// it while wanting a different backend.
+	const FString LmStudio = EnvLookup(TEXT("LMSTUDIO_BASE_URL"));
+	if (!LmStudio.IsEmpty())
+	{
+		Settings.OpenAIBaseUrl = LmStudio;
+		if (!bBackendExplicit)
+		{
+			Settings.BackendType = EChatBackendType::OpenAICompatible;
+		}
+		if (Settings.OpenAIApiKey.IsEmpty())
+		{
+			Settings.OpenAIApiKey = TEXT("lm-studio");
+		}
+		++Applied;
+	}
+	TryString(TEXT("LMSTUDIO_MODEL"), Settings.OpenAIModel);
+
 	// Direct Ollama overrides (for a sidecar Ollama rather than the hub).
 	TryString(TEXT("OLLAMA_BASE_URL"), Settings.OllamaBaseUrl);
 	TryString(TEXT("OLLAMA_MODEL"), Settings.OllamaModel);

@@ -5,6 +5,7 @@
 #include "Voice/NullSpeechToText.h"
 #include "Voice/NullTextToSpeech.h"
 #include "Voice/WhisperSpeechToText.h"
+#include "Voice/KokoroTextToSpeech.h"
 #include "Voice/PiperTextToSpeech.h"
 #include "Voice/SpeechToTextComponent.h"
 #include "Voice/TextToSpeechComponent.h"
@@ -43,18 +44,34 @@ void AMetaHumanCompanionCharacter::BeginPlay()
 		}
 	}
 
-	if (!Settings->PiperServerUrl.IsEmpty())
+	// Kokoro first, then Piper, then silence. Without this the default UNullTextToSpeech survives
+	// and the character is MUTE BY CONSTRUCTION -- which is exactly what shipped: the Pixel
+	// Streaming audio track was negotiated and live, and carried digital silence for 40s straight,
+	// because UKokoroTextToSpeech was fully written and unit-tested but never once instantiated.
+	// The same class of defect as the companion actor itself: implemented, tested, unreachable.
+	UTextToSpeechComponent* SelectedTTS = nullptr;
+	if (!Settings->KokoroServerUrl.IsEmpty())
 	{
-		UPiperTextToSpeech* RealTTS = NewObject<UPiperTextToSpeech>(this, TEXT("RealTextToSpeech"));
-		if (RealTTS)
+		SelectedTTS = NewObject<UKokoroTextToSpeech>(this, TEXT("RealTextToSpeech"));
+	}
+	else if (!Settings->PiperServerUrl.IsEmpty())
+	{
+		SelectedTTS = NewObject<UPiperTextToSpeech>(this, TEXT("RealTextToSpeech"));
+	}
+	if (SelectedTTS)
+	{
+		if (TextToSpeech)
 		{
-			if (TextToSpeech)
-			{
-				TextToSpeech->DestroyComponent();
-			}
-			TextToSpeech = RealTTS;
-			TextToSpeech->RegisterComponent();
+			TextToSpeech->DestroyComponent();
 		}
+		TextToSpeech = SelectedTTS;
+		TextToSpeech->RegisterComponent();
+		UE_LOG(LogMetaHumanLLM, Log, TEXT("TTS backend: %s"), *TextToSpeech->GetClass()->GetName());
+	}
+	else
+	{
+		UE_LOG(LogMetaHumanLLM, Warning,
+			TEXT("No TTS server configured (KOKORO_SERVER_URL / PIPER_SERVER_URL); she will be silent."));
 	}
 
 	if (SpeechToText)

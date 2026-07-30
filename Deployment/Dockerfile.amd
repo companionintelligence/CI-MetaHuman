@@ -69,6 +69,12 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 
 # Packaged UE Linux binaries refuse to run as root; use a non-root user at uid 1001 (ubuntu:26.04
 # already owns 1000). /dev/dri access comes from the container's group_add in docker-compose.amd.yml.
+# A null ALSA default so UE's audio mixer can START in a container with no sound hardware.
+# Without it the mixer only ever reaches "Pre-Initialized", Pixel Streaming has no submix to
+# capture, and the negotiated audio track carries digital silence forever -- a failure that looks
+# identical to working audio unless you measure the track's energy.
+RUN { echo "pcm.!default { type null }"; echo "ctl.!default { type null }"; } > /etc/asound.conf
+
 RUN useradd -m -u 1001 -s /bin/bash ue4
 COPY --from=builder --chown=ue4:ue4 /home/ue4/project-src/dist/Linux /home/ue4/project
 USER ue4

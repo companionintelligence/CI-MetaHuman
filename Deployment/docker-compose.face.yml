@@ -54,3 +54,18 @@ services:
       # this vintage. The persona has to agree with the scripted line or her first two sentences
       # will introduce two different characters.
       MHLLM_SYSTEM_PROMPT: "${MHLLM_SYSTEM_PROMPT:-You are Eliza, the resident intelligence of Companion Intelligence, speaking from a 1970s mainframe room. Warm, curious, concise. Reply in one or two short sentences.}"
+
+      # --- Voice, via AMD Lemonade Server on beta-1 (ROCm), reached over the same SSH tunnel as
+      # Ollama. Without KOKORO_SERVER_URL the character keeps its default UNullTextToSpeech and is
+      # MUTE: the Pixel Streaming audio track still negotiates and goes live, and carries digital
+      # silence forever. That is exactly what shipped until this was set, and it is invisible
+      # unless you measure the track's actual energy rather than its existence.
+      KOKORO_SERVER_URL: "${KOKORO_SERVER_URL:-http://127.0.0.1:13305}"
+      KOKORO_MODEL: "${KOKORO_MODEL:-kokoro-v1}"
+      # af_sky measured cleanest of the voices tried; change freely, it is per-request.
+      KOKORO_VOICE: "${KOKORO_VOICE:-af_sky}"
+
+      # STT for the future input path. Lemonade serves the OpenAI shape, NOT whisper.cpp's
+      # /inference, hence the explicit path override.
+      WHISPER_SERVER_URL: "${WHISPER_SERVER_URL:-http://127.0.0.1:13305}"
+      WHISPER_ENDPOINT_PATH: "${WHISPER_ENDPOINT_PATH:-/api/v1/audio/transcriptions}"

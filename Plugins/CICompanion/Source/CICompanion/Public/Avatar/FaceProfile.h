@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Avatar/EmotionMapper.h"
 #include "FaceProfile.generated.h"
 
 // The vendor-neutral viseme vocabulary (the OVR-15 classes ANIMATION-PLAN.md §1 specifies).
@@ -80,6 +81,23 @@ struct CICOMPANION_API FFaceProfile
 	// composite ON TOP of speech rather than being one of the shapes speech selects between.
 	UPROPERTY(BlueprintReadOnly, Category = "MetaHumanLLM|Face")
 	TArray<FName> BlinkCurves;
+
+	// Expression per emotion. Separate from Shapes for the same reason blink is: an emotion is a
+	// SUSTAINED bias held across a whole utterance, while a viseme is a shape the mouth passes
+	// through in ~80ms. Mixing them into one map would make every reply pick one or the other.
+	// Deliberately brow/cheek/eye-weighted rather than mouth-weighted, so an expression cannot
+	// fight the visemes for the same curves and smear the speech.
+	UPROPERTY(BlueprintReadOnly, Category = "MetaHumanLLM|Face")
+	TMap<EEmotionType, FVisemeShape> EmotionShapes;
+
+	// Eye-aim curves, in the order [LookLeft, LookRight, LookUp, LookDown]. Empty disables gaze.
+	// Named rather than assumed because CC and ARKit disagree completely (Eye_L_Look_L vs
+	// eyeLookOutLeft), and a missing name is a silent no-op that reads as a dead stare.
+	UPROPERTY(BlueprintReadOnly, Category = "MetaHumanLLM|Face")
+	TArray<FName> GazeCurves;
+
+	// Resolves an emotion to its weighted curves, accumulating like Accumulate does.
+	void AccumulateEmotion(EEmotionType Emotion, float Weight, TMap<FName, float>& OutCurves) const;
 
 	// Resolves a viseme to its weighted curves, accumulating into OutCurves so overlapping
 	// visemes (coarticulation) sum rather than overwrite. Unknown visemes contribute nothing.

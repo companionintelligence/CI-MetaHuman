@@ -51,6 +51,10 @@ private:
 	UFUNCTION()
 	void HandleCompanionSpoke(const FString& Text);
 
+	// Re-times the mouth to the real clip once TTS reports its measured length.
+	UFUNCTION()
+	void HandleSpeechAudioReady(const FString& Text, float DurationSeconds);
+
 	UPROPERTY(Transient)
 	TObjectPtr<AMetaHumanCompanionCharacter> Companion;
 

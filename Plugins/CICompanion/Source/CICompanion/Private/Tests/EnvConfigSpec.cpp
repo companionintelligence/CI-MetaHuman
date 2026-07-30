@@ -149,4 +149,40 @@ void FEnvConfigSpec::Define()
 			TestEqual("selects OpenAI-compatible", Settings->BackendType, EChatBackendType::OpenAICompatible);
 		});
 	});
+
+	Describe("thin client endpoints", [this, MakeLookup]()
+	{
+		It("points at LM Studio from LMSTUDIO_BASE_URL alone", [this, MakeLookup]()
+		{
+			UMetaHumanLLMSettings* S = NewObject<UMetaHumanLLMSettings>(GetTransientPackage());
+			TMap<FString, FString> Env;
+			Env.Add(TEXT("LMSTUDIO_BASE_URL"), TEXT("http://box:1234/v1"));
+			Env.Add(TEXT("LMSTUDIO_MODEL"), TEXT("qwen2.5-7b"));
+			FMetaHumanLLMEnvConfig::Apply(*S, MakeLookup(Env));
+			TestEqual("openai backend", S->BackendType, EChatBackendType::OpenAICompatible);
+			TestEqual("base url", S->OpenAIBaseUrl, FString(TEXT("http://box:1234/v1")));
+			TestEqual("model", S->OpenAIModel, FString(TEXT("qwen2.5-7b")));
+			TestFalse("a key is supplied (LM Studio 401s on none)", S->OpenAIApiKey.IsEmpty());
+		});
+
+		It("lets a generic OPENAI_BASE_URL override an inherited CI_HUB_URL", [this, MakeLookup]()
+		{
+			UMetaHumanLLMSettings* S = NewObject<UMetaHumanLLMSettings>(GetTransientPackage());
+			TMap<FString, FString> Env;
+			Env.Add(TEXT("CI_HUB_URL"), TEXT("https://hub.example.com/v1"));
+			Env.Add(TEXT("OPENAI_BASE_URL"), TEXT("http://local:8000/v1"));
+			FMetaHumanLLMEnvConfig::Apply(*S, MakeLookup(Env));
+			TestEqual("generic wins", S->OpenAIBaseUrl, FString(TEXT("http://local:8000/v1")));
+		});
+
+		It("still lets MHLLM_BACKEND=ollama win over an LM Studio url", [this, MakeLookup]()
+		{
+			UMetaHumanLLMSettings* S = NewObject<UMetaHumanLLMSettings>(GetTransientPackage());
+			TMap<FString, FString> Env;
+			Env.Add(TEXT("MHLLM_BACKEND"), TEXT("ollama"));
+			Env.Add(TEXT("LMSTUDIO_BASE_URL"), TEXT("http://box:1234/v1"));
+			FMetaHumanLLMEnvConfig::Apply(*S, MakeLookup(Env));
+			TestEqual("explicit backend authoritative", S->BackendType, EChatBackendType::OllamaNative);
+		});
+	});
 }

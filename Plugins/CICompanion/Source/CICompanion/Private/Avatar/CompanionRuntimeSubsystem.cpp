@@ -3,6 +3,7 @@
 #include "Avatar/CompanionFaceComponent.h"
 #include "Avatar/CompanionFaceSubsystem.h"
 #include "Avatar/MetaHumanCompanionCharacter.h"
+#include "Voice/KokoroTextToSpeech.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
 #include "Voice/VisemePlanner.h"
@@ -60,6 +61,16 @@ void UCompanionRuntimeSubsystem::OnWorldBeginPlay(UWorld& InWorld)
 	Companion->SetActorHiddenInGame(true);
 	Companion->OnCompanionSpoke.AddDynamic(this, &UCompanionRuntimeSubsystem::HandleCompanionSpoke);
 
+	// Prefer MEASURED audio length over an estimated speaking rate when TTS is live. PlanFromText
+	// guesses at 165wpm; the E2E harness measured real replies between 131 and 184wpm, so on a
+	// long sentence the estimate drifts far enough to see. Binding here keeps the mouth locked to
+	// the clip that is actually playing.
+	if (UKokoroTextToSpeech* Kokoro = Companion->FindComponentByClass<UKokoroTextToSpeech>())
+	{
+		Kokoro->OnSpeechAudioReady.AddDynamic(this, &UCompanionRuntimeSubsystem::HandleSpeechAudioReady);
+		UE_LOG(LogCompanionRuntime, Log, TEXT("Viseme timing bound to measured Kokoro audio duration."));
+	}
+
 	UE_LOG(LogCompanionRuntime, Log, TEXT("Companion spawned and bound (backend=%s model=%s)."),
 		*GetEnv(TEXT("MHLLM_BACKEND"), TEXT("<unset>")), *GetEnv(TEXT("OLLAMA_MODEL"), TEXT("<unset>")));
 
@@ -112,6 +123,20 @@ bool UCompanionRuntimeSubsystem::SpeakLiteral(const FString& Text)
 	// speech can never drift apart in how they drive the face.
 	HandleCompanionSpoke(Text);
 	return true;
+}
+
+void UCompanionRuntimeSubsystem::HandleSpeechAudioReady(const FString& Text, float DurationSeconds)
+{
+	UCompanionFaceComponent* Face = ResolveFace();
+	if (!Face || DurationSeconds <= 0.0f)
+	{
+		return;
+	}
+	// Replaces the estimated track queued by HandleCompanionSpoke with one rescaled to the clip.
+	const TArray<FVisemeSpan> Track = FVisemePlanner::PlanForDuration(Text, DurationSeconds);
+	Face->PlayVisemeTrack(Track);
+	UE_LOG(LogCompanionRuntime, Log, TEXT("Re-timed to audio: %d spans over %.2fs."),
+		Track.Num(), DurationSeconds);
 }
 
 void UCompanionRuntimeSubsystem::HandleCompanionSpoke(const FString& Text)

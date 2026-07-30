@@ -257,6 +257,66 @@ try:
             placed += 1
     w("placed %d/12 hero props" % placed)
 
+    # ---------- re-home the glTF prop materials into /Game ----------
+    # THE reason the props render pale. Interchange parents every imported material instance to
+    #   /InterchangeAssets/gltf/MaterialInstances/MI_Default_Opaque_DS
+    # which is PLUGIN content, not /Game. The cook stages /Game, so in the shipped build that
+    # parent is missing, every instance falls back to the engine default, and each prop's real
+    # colour -- carried in BaseColorFactor, e.g. (0.15,0.37,0.64) IBM blue, (0.80,0.41,0.10)
+    # orange, (0.31,0.31,0.31) charcoal -- is silently discarded. It looks exactly like "textures
+    # failed to load", which is why it went unexplained for so long: the assets are all present and
+    # correct in the editor.
+    #
+    # The master below deliberately declares parameters with the SAME NAMES Interchange used
+    # (BaseColorTexture / BaseColorFactor / MetallicFactor / RoughnessFactor). Re-parenting then
+    # preserves every per-prop override automatically -- no copying values, nothing to drift.
+    try:
+        MEL2 = unreal.MaterialEditingLibrary
+        tools2 = unreal.AssetToolsHelpers.get_asset_tools()
+        M_Prop = tools2.create_asset("M_PropGLTF", "/Game/Diorama/Mat", unreal.Material,
+                                     unreal.MaterialFactoryNew())
+        tex = MEL2.create_material_expression(M_Prop, unreal.MaterialExpressionTextureSampleParameter2D, -600, -120)
+        tex.set_editor_property("parameter_name", "BaseColorTexture")
+        white = unreal.load_asset("/Engine/EngineResources/WhiteSquareTexture")
+        if white:
+            tex.set_editor_property("texture", white)
+        fac = MEL2.create_material_expression(M_Prop, unreal.MaterialExpressionVectorParameter, -600, 120)
+        fac.set_editor_property("parameter_name", "BaseColorFactor")
+        fac.set_editor_property("default_value", unreal.LinearColor(1.0, 1.0, 1.0, 1.0))
+        mul = MEL2.create_material_expression(M_Prop, unreal.MaterialExpressionMultiply, -320, 0)
+        MEL2.connect_material_expressions(tex, "RGB", mul, "A")
+        MEL2.connect_material_expressions(fac, "RGB", mul, "B")
+        MEL2.connect_material_property(mul, "", unreal.MaterialProperty.MP_BASE_COLOR)
+
+        rough = MEL2.create_material_expression(M_Prop, unreal.MaterialExpressionScalarParameter, -600, 300)
+        rough.set_editor_property("parameter_name", "RoughnessFactor")
+        rough.set_editor_property("default_value", 0.62)   # period enamel: matte, not plastic
+        MEL2.connect_material_property(rough, "", unreal.MaterialProperty.MP_ROUGHNESS)
+        metal = MEL2.create_material_expression(M_Prop, unreal.MaterialExpressionScalarParameter, -600, 420)
+        metal.set_editor_property("parameter_name", "MetallicFactor")
+        metal.set_editor_property("default_value", 0.0)
+        MEL2.connect_material_property(metal, "", unreal.MaterialProperty.MP_METALLIC)
+        MEL2.recompile_material(M_Prop)
+
+        ar3 = unreal.AssetRegistryHelpers.get_asset_registry()
+        reparented = 0
+        for a in ar3.get_assets_by_path("/Game/Diorama", recursive=True):
+            if str(a.asset_class_path.asset_name) != "MaterialInstanceConstant":
+                continue
+            mi = unreal.load_asset(str(a.package_name))
+            if not mi:
+                continue
+            parent = mi.get_editor_property("parent")
+            # Only rescue the ones pointing outside /Game; leave anything already local alone.
+            if parent and not parent.get_path_name().startswith("/Game"):
+                mi.set_editor_property("parent", M_Prop)
+                unreal.EditorAssetLibrary.save_loaded_asset(mi)
+                reparented += 1
+        w("prop materials re-homed to /Game: %d re-parented onto M_PropGLTF" % reparented)
+    except Exception as e:
+        import traceback as _t3
+        w("PROP MATERIAL REPARENT FAILED (props will stay pale): %s | %s" % (e, _t3.format_exc()[:300]))
+
     # ---------- the machine hall ----------
     # Twelve museum pieces read as a museum, not as a working computer room. A 1970s installation
     # was RANKS of identical cabinets down an aisle, and that repetition — plus the perspective it
