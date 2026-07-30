@@ -587,9 +587,15 @@ try:
     # 24deg at 2.4m in 9:16 covers ~1.8m vertically -- head to hips, with the aisle visible past
     # both shoulders. Aiming BELOW the eyeline puts her eyes in the upper third where a face
     # belongs, instead of dead-centre.
-    CAM_DIST = 220.0
-    CAM_POS = (330.0 - CAM_DIST, 20.0, EYE_Z - 12.0)
-    LOOK_AT = (330.0, 20.0, EYE_Z - 32.0)
+    # Distance is SOLVED for a target framing, not dialled in by eye. Vertical coverage is
+    #   2 * d * tan(vFOV/2),  vFOV = 2*atan(tan(hFOV/2) / (9/16))
+    # so for head-and-chest (~1.05m of subject) at hFOV 21deg:  d = 1.05 / (2*tan(18.24deg)) ~= 1.6m.
+    # At the previous 2.2m the same lens covered 1.45m -- head to knees, a body shot rather than a
+    # call. Framing is centred below the eyeline so the eyes sit ~70% up the frame, where a video
+    # call puts them, instead of dead centre.
+    CAM_DIST = 160.0
+    CAM_POS = (330.0 - CAM_DIST, 20.0, EYE_Z - 8.0)
+    LOOK_AT = (330.0, 20.0, EYE_Z - 22.0)
     dx, dy, dz = (LOOK_AT[0]-CAM_POS[0], LOOK_AT[1]-CAM_POS[1], LOOK_AT[2]-CAM_POS[2])
     cam_yaw = math.degrees(math.atan2(dy, dx))
     cam_pitch = math.degrees(math.atan2(dz, math.sqrt(dx*dx + dy*dy)))

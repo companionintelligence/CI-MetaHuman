@@ -40,12 +40,18 @@ services:
       # neither, and this keeps the GPU stable.
       - "-noraytracing"
       - "-ExecCmds=r.RayTracing 0; r.Lumen.HardwareRayTracing 0; r.DynamicGlobalIlluminationMethod 0; r.ReflectionMethod 0; r.SkyLight.RealTimeReflectionCapture 0; r.SkyAtmosphere 0; r.ReflectionCaptureResolution 0; r.Vulkan.WaitForIdleOnSubmit 2; r.GenerateMeshDistanceFields 0; r.Nanite 0"
-      - "-ForceRes"
-      # PORTRAIT 9:16 — the shot is a video call framed on the resident, not a landscape
-      # establishing shot. Must stay in step with the StageCamera FOV in author_diorama.py:
-      # UE keeps HORIZONTAL FOV, so the aspect here is what decides how much of her is in frame.
+      # -ForceRes is deliberately ABSENT: it pins the backbuffer, which stops the frontend's
+      # MatchViewportRes from resizing the render to the browser window. The values below are the
+      # STARTING size only; with MatchViewportRes=true the player resizes UE to the actual window.
+      #
+      # PORTRAIT 9:16 start — the shot is a video call framed on the resident. Framing itself is
+      # protected by AspectRatioAxisConstraint=AspectRatio_MaintainYFOV in DefaultEngine.ini, so a
+      # window of any shape keeps the same crop of HER and simply reveals more or less machine
+      # hall at the sides. Without that constraint a wide window crops her head off.
       - "-ResX=720"
       - "-ResY=1280"
+      # Lets the browser send the resize command that MatchViewportRes relies on.
+      - "-AllowPixelStreamingCommands=true"
       - "-PixelStreamingUrl=ws://127.0.0.1:8888"
       # NVENC isn't present on an AMD host, so PixelStreaming falls back to VP8 software
       # encode anyway; select VP8 directly to skip the failing NVENC probe.
