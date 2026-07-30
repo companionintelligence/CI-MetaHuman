@@ -15,13 +15,27 @@ services:
       # replies, so it would mask exactly the failure this deployment is meant to expose.
       MHLLM_FACE_SELFTEST: "0"
 
-      # Model choice is a LATENCY decision on this box, measured against the live Ollama:
-      #   gemma3:1b   -> under 1s   (used here: conversation stays responsive)
-      #   gemma4:e2b  -> ~12s warm, ~77s cold
-      #   gemma4:latest (19.9GB) -> exceeded 60s even warm
-      # e2b was the previously configured default and does work; it is simply too slow to feel
-      # like a conversation. Raise this once a faster path (smaller quant, GPU offload) exists.
-      OLLAMA_MODEL: "${OLLAMA_MODEL:-gemma3:1b}"
+      # Cognition runs on BETA-1, not this box. core-2 is a Strix Halo iGPU and the best it
+      # manages is gemma4:e2b at ~12s per reply -- not a conversation. beta-1 has two discrete
+      # Navi 31 GPUs (2x25.7GB, ROCm 6.4), and serves a 27B model in well under a second.
+      #
+      # Measured warm, one-line greeting, thinking disabled:
+      #   qwen3.6:27b on beta-1   ->  814ms   (used here: 27B quality at conversational speed)
+      #   qwen3:8b    on beta-1   ->  262ms   (if latency ever matters more than quality)
+      #   gemma4:e2b  on core-2   ->  ~12s    (the old default; 77s cold)
+      #
+      # :11435 is an SSH tunnel to beta-1's Ollama, run as a --user systemd unit on core-2
+      # (Deployment/core2/ollama-tunnel.service). beta-1's ollama.service declares
+      # OLLAMA_HOST=0.0.0.0 but its running process predates that edit and is still bound to
+      # 127.0.0.1; restarting it needs root on a box that serves other work, so this tunnels
+      # instead. If that service is ever restarted, point straight at http://100.124.211.75:11434
+      # and drop the tunnel.
+      OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://127.0.0.1:11435}"
+      OLLAMA_MODEL: "${OLLAMA_MODEL:-qwen3.6:27b}"
+
+      # Chain-of-thought off. qwen3.6:27b answers in ~814ms without it and 16-21s with it, and
+      # Ollama returns the reasoning in a separate field that never reaches the mouth.
+      MHLLM_THINKING: "${MHLLM_THINKING:-0}"
 
       # Opening line, sent a few seconds after level load. It exists because there is still no
       # input path: without an unprompted first turn, a fully working build and a completely

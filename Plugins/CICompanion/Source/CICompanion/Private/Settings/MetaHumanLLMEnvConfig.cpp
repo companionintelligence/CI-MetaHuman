@@ -57,6 +57,16 @@ int32 FMetaHumanLLMEnvConfig::Apply(UMetaHumanLLMSettings& Settings, FEnvLookup 
 	// Direct Ollama overrides (for a sidecar Ollama rather than the hub).
 	TryString(TEXT("OLLAMA_BASE_URL"), Settings.OllamaBaseUrl);
 	TryString(TEXT("OLLAMA_MODEL"), Settings.OllamaModel);
+	{
+		// MHLLM_THINKING=1 re-enables chain-of-thought on reasoning models. Costs ~20x latency
+		// (qwen3.6:27b: 814ms -> 16-21s), so it is off unless deliberately asked for.
+		const FString Thinking = EnvLookup(TEXT("MHLLM_THINKING"));
+		if (!Thinking.IsEmpty())
+		{
+			Settings.bEnableThinking = (Thinking == TEXT("1") || Thinking.Equals(TEXT("true"), ESearchCase::IgnoreCase));
+			++Applied;
+		}
+	}
 
 	// Voice services.
 	TryString(TEXT("WHISPER_SERVER_URL"), Settings.WhisperServerUrl);

@@ -42,6 +42,15 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Ollama", meta = (EditCondition = "BackendType == EChatBackendType::OllamaNative"))
 	FString OllamaModel = TEXT("llama3.2");
 
+	// Reasoning models (qwen3.x, deepseek-r1, ...) emit a chain of thought before answering.
+	// For a companion that is pure latency cost: measured on beta-1, qwen3.6:27b answers a
+	// one-line greeting in ~814ms with thinking off and 16-21s with it on -- a ~20x penalty for
+	// reasoning nobody reads, since Ollama returns it in a separate `thinking` field that never
+	// reaches the mouth. Off by default; turn it on only where answer quality needs deliberation.
+	// Sent as "think": false, which Ollama ignores for non-reasoning models.
+	UPROPERTY(Config, EditAnywhere, Category = "Ollama", meta = (EditCondition = "BackendType == EChatBackendType::OllamaNative"))
+	bool bEnableThinking = false;
+
 	// --- OpenAI-compatible backend ---
 
 	// Base URL up to and including the version segment, no trailing slash — the client
