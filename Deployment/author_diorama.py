@@ -28,7 +28,11 @@ PROPS = [
     # name,        glb,                    pos (x,y,z cm),      yaw, target_cm
     ("ramac305",   "ibm-ramac-305.glb",     ( 460, -360, 0),  -20, 170),
     ("ibm1401",    "ibm-1401-mainframe.glb",( 490, -160, 0),   -7, 170),
-    ("ibm1401cpu", "ibm-1401-cpu.glb",      ( 490,   30, 0),    0, 170),
+    # Moved OFF the centre line (was y=30, directly behind the resident). In a portrait framed on
+    # her, that one cabinet filled the entire background and hid the hall completely -- the shot
+    # read as "woman in front of a white box" rather than "inside a machine room". The sightline
+    # down the aisle is the composition, so nothing may stand in it.
+    ("ibm1401cpu", "ibm-1401-cpu.glb",      ( 490, -300, 0),    4, 170),
     ("ibm3350",    "ibm-3350-disk.glb",     ( 490,  210, 0),    7, 150),
     ("ibm2401",    "ibm-2401-tape.glb",     ( 460,  370, 0),   20, 183),
     ("kenbak1",    "kenbak-1.glb",          ( 110, -330, 74), -29,  48),
@@ -116,15 +120,26 @@ try:
     # the shadows the set reads by. The base only lifts the floor; the accents do the work.
     for gx in (-100, 150, 400):
         for gy in (-320, 0, 320):
-            point((gx, gy, 430), (1.0, 0.90, 0.78), 2500, 2600.0)
-    # Accents carry the GDD's "diegetic warm, chrome cool": tungsten pools on the hardware,
-    # CI aqua/mint rim off the machine faces, with real falloff between them.
-    point(( 50,  260, 240), (0.95, 0.62, 0.26), 26000, 1200.0)  # warm tungsten, terminal row
-    point(( 450, -300, 300), (0.0, 0.66, 0.65), 22000, 1500.0)  # CI aqua rim, big iron
-    point(( 450,  300, 300), (0.35, 0.92, 0.75), 14000, 1300.0) # mint accent
-    point((-150, 0, 250), (1.0, 0.85, 0.70), 9000, 1300.0)      # camera-side fill on the resident
-    point(( 100, -320, 160), (0.95, 0.70, 0.35), 9000, 700.0)   # desk-lamp practical
-    point(( 300, -60, 250), (1.0, 0.86, 0.70), 8000, 1100.0)    # soft key on the resident
+            point((gx, gy, 430), (0.93, 0.96, 1.00), 3200, 2600.0)
+    # Accents, re-graded to the Old IBM Datacenter reference. That room is lit by RANKS OF
+    # FLUORESCENT TROFFERS -- cool, bright and even -- not by warm tungsten pools, and its only
+    # strong colour is the orange back wall bouncing onto white cabinets and a white tile floor.
+    # The previous warm-amber + CI-aqua scheme read as a moody exhibit; this reads as a working
+    # machine room with the lights on.
+    point(( 50,  260, 240), (0.92, 0.95, 1.00), 16000, 1200.0)  # cool fluorescent, terminal row
+    point(( 450, -300, 300), (0.90, 0.94, 1.00), 14000, 1500.0) # cool fill, big iron
+    point(( 450,  300, 300), (0.90, 0.94, 1.00), 12000, 1300.0)
+    # Warm orange BOUNCE off the back wall. With GI off nothing bounces on its own, so the
+    # reference's signature orange cast has to be placed by hand or the wall reads as a flat
+    # painted panel with no effect on the room.
+    point((1500, -200, 260), (1.00, 0.42, 0.18), 26000, 1500.0)
+    point((1500,  240, 260), (1.00, 0.42, 0.18), 26000, 1500.0)
+    point((-150, 0, 250), (0.95, 0.96, 1.00), 9000, 1300.0)     # camera-side fill on the resident
+    point(( 100, -320, 160), (0.95, 0.70, 0.35), 7000, 700.0)   # desk-lamp practical (kept warm)
+    # Key on the resident, slightly cool to sit in the fluorescent room, plus a soft frontal fill
+    # so a portrait crop is not lit only from above.
+    point(( 300, -60, 250), (0.96, 0.97, 1.00), 9000, 1100.0)
+    point(( 200,  20, 175), (1.00, 0.97, 0.92), 6000,  600.0)   # close portrait fill
 
     # Auto exposure with WIDE bounds. The camera that ships is fixed at the PlayerStart, so
     # adaptation settles once and stays put; narrow bounds only clamped adaptation below the
@@ -151,24 +166,63 @@ try:
     # The room is DEEP on purpose. The shot is a portrait call framed on the resident, and what
     # sells "inside a mainframe centre" is the receding rank of cabinets behind her — a wall 2.7m
     # back (the old x=600) gave her a flat backdrop and nowhere for perspective to go.
+    # Surface colours follow the Old IBM Datacenter reference: WHITE TILE floor, ORANGE back
+    # wall, pale walls and ceiling. With GI disabled these are pure albedo — they do not light
+    # anything, so the orange bounce is placed explicitly as point lights above.
+    def paint(actor, name, rgb, rough=0.55):
+        """Constant-colour set material. The engine's default grey is what made the old room read
+        as untextured concrete regardless of lighting.
+
+        The NAME is passed in rather than derived from the colour. Deriving it meant two surfaces
+        sharing a colour (the two side walls) asked create_asset for the same package path twice,
+        and the second call trips a fatal C++ assertion in SharedPointer.h that Python cannot
+        catch — the whole authoring commandlet died with appError, after the try/except had
+        already been written to make this "safe"."""
+        try:
+            mat = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
+                name, "/Game/Diorama/SetMats", unreal.Material, unreal.MaterialFactoryNew())
+            if not mat:
+                w("paint: create_asset returned None for %s" % name); return
+            col = unreal.MaterialEditingLibrary.create_material_expression(
+                mat, unreal.MaterialExpressionVectorParameter, -380, 0)
+            col.set_editor_property("default_value", unreal.LinearColor(rgb[0], rgb[1], rgb[2], 1.0))
+            if not unreal.MaterialEditingLibrary.connect_material_property(
+                    col, "RGB", unreal.MaterialProperty.MP_BASE_COLOR):
+                unreal.MaterialEditingLibrary.connect_material_property(
+                    col, "", unreal.MaterialProperty.MP_BASE_COLOR)
+            r = unreal.MaterialEditingLibrary.create_material_expression(
+                mat, unreal.MaterialExpressionConstant, -380, 250)
+            r.set_editor_property("r", rough)
+            unreal.MaterialEditingLibrary.connect_material_property(
+                r, "", unreal.MaterialProperty.MP_ROUGHNESS)
+            unreal.MaterialEditingLibrary.recompile_material(mat)
+            actor.static_mesh_component.set_material(0, mat)
+        except Exception as e:
+            w("paint warn: %s" % e)
+
     floor = spawn(unreal.StaticMeshActor, (450,0,0))
     floor.static_mesh_component.set_static_mesh(plane)
     floor.set_actor_scale3d(unreal.Vector(30,15,1))
+    paint(floor, "M_SetFloor", (0.82, 0.82, 0.80), 0.35)                # white raised-floor tile
     back = spawn(unreal.StaticMeshActor, (1750,0,250))    # back wall, now ~14m behind her
     back.static_mesh_component.set_static_mesh(cube)
     back.set_actor_scale3d(unreal.Vector(0.2,15,5))
+    paint(back, "M_SetBackWall", (0.62, 0.20, 0.09), 0.75)                 # the signature IBM orange wall
     left = spawn(unreal.StaticMeshActor, (450,-720,250))  # left wall
     left.static_mesh_component.set_static_mesh(cube)
     left.set_actor_scale3d(unreal.Vector(28,0.2,5))
+    paint(left, "M_SetWallL", (0.86, 0.85, 0.83), 0.7)
     right = spawn(unreal.StaticMeshActor, (450,720,250))  # right wall (closes the set)
     right.static_mesh_component.set_static_mesh(cube)
     right.set_actor_scale3d(unreal.Vector(28,0.2,5))
+    paint(right, "M_SetWallR", (0.86, 0.85, 0.83), 0.7)
     # Ceiling: r.SkyAtmosphere is disabled on the stream, so anything above the walls renders
     # as dead black sky. A real ceiling both closes the room and bounces nothing (no GI) —
     # it is there to frame the shot, not to light it.
     ceil = spawn(unreal.StaticMeshActor, (450,0,500))
     ceil.static_mesh_component.set_static_mesh(cube)
     ceil.set_actor_scale3d(unreal.Vector(28,15,0.2))
+    paint(ceil, "M_SetCeiling", (0.90, 0.90, 0.88), 0.8)                  # pale troffer ceiling
     w("shell ok (walls + ceiling)")
 
     # ---------- desk under the small artifacts ----------
@@ -213,15 +267,22 @@ try:
     # memory beyond the actors. Two banks flank a centre aisle running down +X directly behind the
     # resident, so the aisle recedes past her shoulders in the portrait shot; two outer rows add a
     # second layer of depth behind those.
+    # Aisle width and START DISTANCE are the composition. The first attempt put the banks at
+    # y=-270/+310 starting 3m behind her, and in a portrait crop they shrank to little boxes at
+    # the frame edge -- the shot read as an empty room. The reference photographs work because
+    # the cabinets are CLOSE and TALL enough to fill the background behind a person.
+    #
+    # A real 1401 aisle was roughly 3m; these banks sit ~1.6m either side of the centre line and
+    # begin ~0.9m behind her, so the nearest cabinets flank her shoulders and the rank converges
+    # into frame as it recedes.
     HALL = []
-    for i, x in enumerate((640, 880, 1120, 1360, 1600)):
-        # Inner banks face the aisle. Alternating cabinet types keeps the rank from looking tiled.
-        HALL.append((("ibm2401", "ibm3350", "ibm1401cpu")[i % 3], x, -270,  90, (183, 150, 170)[i % 3]))
-        HALL.append((("ibm1401", "ibm2401", "ibm3350")[i % 3],    x,  310, -90, (170, 183, 150)[i % 3]))
-    for i, x in enumerate((760, 1040, 1320, 1600)):
-        # Outer rows, set back against the walls.
-        HALL.append((("ibm2401", "ibm3350")[i % 2], x, -560,  90, (183, 150)[i % 2]))
-        HALL.append((("ibm3350", "ibm2401")[i % 2], x,  600, -90, (150, 183)[i % 2]))
+    for i, x in enumerate((420, 600, 780, 980, 1200, 1440)):
+        HALL.append((("ibm2401", "ibm3350", "ibm1401cpu")[i % 3], x, -155,  90, (183, 150, 170)[i % 3]))
+        HALL.append((("ibm1401", "ibm2401", "ibm3350")[i % 3],    x,  195, -90, (170, 183, 150)[i % 3]))
+    for i, x in enumerate((520, 760, 1020, 1300)):
+        # Second rank behind the first, giving depth past the near cabinets.
+        HALL.append((("ibm2401", "ibm3350")[i % 2], x, -430,  90, (183, 150)[i % 2]))
+        HALL.append((("ibm3350", "ibm2401")[i % 2], x,  470, -90, (150, 183)[i % 2]))
     # A far rank across the end of the hall, closing the vista.
     HALL.append(("ramac305", 1690, -120, 180, 170))
     HALL.append(("ibm1401",  1690,  160, 180, 170))
@@ -234,10 +295,10 @@ try:
 
     # The hall needs its own light or it falls off into black past the hero row — the original
     # ceiling grid only covered the front of the set.
-    for hx in (700, 1000, 1300, 1600):
-        point((hx, 0, 430), (1.0, 0.90, 0.78), 3000, 2400.0)
-        point((hx, -420, 300), (0.0, 0.66, 0.65), 9000, 1100.0)   # aqua rim down the left rank
-        point((hx,  460, 300), (0.35, 0.92, 0.75), 7000, 1100.0)  # mint down the right rank
+    for hx in (450, 700, 950, 1200, 1500):
+        point((hx, 0, 430), (0.93, 0.96, 1.00), 3600, 2400.0)     # troffer run down the aisle
+        point((hx, -300, 300), (0.90, 0.94, 1.00), 7000, 1100.0)  # cool fill, left rank
+        point((hx,  340, 300), (0.90, 0.94, 1.00), 7000, 1100.0)  # cool fill, right rank
 
     # ---------- the resident: MetaHuman "Seo" ----------
     # Converted from mhc_seo.mhpkg (5.6 EditableCharacter): assembled in a local 5.8 editor,
@@ -287,7 +348,12 @@ try:
             comp.set_skeletal_mesh(nia)
             try:
                 bb = nia.get_bounds().box_extent
-                w("Nia: mesh loaded, half-height=%.1fcm (expect ~85-90 for a ~175cm human)" % bb.z)
+                # MEASURE the eyeline instead of guessing it. The first portrait attempt aimed at
+                # a hand-picked z=152 and framed her chest with the head cut off, because she is
+                # ~193cm in heels rather than the ~175cm assumed. Eyes sit at ~93% of stature.
+                NIA_EYE_Z = (bb.z * 2.0) * 0.93
+                w("Nia: half-height=%.1fcm -> stature ~%.0fcm, eyeline z=%.0fcm"
+                  % (bb.z, bb.z * 2.0, NIA_EYE_Z))
             except Exception:
                 pass
             mats = nia.get_editor_property("materials")
@@ -512,8 +578,18 @@ try:
     #
     # She stands at (330, 20, 0) facing -X (actor yaw 90, see NIA_YAW), so the camera must be on
     # the -X side of her to see a face rather than the back of her head.
-    CAM_POS = (130.0, 20.0, 150.0)
-    LOOK_AT = (330.0, 20.0, 152.0)   # her eyeline; the machine hall recedes behind her
+    # Eyeline comes from the measured mesh (NIA_EYE_Z above); the literal is only a fallback for
+    # the Seo path, where no measurement was taken.
+    EYE_Z = float(globals().get("NIA_EYE_Z", 165.0))
+    # Wider and further back than the first attempt (18deg at 2.0m), which produced a beauty
+    # close-up: correct framing of a face, but it showed none of the room, and a call from a
+    # mainframe centre that could be a call from anywhere has lost the point of the set.
+    # 24deg at 2.4m in 9:16 covers ~1.8m vertically -- head to hips, with the aisle visible past
+    # both shoulders. Aiming BELOW the eyeline puts her eyes in the upper third where a face
+    # belongs, instead of dead-centre.
+    CAM_DIST = 220.0
+    CAM_POS = (330.0 - CAM_DIST, 20.0, EYE_Z - 12.0)
+    LOOK_AT = (330.0, 20.0, EYE_Z - 32.0)
     dx, dy, dz = (LOOK_AT[0]-CAM_POS[0], LOOK_AT[1]-CAM_POS[1], LOOK_AT[2]-CAM_POS[2])
     cam_yaw = math.degrees(math.atan2(dy, dx))
     cam_pitch = math.degrees(math.atan2(dz, math.sqrt(dx*dx + dy*dy)))
@@ -521,11 +597,17 @@ try:
     cam.set_actor_label("StageCamera")
     cam.set_editor_property("auto_activate_for_player", unreal.AutoReceiveInput.PLAYER0)
     try:
-        cam.camera_component.set_editor_property("field_of_view", 18.0)
+        cam.camera_component.set_editor_property("field_of_view", 21.0)
+        # CRITICAL for portrait: a CameraComponent defaults to CONSTRAINING its aspect ratio, so
+        # a 16:9 camera rendered into a 9:16 viewport is letterboxed — the first attempt produced
+        # a wide strip of image with black bars filling most of a 720x1280 frame. Releasing the
+        # constraint lets the render fill the portrait viewport.
+        cam.camera_component.set_editor_property("constrain_aspect_ratio", False)
+        cam.camera_component.set_editor_property("aspect_ratio", 720.0 / 1280.0)
     except Exception as e:
         w("fov warn " + str(e))
     spawn(unreal.PlayerStart, CAM_POS, yaw=cam_yaw, pitch=cam_pitch)
-    w("StageCamera ok (portrait 9:16, yaw=%.1f pitch=%.1f fov=18) — known issue: free-look input inert" %
+    w("StageCamera ok (portrait 9:16, yaw=%.1f pitch=%.1f fov=21) — known issue: free-look input inert" %
       (cam_yaw, cam_pitch))
 
     ok = les.save_current_level()
