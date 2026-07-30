@@ -48,15 +48,37 @@ The tunnel exists for a specific reason worth remembering: beta-1's `ollama.serv
 serves other work. If that service is ever restarted, delete the tunnel and point
 `OLLAMA_BASE_URL` at `http://100.124.211.75:11434` directly.
 
-## AMD Lemonade Server — recommended next
+## AMD Lemonade Server — recommended next, and now trialled
 
 [Lemonade](https://lemonade-server.ai/) is AMD-sponsored and open source, and it is a better fit
-for this project than assembling the stack by hand. It exposes one OpenAI-compatible server
-(default `:13305/v1`) covering:
+for this project than assembling the stack by hand.
 
-- `/v1/chat/completions` — llama.cpp with **ROCm or Vulkan**, or ONNX/OGA on NPU
-- `/v1/audio/transcriptions` — **Whisper** (whisper.cpp: ROCm/Vulkan/NPU/CPU)
-- `/v1/audio/speech` — **Kokoro TTS**
+**Trialled on beta-1, 2026-07-30** — `ghcr.io/lemonade-sdk/lemonade-server:latest` (759 MB) pulled
+and run in Docker with ROCm passthrough (`--device /dev/kfd --device /dev/dri`, render/video
+groups), bound to `127.0.0.1:13305` so it is not exposed off-box. It came up healthy and correctly
+detected the hardware: 498.9 GB RAM, a 24 GB GPU memory pool, no NPU, no NVIDIA.
+
+Endpoints verified by probe on our own hardware (405 = route exists but requires POST; 404 would
+mean absent):
+
+| Endpoint | Result | |
+|---|---|---|
+| `/api/v1/chat/completions` | 405 | chat ✓ |
+| `/api/v1/audio/transcriptions` | 405 | **Whisper STT ✓** |
+| `/api/v1/audio/speech` | 405 | **Kokoro TTS ✓** |
+| `/api/v1/embeddings` | 405 | embeddings ✓ |
+
+So the "one service for chat + STT + TTS" claim is confirmed on the box we would deploy it on, not
+merely on a product page. Note the API is served under `/api/v1/...`, **not** the `/v1/...` the
+marketing implies — worth knowing before pointing a client at it. The container is left running and
+idle (no models downloaded, so it holds no VRAM); remove with
+`docker rm -f lemonade-trial` on beta-1.
+
+Backends and endpoints:
+
+- `/api/v1/chat/completions` — llama.cpp with **ROCm or Vulkan**, or ONNX/OGA on NPU
+- `/api/v1/audio/transcriptions` — **Whisper** (whisper.cpp: ROCm/Vulkan/NPU/CPU)
+- `/api/v1/audio/speech` — **Kokoro TTS**
 
 Why that matters here specifically: `Docs/GAP-ANALYSIS.md` lists "no Whisper deployed" and "no
 Piper deployed" as separate open gaps. Lemonade closes **both, plus chat, in a single deployment**,
@@ -100,9 +122,10 @@ crashes on RADV (`HANDOFF.md` Lesson 9) and Pixel Streaming has no hardware enco
 ## Recommendation
 
 1. **Keep Ollama on beta-1 for now.** 814ms is good, it is deployed, and it is verified.
-2. **Trial Lemonade on beta-1 next**, in Docker, on a spare port alongside Ollama so nothing is
-   disturbed. Judge it on the thing that actually matters to us: whether one service can deliver
-   chat + Whisper + Kokoro at comparable latency.
+2. **Lemonade is trialled and its endpoints verified** (above). The remaining unknown is not
+   whether it exposes chat + Whisper + Kokoro — it does, on our hardware — but whether it matches
+   Ollama's 814ms once a model is actually downloaded and loaded. Pull one model into it and
+   re-run the same one-line-greeting benchmark before committing to a migration.
 3. **Do the TTS client against Kokoro rather than Piper** if that trial succeeds — it is the same
    amount of work as wiring Piper, for a better voice and one less service.
 4. **Do not buy NVIDIA for cognition.** Revisit only for the rendering problems, and only with
