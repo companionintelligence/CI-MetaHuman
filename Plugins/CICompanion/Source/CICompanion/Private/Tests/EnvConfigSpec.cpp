@@ -111,4 +111,42 @@ void FEnvConfigSpec::Define()
 		FMetaHumanLLMEnvConfig::Apply(*Settings, MakeLookup(Env));
 		TestEqual("backend unchanged for bad value", Settings->BackendType, DefaultBackend);
 	});
+
+	Describe("backend precedence", [this, MakeLookup]()
+	{
+		It("lets an explicit MHLLM_BACKEND=ollama beat an incidental CI_HUB_URL", [this, MakeLookup]()
+		{
+			// The regression this guards: the base compose ALWAYS sets CI_HUB_URL, so while its
+			// presence overrode MHLLM_BACKEND, a deploy that plainly asked for Ollama silently
+			// talked to the hub with a placeholder token and every turn failed with HTTP 405.
+			UMetaHumanLLMSettings* Settings = NewObject<UMetaHumanLLMSettings>(GetTransientPackage());
+			TMap<FString, FString> Env;
+			Env.Add(TEXT("MHLLM_BACKEND"), TEXT("ollama"));
+			Env.Add(TEXT("CI_HUB_URL"), TEXT("https://hub.example.com/v1"));
+			FMetaHumanLLMEnvConfig::Apply(*Settings, MakeLookup(Env));
+
+			TestEqual("stays on native Ollama", Settings->BackendType, EChatBackendType::OllamaNative);
+			TestEqual("but still records the hub base url", Settings->OpenAIBaseUrl, FString(TEXT("https://hub.example.com/v1")));
+		});
+
+		It("still infers OpenAI from CI_HUB_URL when no backend is stated", [this, MakeLookup]()
+		{
+			UMetaHumanLLMSettings* Settings = NewObject<UMetaHumanLLMSettings>(GetTransientPackage());
+			TMap<FString, FString> Env;
+			Env.Add(TEXT("CI_HUB_URL"), TEXT("https://hub.example.com/v1"));
+			FMetaHumanLLMEnvConfig::Apply(*Settings, MakeLookup(Env));
+
+			TestEqual("infers OpenAI-compatible", Settings->BackendType, EChatBackendType::OpenAICompatible);
+		});
+
+		It("honours an explicit MHLLM_BACKEND=openai as well", [this, MakeLookup]()
+		{
+			UMetaHumanLLMSettings* Settings = NewObject<UMetaHumanLLMSettings>(GetTransientPackage());
+			TMap<FString, FString> Env;
+			Env.Add(TEXT("MHLLM_BACKEND"), TEXT("openai"));
+			FMetaHumanLLMEnvConfig::Apply(*Settings, MakeLookup(Env));
+
+			TestEqual("selects OpenAI-compatible", Settings->BackendType, EChatBackendType::OpenAICompatible);
+		});
+	});
 }

@@ -16,28 +16,39 @@ int32 FMetaHumanLLMEnvConfig::Apply(UMetaHumanLLMSettings& Settings, FEnvLookup 
 		}
 	};
 
-	// Explicit backend selection first, so CI_HUB_URL (below) can still force OpenAI mode.
+	// An explicit MHLLM_BACKEND is AUTHORITATIVE and outranks the CI_HUB_URL inference below.
+	// It used to be the other way round, and the result was that MHLLM_BACKEND did nothing
+	// whenever CI_HUB_URL happened to be set -- which the base compose always sets. A deploy
+	// asking plainly for Ollama silently talked to the hub instead, with a placeholder token,
+	// and every turn died on HTTP 405. A specific, deliberate signal must beat an incidental one.
 	const FString Backend = EnvLookup(TEXT("MHLLM_BACKEND"));
+	bool bBackendExplicit = false;
 	if (!Backend.IsEmpty())
 	{
 		if (Backend.Equals(TEXT("openai"), ESearchCase::IgnoreCase))
 		{
 			Settings.BackendType = EChatBackendType::OpenAICompatible;
+			bBackendExplicit = true;
 			++Applied;
 		}
 		else if (Backend.Equals(TEXT("ollama"), ESearchCase::IgnoreCase))
 		{
 			Settings.BackendType = EChatBackendType::OllamaNative;
+			bBackendExplicit = true;
 			++Applied;
 		}
 	}
 
-	// CI-hub: presence of a hub URL implies the OpenAI-compatible path.
+	// CI-hub: a hub URL still IMPLIES the OpenAI-compatible path, but only as a default. It
+	// always supplies the base URL, so switching back to openai later needs no extra config.
 	const FString HubUrl = EnvLookup(TEXT("CI_HUB_URL"));
 	if (!HubUrl.IsEmpty())
 	{
 		Settings.OpenAIBaseUrl = HubUrl;
-		Settings.BackendType = EChatBackendType::OpenAICompatible;
+		if (!bBackendExplicit)
+		{
+			Settings.BackendType = EChatBackendType::OpenAICompatible;
+		}
 		++Applied;
 	}
 	TryString(TEXT("CI_HUB_TOKEN"), Settings.OpenAIApiKey);

@@ -3,9 +3,16 @@
 > Written 2026-07-28. Every claim below was checked against the running system or the source, not
 > inferred from the design docs. Where something is unverified, it says so.
 
+> **UPDATE 2026-07-28 (later the same day).** The headline gap below is FIXED: the companion is now
+> instantiated at runtime and its replies drive the mouth. Blink and a text→viseme planner landed
+> with it. Rows marked ✅ **NEW** in the matrix changed as a result. One claim below was also WRONG
+> and is corrected in place: `gemma4:e2b` **does** exist on the host — I read that off a truncated
+> listing. The real problem with it is latency, not absence.
+
 ## The headline
 
 **The shipped build contains no companion.** Everything works except the being.
+*(Fixed — see the update above; kept for the record because it framed the work.)*
 
 The diorama renders, the resident stands in it with real materials and a looping idle, and the
 stream serves at 720p. But `AMetaHumanCompanionCharacter` — the class that owns a conversational
@@ -28,17 +35,17 @@ the missing piece is small and structural rather than a body of unwritten featur
 | **Body / presence** | ✅ Working | Nia renders with 23 authored PBR material slots, correct scale and facing. |
 | **Idle animation** | ✅ Working | `MF_Idle` on the component; verified by diffing two live frames (6.4% of her pixels changed). |
 | **Face rig** | ✅ Capable | 286 morph targets, all 15 CC visemes, full FACS expression set. `Docs/reference/nia-morph-targets.txt`. |
-| **Face driver** | ✅ Proven in the cooked build | `UCompanionFaceComponent` + `UCompanionFaceSubsystem`, 69/69 tests green. Cooked and deployed 2026-07-28: `Face profile 'CC': all 14 curves resolved on 'SK_Nia'` — morph targets **survive the cook**, which was the real risk. Self-test ran and mouth shape varies across captured frames. |
-| **Viseme mapping** | ⚠️ Partial | Viseme→curve done for CC and ARKit. **Phoneme→viseme does not exist.** |
-| **Phoneme timing** | ❌ Missing | `FVisemeEnvelope` is still 1-DOF RMS→jaw ("muppet mouth"). `FPhonemeSpan`/`FVisemeTrack` from ANIMATION-PLAN §1.2 are unwritten. Piper alignment extraction not started. |
+| **Face driver** | ✅ Proven in the cooked build | `UCompanionFaceComponent` + `UCompanionFaceSubsystem`. Cooked and deployed 2026-07-28: `Face profile 'CC': all 14 curves resolved on 'SK_Nia'` — morph targets **survive the cook**, which was the real risk. Self-test ran; mouth shape varies across captured frames. |
+| **Viseme mapping** | ✅ **NEW** Working | Viseme→curve for CC and ARKit, plus `FVisemePlanner` text→viseme with digraph collapsing, vowel/consonant duration, punctuation silence and cross-fade. 17 tests. |
+| **Phoneme timing** | ⚠️ **NEW** Estimated, not aligned | `FVisemePlanner` times spans from a speaking rate — good enough to read as speech, but it will drift against real audio. `PlanForDuration` rescales to a measured clip once TTS exists. True phoneme alignment still needs the patched Piper (ANIMATION-PLAN §1.2). |
 | **Speech out (TTS)** | ⚠️ Code only | `UPiperTextToSpeech` → `USoundWaveProcedural` → `AudioComponent` exists. **No Piper service deployed** (`PIPER_SERVER_URL=` empty). Audio over Pixel Streaming never verified. |
 | **Hearing (STT)** | ⚠️ Code only | `UWhisperSpeechToText` exists and is tested. **No Whisper service deployed** (`WHISPER_SERVER_URL=` empty). |
-| **Cognition (LLM)** | ⚠️ Code only, misconfigured | Ollama is up on the host, but the deploy defaults to `OLLAMA_MODEL=gemma4:e2b` and the host has no such tag (it has `gemma4:latest`, `qwen3.6`, `qwen36-ctx8k`). As configured, the first chat call fails. |
+| **Cognition (LLM)** | ⚠️ **CORRECTED** Working but slow | Ollama is up and reachable (host networking). `gemma4:e2b` **exists** (7.2 GB) — my earlier "missing" claim was read off a truncated list. Measured: `gemma3:1b` <1s, `gemma4:e2b` ~12s warm / ~77s cold, `gemma4:latest` >60s warm. Deploy now defaults to `gemma3:1b` for responsiveness. |
 | **Persona** | ✅ Exists | `MetaHumanLLMSettings::SystemPrompt`, seeded per conversation. |
 | **Short-term memory** | ✅ Exists | `UOllamaConversation` holds turn history in memory. |
 | **Long-term memory** | ❌ Missing | No integration with anything. `ci-memory` runs on the same host, unused. Every session starts blank. |
 | **Emotion → face** | ❌ Missing | `UEmotionMapper` derives emotion from text, but nothing applies it: `OnSetEmotion` is a Blueprint event with no Blueprint, and `FaceProfile` has no emotion shapes yet — though Nia has the FACS poses for them. |
-| **Eyes / gaze / blink** | ❌ Missing | ANIMATION-PLAN §2 unstarted. She does not blink. For a virtual being this reads as "dead" faster than a still mouth does. |
+| **Eyes / gaze / blink** | ⚠️ **NEW** Blink done, gaze missing | Randomised 2–6s blink with asymmetric close/open, composited over speech. Gaze/saccades (ANIMATION-PLAN §2) still unstarted. |
 | **Micro-motion / breathing** | ❌ Missing | ANIMATION-PLAN §3 unstarted. |
 | **Gesture / body language** | ❌ Missing | `EAnimationCategory` exists as an enum; no animation set is wired to it. |
 | **User input** | ❌ Missing | Known bug #23: `DefaultPawn` ignores `PlayerStart`, free-look inert. No text or audio channel from browser to app. **Nobody can address her.** |
@@ -49,6 +56,10 @@ the missing piece is small and structural rather than a body of unwritten featur
 | **Durability** | ❌ Fragile | Docker state on core-2 has been fully destroyed several times (`docker system prune --volumes --all --force` appears repeatedly in shell history) plus reboots. No restart policy; restoring costs an 85 GB pull and a 20-minute cook. |
 
 ## The gaps that matter, in order
+
+**~~1. Nothing instantiates the companion.~~ DONE.** `UCompanionRuntimeSubsystem` spawns the
+orchestrator at `BeginPlay`, hidden below the floor as a pure brain, and binds `OnCompanionSpoke`
+to the face driver. Original text follows.
 
 **1. Nothing instantiates the companion.** Everything else is downstream of this. The fix is the
 same pattern the face driver just proved: a runtime subsystem that spawns/owns the orchestrator at
