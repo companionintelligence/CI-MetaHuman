@@ -41,8 +41,11 @@ services:
       - "-noraytracing"
       - "-ExecCmds=r.RayTracing 0; r.Lumen.HardwareRayTracing 0; r.DynamicGlobalIlluminationMethod 0; r.ReflectionMethod 0; r.SkyLight.RealTimeReflectionCapture 0; r.SkyAtmosphere 0; r.ReflectionCaptureResolution 0; r.Vulkan.WaitForIdleOnSubmit 2; r.GenerateMeshDistanceFields 0; r.Nanite 0"
       - "-ForceRes"
-      - "-ResX=1280"
-      - "-ResY=720"
+      # PORTRAIT 9:16 — the shot is a video call framed on the resident, not a landscape
+      # establishing shot. Must stay in step with the StageCamera FOV in author_diorama.py:
+      # UE keeps HORIZONTAL FOV, so the aspect here is what decides how much of her is in frame.
+      - "-ResX=720"
+      - "-ResY=1280"
       - "-PixelStreamingUrl=ws://127.0.0.1:8888"
       # NVENC isn't present on an AMD host, so PixelStreaming falls back to VP8 software
       # encode anyway; select VP8 directly to skip the failing NVENC probe.

@@ -148,24 +148,27 @@ try:
     # ---------- room shell ----------
     plane = unreal.load_asset('/Engine/BasicShapes/Plane')
     cube  = unreal.load_asset('/Engine/BasicShapes/Cube')
-    floor = spawn(unreal.StaticMeshActor, (100,0,0))
+    # The room is DEEP on purpose. The shot is a portrait call framed on the resident, and what
+    # sells "inside a mainframe centre" is the receding rank of cabinets behind her — a wall 2.7m
+    # back (the old x=600) gave her a flat backdrop and nowhere for perspective to go.
+    floor = spawn(unreal.StaticMeshActor, (450,0,0))
     floor.static_mesh_component.set_static_mesh(plane)
-    floor.set_actor_scale3d(unreal.Vector(16,16,1))
-    back = spawn(unreal.StaticMeshActor, (600,0,250))     # back wall
+    floor.set_actor_scale3d(unreal.Vector(30,15,1))
+    back = spawn(unreal.StaticMeshActor, (1750,0,250))    # back wall, now ~14m behind her
     back.static_mesh_component.set_static_mesh(cube)
-    back.set_actor_scale3d(unreal.Vector(0.2,16,5))
-    left = spawn(unreal.StaticMeshActor, (100,-500,250))  # left wall
+    back.set_actor_scale3d(unreal.Vector(0.2,15,5))
+    left = spawn(unreal.StaticMeshActor, (450,-720,250))  # left wall
     left.static_mesh_component.set_static_mesh(cube)
-    left.set_actor_scale3d(unreal.Vector(14,0.2,5))
-    right = spawn(unreal.StaticMeshActor, (100,500,250))  # right wall (closes the set)
+    left.set_actor_scale3d(unreal.Vector(28,0.2,5))
+    right = spawn(unreal.StaticMeshActor, (450,720,250))  # right wall (closes the set)
     right.static_mesh_component.set_static_mesh(cube)
-    right.set_actor_scale3d(unreal.Vector(14,0.2,5))
+    right.set_actor_scale3d(unreal.Vector(28,0.2,5))
     # Ceiling: r.SkyAtmosphere is disabled on the stream, so anything above the walls renders
     # as dead black sky. A real ceiling both closes the room and bounces nothing (no GI) —
     # it is there to frame the shot, not to light it.
-    ceil = spawn(unreal.StaticMeshActor, (100,0,500))
+    ceil = spawn(unreal.StaticMeshActor, (450,0,500))
     ceil.static_mesh_component.set_static_mesh(cube)
-    ceil.set_actor_scale3d(unreal.Vector(14,11,0.2))
+    ceil.set_actor_scale3d(unreal.Vector(28,15,0.2))
     w("shell ok (walls + ceiling)")
 
     # ---------- desk under the small artifacts ----------
@@ -175,26 +178,66 @@ try:
     w("desk ok")
 
     # ---------- the 12 props: measure -> normalize scale -> ground -> place ----------
-    placed = 0
-    for name, glb, pos, yaw, target_cm in PROPS:
+    # One placement routine, used both for the hero props and for the repeated hall behind them,
+    # so a duplicated cabinet is normalized and grounded by exactly the same rules as the original.
+    def place_prop(name, pos, yaw, target_cm, label=None):
         sm = imported.get(name)
         if not sm:
-            w("SKIP place %s (no mesh)" % name); continue
+            w("SKIP place %s (no mesh)" % name); return False
         a = spawn(unreal.StaticMeshActor, pos, yaw=yaw)
         a.static_mesh_component.set_static_mesh(sm)
-        a.set_actor_label("prop_" + name)
-
+        a.set_actor_label(label or ("prop_" + name))
         # normalize from MEASURED bounds so the source file's unit scale can't matter
         box = sm.get_bounding_box()
         size = box.max - box.min
         max_dim = max(size.x, size.y, size.z)
-        s = (target_cm / max_dim) if max_dim > 0.001 else 1.0
-        a.set_actor_scale3d(unreal.Vector(s, s, s))
+        sc = (target_cm / max_dim) if max_dim > 0.001 else 1.0
+        a.set_actor_scale3d(unreal.Vector(sc, sc, sc))
         # sit the mesh's base exactly on its placement height (no float/sink)
-        a.set_actor_location(unreal.Vector(pos[0], pos[1], pos[2] - box.min.z * s), False, False)
-        w("place %-11s raw_max=%7.1f -> x%.4f -> %.0fcm" % (name, max_dim, s, max_dim * s))
-        placed += 1
-    w("placed %d/12 props" % placed)
+        a.set_actor_location(unreal.Vector(pos[0], pos[1], pos[2] - box.min.z * sc), False, False)
+        return True
+
+    placed = 0
+    for name, glb, pos, yaw, target_cm in PROPS:
+        if place_prop(name, pos, yaw, target_cm):
+            placed += 1
+    w("placed %d/12 hero props" % placed)
+
+    # ---------- the machine hall ----------
+    # Twelve museum pieces read as a museum, not as a working computer room. A 1970s installation
+    # was RANKS of identical cabinets down an aisle, and that repetition — plus the perspective it
+    # creates — is what makes the background of a close portrait read as "inside a mainframe
+    # centre" rather than "in front of a machine".
+    #
+    # These reuse the already-imported meshes, so repeating costs no import time and no extra
+    # memory beyond the actors. Two banks flank a centre aisle running down +X directly behind the
+    # resident, so the aisle recedes past her shoulders in the portrait shot; two outer rows add a
+    # second layer of depth behind those.
+    HALL = []
+    for i, x in enumerate((640, 880, 1120, 1360, 1600)):
+        # Inner banks face the aisle. Alternating cabinet types keeps the rank from looking tiled.
+        HALL.append((("ibm2401", "ibm3350", "ibm1401cpu")[i % 3], x, -270,  90, (183, 150, 170)[i % 3]))
+        HALL.append((("ibm1401", "ibm2401", "ibm3350")[i % 3],    x,  310, -90, (170, 183, 150)[i % 3]))
+    for i, x in enumerate((760, 1040, 1320, 1600)):
+        # Outer rows, set back against the walls.
+        HALL.append((("ibm2401", "ibm3350")[i % 2], x, -560,  90, (183, 150)[i % 2]))
+        HALL.append((("ibm3350", "ibm2401")[i % 2], x,  600, -90, (150, 183)[i % 2]))
+    # A far rank across the end of the hall, closing the vista.
+    HALL.append(("ramac305", 1690, -120, 180, 170))
+    HALL.append(("ibm1401",  1690,  160, 180, 170))
+
+    hall = 0
+    for name, hx, hy, hyaw, tgt in HALL:
+        if place_prop(name, (hx, hy, 0), hyaw, tgt, label="hall_%s_%d_%d" % (name, hx, hy)):
+            hall += 1
+    w("machine hall: %d repeated cabinets" % hall)
+
+    # The hall needs its own light or it falls off into black past the hero row — the original
+    # ceiling grid only covered the front of the set.
+    for hx in (700, 1000, 1300, 1600):
+        point((hx, 0, 430), (1.0, 0.90, 0.78), 3000, 2400.0)
+        point((hx, -420, 300), (0.0, 0.66, 0.65), 9000, 1100.0)   # aqua rim down the left rank
+        point((hx,  460, 300), (0.35, 0.92, 0.75), 7000, 1100.0)  # mint down the right rank
 
     # ---------- the resident: MetaHuman "Seo" ----------
     # Converted from mhc_seo.mhpkg (5.6 EditableCharacter): assembled in a local 5.8 editor,
@@ -453,8 +496,24 @@ try:
     # camera wins until the pawn spawn is understood.
     # TRADE-OFF: an auto-activated CameraActor becomes the view target, so player input moves
     # the pawn invisibly — free-look will stay dead until this is solved properly.
-    CAM_POS = (-250.0, -60.0, 175.0)
-    LOOK_AT = (330.0, 20.0, 115.0)   # the resident, big-iron row behind them
+    # PORTRAIT FRAMING — this is a video call, not a wide establishing shot.
+    #
+    # The brief is a FaceTime/Zoom call into an early-70s mainframe room, so the camera sits at
+    # the resident's eye level, close, on a long-ish lens, in a 9:16 frame (-ResX=720 -ResY=1280
+    # in docker-compose.amd.yml — the two must be changed together or the framing is meaningless).
+    #
+    # Geometry, so this can be re-derived rather than re-guessed. UE's field_of_view is
+    # HORIZONTAL and the aspect constraint keeps X FOV, so in portrait the vertical angle is the
+    # WIDER one: vFOV = 2*atan(tan(hFOV/2) / aspect), aspect = 720/1280 = 0.5625.
+    #   hFOV 18deg -> vFOV ~31.4deg -> at 2.0m that frames ~1.12m of her, head to upper chest.
+    # Centring on z=150 puts her eyeline in the upper third, which is where a face belongs in a
+    # portrait crop. Camera and subject share y, so she is dead-centre horizontally and the aisle
+    # recedes symmetrically past both shoulders.
+    #
+    # She stands at (330, 20, 0) facing -X (actor yaw 90, see NIA_YAW), so the camera must be on
+    # the -X side of her to see a face rather than the back of her head.
+    CAM_POS = (130.0, 20.0, 150.0)
+    LOOK_AT = (330.0, 20.0, 152.0)   # her eyeline; the machine hall recedes behind her
     dx, dy, dz = (LOOK_AT[0]-CAM_POS[0], LOOK_AT[1]-CAM_POS[1], LOOK_AT[2]-CAM_POS[2])
     cam_yaw = math.degrees(math.atan2(dy, dx))
     cam_pitch = math.degrees(math.atan2(dz, math.sqrt(dx*dx + dy*dy)))
@@ -462,11 +521,11 @@ try:
     cam.set_actor_label("StageCamera")
     cam.set_editor_property("auto_activate_for_player", unreal.AutoReceiveInput.PLAYER0)
     try:
-        cam.camera_component.set_editor_property("field_of_view", 70.0)
+        cam.camera_component.set_editor_property("field_of_view", 18.0)
     except Exception as e:
         w("fov warn " + str(e))
     spawn(unreal.PlayerStart, CAM_POS, yaw=cam_yaw, pitch=cam_pitch)
-    w("StageCamera ok (yaw=%.1f pitch=%.1f fov=70) — known issue: free-look input inert" %
+    w("StageCamera ok (portrait 9:16, yaw=%.1f pitch=%.1f fov=18) — known issue: free-look input inert" %
       (cam_yaw, cam_pitch))
 
     ok = les.save_current_level()
