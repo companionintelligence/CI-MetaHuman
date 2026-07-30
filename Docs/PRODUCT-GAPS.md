@@ -119,3 +119,36 @@ The portrait framing and the machine hall now read correctly. Remaining:
   Ollama is working; do it when TTS/STT move, not before.
 - **Add more tests of components in isolation.** 152 pass while the integration was broken. The
   conversation E2E harness is the format that finds real defects.
+
+---
+
+## Addendum — later the same day
+
+Three things changed after the above was written.
+
+**A scripted opening shot landed.** `UCompanionStageDirector` flies the camera down the hall,
+settles into the call framing, turns her to the lens and delivers a fixed brand line
+("Welcome to Companion Intelligence, I'm Eliza."). This deliberately does NOT go through the LLM: a
+brand statement must be word-for-word identical every run and must not wait on a model round trip
+while the camera is holding on her face. `MHLLM_GREETING` is now `none` by default so the two
+openings cannot collide.
+
+It also changes the demo's shape — a visitor now sees an intentional establishing shot rather than
+landing mid-scene. That partially compensates for gap #1: with no input path, a scripted opening is
+the only thing that makes a correct build look different from a broken one.
+
+**Viewport sizing is now a knob, and the answer is a client-side setting.** Stream resolution moved
+from hardcoded to `STREAM_RES_X` / `STREAM_RES_Y` (default portrait 720x1280). To make the stream
+track the viewer's window instead, no rebuild is needed:
+
+    http://core-2:8090/?MatchViewportRes=true
+
+UE re-renders at the browser viewport, and because the camera's aspect constraint was released the
+framing follows. **The trade is real and worth stating:** in a landscape window that turns a
+composed portrait call into a wide shot with a small subject. The 9:16 composition only holds if
+the window is roughly portrait — so "fit the window" and "keep this framing" are in tension, and
+which one wins is a product decision, not a bug.
+
+**The hall reads.** Cabinets flank a receding aisle to the orange back wall, at the close spacing
+the reference photographs use. Gap #7's remaining item is unchanged: the props themselves still
+import pale against a reference that is dark charcoal and chrome.

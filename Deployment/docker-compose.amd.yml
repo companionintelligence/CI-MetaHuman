@@ -48,8 +48,19 @@ services:
       # protected by AspectRatioAxisConstraint=AspectRatio_MaintainYFOV in DefaultEngine.ini, so a
       # window of any shape keeps the same crop of HER and simply reveals more or less machine
       # hall at the sides. Without that constraint a wide window crops her head off.
-      - "-ResX=720"
-      - "-ResY=1280"
+      # Portrait 9:16 by default: the product is a video CALL, and the shot is composed for it
+      # (see author_diorama.py). Override for a landscape display:
+      #   STREAM_RES_X=1280 STREAM_RES_Y=720 docker compose ... up -d project
+      #
+      # To make the stream track the VIEWER's window instead of a fixed size, no rebuild is
+      # needed -- it is a client-side frontend setting:
+      #   http://core-2:8090/?MatchViewportRes=true
+      # UE then re-renders at the browser viewport, and because the camera's aspect constraint is
+      # released the framing adapts with it. Note the trade: in a LANDSCAPE window that turns a
+      # portrait call into a wide shot with a smaller subject, so the composed framing only holds
+      # if the window is roughly portrait.
+      - "-ResX=${STREAM_RES_X:-720}"
+      - "-ResY=${STREAM_RES_Y:-1280}"
       # Lets the browser send the resize command that MatchViewportRes relies on.
       - "-AllowPixelStreamingCommands=true"
       - "-PixelStreamingUrl=ws://127.0.0.1:8888"
