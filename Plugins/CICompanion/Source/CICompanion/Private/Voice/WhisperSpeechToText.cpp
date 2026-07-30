@@ -291,7 +291,7 @@ void UWhisperSpeechToText::TranscribeWav(const TArray<uint8>& WavBytes)
 	const TArray<uint8> Body = BuildMultipartFormData(WavBytes, Boundary, TEXT("audio.wav"));
 
 	FHttpRequestRef Request = FHttpModule::Get().CreateRequest();
-	Request->SetURL(BaseUrl + TEXT("/inference"));
+	Request->SetURL(BaseUrl + Settings->WhisperEndpointPath);
 	Request->SetVerb(TEXT("POST"));
 	Request->SetHeader(TEXT("Content-Type"), MultipartContentType(Boundary));
 	Request->SetContent(Body);
