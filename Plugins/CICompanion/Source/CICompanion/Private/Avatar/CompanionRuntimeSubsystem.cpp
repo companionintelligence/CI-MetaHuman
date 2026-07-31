@@ -71,9 +71,12 @@ void UCompanionRuntimeSubsystem::OnWorldBeginPlay(UWorld& InWorld)
 	// guesses at 165wpm; the E2E harness measured real replies between 131 and 184wpm, so on a
 	// long sentence the estimate drifts far enough to see. Binding here keeps the mouth locked to
 	// the clip that is actually playing.
-	if (UKokoroTextToSpeech* Kokoro = Companion->FindComponentByClass<UKokoroTextToSpeech>())
+	// NOTE: deliberately NOT re-binding here. Tts above is the same component this lookup finds,
+	// so binding twice drove the face twice per clip -- visible in the log as every "Re-timed to
+	// audio" line appearing in duplicate. Harmless-looking, but it means two viseme tracks racing
+	// on one mouth.
+	if (Tts)
 	{
-		Kokoro->OnSpeechAudioReady.AddDynamic(this, &UCompanionRuntimeSubsystem::HandleSpeechAudioReady);
 		UE_LOG(LogCompanionRuntime, Log, TEXT("Viseme timing bound to measured Kokoro audio duration."));
 	}
 
