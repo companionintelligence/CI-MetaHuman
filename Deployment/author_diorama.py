@@ -775,6 +775,70 @@ try:
     except Exception as e:
         w("branding: skipped (%s)" % e)
 
+
+    # ---------- CRT vector displays + room tone ----------
+    # Flat-colour screens read as painted plastic. A real scan-line trace is what makes a CRT look
+    # POWERED, and it costs one texture. Emissive so it glows with GI off -- the whole set is lit
+    # by explicit lights, so a screen that is merely bright-coloured would look dead beside them.
+    try:
+        t = unreal.AssetImportTask()
+        t.set_editor_property("filename", "/glb/T_CRT_Vector.png")
+        t.set_editor_property("destination_path", "/Game/Diorama/Tex")
+        t.set_editor_property("automated", True); t.set_editor_property("save", True)
+        t.set_editor_property("replace_existing", True)
+        unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([t])
+        crt_tex = unreal.load_asset("/Game/Diorama/Tex/T_CRT_Vector")
+        if crt_tex:
+            M_CRT = tools.create_asset("M_CRT", "/Game/Diorama/Mat", unreal.Material,
+                                       unreal.MaterialFactoryNew())
+            ts = MEL.create_material_expression(M_CRT, unreal.MaterialExpressionTextureSample, -420, 0)
+            ts.set_editor_property("texture", crt_tex)
+            MEL.connect_material_property(ts, "RGB", unreal.MaterialProperty.MP_BASE_COLOR)
+            mul = MEL.create_material_expression(M_CRT, unreal.MaterialExpressionMultiply, -220, 180)
+            MEL.connect_material_expressions(ts, "RGB", mul, "A")
+            k = MEL.create_material_expression(M_CRT, unreal.MaterialExpressionConstant, -380, 240)
+            k.set_editor_property("r", 6.0)
+            MEL.connect_material_expressions(k, "", mul, "B")
+            MEL.connect_material_property(mul, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+            for _f in ("used_with_static_lighting",):
+                try: M_CRT.set_editor_property(_f, True)
+                except Exception: pass
+            MEL.recompile_material(M_CRT)
+            # Face the screens down the aisle so the camera catches them on the fly-in.
+            for sx, sy, sz, syaw in ((520, -150, 120, 90), (520, 190, 120, -90), (760, -150, 120, 90)):
+                scr = spawn(unreal.StaticMeshActor, (sx, sy, sz), yaw=syaw)
+                pl = unreal.load_asset("/Engine/BasicShapes/Plane")
+                if pl:
+                    scr.static_mesh_component.set_static_mesh(pl)
+                    scr.set_actor_scale3d(unreal.Vector(0.34, 0.26, 1.0))
+                    scr.set_actor_rotation(unreal.Rotator(roll=90.0, pitch=0.0, yaw=syaw), False)
+                    scr.static_mesh_component.set_material(0, M_CRT)
+                    scr.set_actor_label("CRT_%d_%d" % (sx, sy))
+            w("CRT vector displays placed (emissive scan-line trace)")
+    except Exception as e:
+        w("CRT displays skipped: %s" % e)
+
+    # Room tone. A machine hall is never silent, and the reference photographs SOUND like 60Hz
+    # mains hum plus blower rumble. 48kHz mono to match UE's mixer rate exactly, so it plays with
+    # no resample. Looping, attenuated, centred in the hall.
+    try:
+        ta = unreal.AssetImportTask()
+        ta.set_editor_property("filename", "/glb/S_RoomTone.wav")
+        ta.set_editor_property("destination_path", "/Game/Diorama/Audio")
+        ta.set_editor_property("automated", True); ta.set_editor_property("save", True)
+        ta.set_editor_property("replace_existing", True)
+        unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([ta])
+        tone = unreal.load_asset("/Game/Diorama/Audio/S_RoomTone")
+        if tone:
+            tone.set_editor_property("looping", True)
+            unreal.EditorAssetLibrary.save_loaded_asset(tone)
+            amb = spawn(unreal.AmbientSound, (700, 20, 150))
+            amb.get_editor_property("audio_component").set_sound(tone)
+            amb.set_actor_label("RoomTone")
+            w("room tone placed (48kHz, looping)")
+    except Exception as e:
+        w("room tone skipped: %s" % e)
+
     # ---------- camera / player ----------
     # The view comes from the DefaultPawn spawned at this PlayerStart — NOT from a
     # CameraActor. An auto-activating CameraActor welds the view target to itself, so the
