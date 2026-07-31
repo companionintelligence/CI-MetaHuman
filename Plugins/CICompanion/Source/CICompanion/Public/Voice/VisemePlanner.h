@@ -38,9 +38,36 @@ struct CICOMPANION_API FVisemeSpan
 // It is also the honest boundary of what we can do without alignment: spans are ESTIMATED from a
 // speaking rate, so a track drifts against real audio over a long utterance. Callers should
 // rescale a planned track to the measured audio duration once TTS returns (see PlanForDuration).
+// One phoneme as the TTS model actually voiced it: the symbol, when it began, and how long it
+// was held. Produced by the kokoro-align sidecar from Kokoro's own duration predictor -- the
+// same tensor the length regulator used to build the waveform -- so these are measurements of
+// the emitted audio, not predictions about it.
+USTRUCT(BlueprintType)
+struct CICOMPANION_API FPhonemeSpan
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "MetaHumanLLM|Voice")
+	FString Symbol;
+
+	UPROPERTY(BlueprintReadOnly, Category = "MetaHumanLLM|Voice")
+	float StartSeconds = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "MetaHumanLLM|Voice")
+	float DurationSeconds = 0.0f;
+};
+
 class CICOMPANION_API FVisemePlanner
 {
 public:
+	// Builds a track from REAL alignment. This is the accurate path and should be preferred
+	// whenever the aligner is reachable: PlanFromText can only distribute time by spelling,
+	// so "though" and "throw" get identical timing despite sounding nothing alike.
+	static TArray<FVisemeSpan> PlanFromAlignment(const TArray<FPhonemeSpan>& Spans);
+
+	// Maps one misaki/IPA symbol to a viseme. Note misaki writes DIPHTHONGS as capitals --
+	// I=/aɪ/, W=/aʊ/, A=/eɪ/, Y=/ɔɪ/, O=/oʊ/ -- which look like spelled-out letters and are not.
+	static EViseme VisemeForIpa(const FString& Symbol);
 	// Plans a track from text at an assumed speaking rate. Punctuation inserts silence, which is
 	// what makes the result read as speech rather than an unbroken chatter of shapes.
 	static TArray<FVisemeSpan> PlanFromText(const FString& Text, float WordsPerMinute = 165.0f);

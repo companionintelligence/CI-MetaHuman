@@ -185,3 +185,106 @@ TMap<EViseme, float> FVisemePlanner::SampleAt(const TArray<FVisemeSpan>& Track, 
 	}
 	return Out;
 }
+
+EViseme FVisemePlanner::VisemeForIpa(const FString& Symbol)
+{
+	if (Symbol.IsEmpty())
+	{
+		return EViseme::Sil;
+	}
+
+	// CASE-SENSITIVE comparison, deliberately and load-bearingly. FString::operator== compares
+	// case-INSENSITIVELY in Unreal, which silently collides misaki's capital diphthongs with the
+	// lowercase consonants and vowels they sit beside: W (/aʊ/) matched "w" (/w/), I (/aɪ/)
+	// matched "i", A (/eɪ/) matched "a". The mouth would have rounded on "how" instead of
+	// opening. Caught by a unit test, not by reading the code -- nothing about `S == TEXT("w")`
+	// looks wrong.
+	auto Is = [&Symbol](const TCHAR* Literal)
+	{
+		return Symbol.Equals(Literal, ESearchCase::CaseSensitive);
+	};
+
+	// --- consonants, grouped by the closure a viewer can actually see ---
+	if (Is(TEXT("p")) || Is(TEXT("b")) || Is(TEXT("m"))) return EViseme::PP;
+	if (Is(TEXT("f")) || Is(TEXT("v"))) return EViseme::FF;
+	if (Is(TEXT("θ")) || Is(TEXT("ð"))) return EViseme::TH;
+	if (Is(TEXT("t")) || Is(TEXT("d"))) return EViseme::DD;
+	if (Is(TEXT("k")) || Is(TEXT("g")) || Is(TEXT("ŋ"))) return EViseme::KK;
+	if (Is(TEXT("ʃ")) || Is(TEXT("ʒ")) || Is(TEXT("ʧ")) || Is(TEXT("ʤ"))
+		|| Is(TEXT("tʃ")) || Is(TEXT("dʒ"))) return EViseme::CH;
+	if (Is(TEXT("s")) || Is(TEXT("z"))) return EViseme::SS;
+	if (Is(TEXT("n")) || Is(TEXT("l"))) return EViseme::NN;
+	if (Is(TEXT("ɹ")) || Is(TEXT("r")) || Is(TEXT("ɚ")) || Is(TEXT("ɜ")) || Is(TEXT("ɝ"))) return EViseme::RR;
+	if (Is(TEXT("w"))) return EViseme::OU;	// rounded glide
+	if (Is(TEXT("j"))) return EViseme::IH;	// palatal glide
+	if (Is(TEXT("h"))) return EViseme::AA;	// breathy, mouth already open
+
+	// --- monophthongs ---
+	if (Is(TEXT("ɑ")) || Is(TEXT("ɒ")) || Is(TEXT("æ")) || Is(TEXT("ɐ"))
+		|| Is(TEXT("a")) || Is(TEXT("ʌ"))) return EViseme::AA;
+	if (Is(TEXT("ɛ")) || Is(TEXT("e")) || Is(TEXT("ə")) || Is(TEXT("ᵊ"))) return EViseme::E;
+	if (Is(TEXT("ɪ")) || Is(TEXT("i"))) return EViseme::IH;
+	if (Is(TEXT("ɔ")) || Is(TEXT("o")) || Is(TEXT("ʊ"))) return EViseme::OH;
+	if (Is(TEXT("u")) || Is(TEXT("ʉ"))) return EViseme::OU;
+
+	// --- diphthongs, which misaki writes as CAPITALS ---
+	// Mapped to the shape the mouth OPENS into, since that is held longest and is the one a
+	// viewer reads. These look like spelled-out letters and are not.
+	if (Is(TEXT("A"))) return EViseme::E;	// /eɪ/
+	if (Is(TEXT("I"))) return EViseme::AA;	// /aɪ/
+	if (Is(TEXT("W"))) return EViseme::AA;	// /aʊ/
+	if (Is(TEXT("Y"))) return EViseme::OH;	// /ɔɪ/
+	if (Is(TEXT("O"))) return EViseme::OH;	// /oʊ/
+
+	// Stress marks, spaces and punctuation carry duration but no shape of their own.
+	return EViseme::Sil;
+}
+
+TArray<FVisemeSpan> FVisemePlanner::PlanFromAlignment(const TArray<FPhonemeSpan>& Spans)
+{
+	TArray<FVisemeSpan> Track;
+	Track.Reserve(Spans.Num());
+
+	for (const FPhonemeSpan& In : Spans)
+	{
+		if (In.DurationSeconds <= 0.0f)
+		{
+			continue;
+		}
+		const FString Sym = In.Symbol;
+
+		// Stress marks (ˈ ˌ) are voiced AS PART OF the vowel that follows and get their own
+		// frames from the model. Emitting them as silence would punch a hole in the middle of
+		// every stressed syllable, so their time is donated forward to the next real shape.
+		const bool bStress = (Sym == TEXT("ˈ") || Sym == TEXT("ˌ"));
+		if (bStress)
+		{
+			continue;	// duration is absorbed by the gap-filling below
+		}
+
+		const EViseme V = VisemeForIpa(Sym);
+
+		// Merge consecutive identical shapes into one sustained hold rather than emitting a
+		// redundant span, which is what stops "ll" or a stress+vowel pair from stuttering.
+		if (Track.Num() > 0 && Track.Last().Viseme == V)
+		{
+			Track.Last().DurationSeconds = (In.StartSeconds + In.DurationSeconds) - Track.Last().StartSeconds;
+			continue;
+		}
+		Track.Emplace(In.StartSeconds, In.DurationSeconds, V);
+	}
+
+	// Close any gaps left by dropped stress marks by extending each span to meet the next, so
+	// the track stays contiguous and SampleAt never lands in a hole.
+	for (int32 i = 0; i + 1 < Track.Num(); ++i)
+	{
+		Track[i].DurationSeconds = FMath::Max(0.0f, Track[i + 1].StartSeconds - Track[i].StartSeconds);
+	}
+
+	// Land closed, as PlanFromText does, so the mouth returns to rest deterministically.
+	if (Track.Num() > 0 && Track.Last().Viseme != EViseme::Sil)
+	{
+		Track.Emplace(Track.Last().EndSeconds(), 0.08f, EViseme::Sil);
+	}
+	return Track;
+}

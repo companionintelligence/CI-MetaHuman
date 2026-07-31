@@ -154,4 +154,76 @@ void FVisemePlannerSpec::Define()
 			TestEqual("P == p", FVisemePlanner::VisemeForChar(TEXT('P')), FVisemePlanner::VisemeForChar(TEXT('p')));
 		});
 	});
+
+	Describe("PlanFromAlignment", [this]()
+	{
+		auto Span = [](const TCHAR* Sym, float Start, float Dur)
+		{
+			FPhonemeSpan S; S.Symbol = Sym; S.StartSeconds = Start; S.DurationSeconds = Dur; return S;
+		};
+
+		It("returns nothing for no spans", [this]()
+		{
+			TestEqual("empty", FVisemePlanner::PlanFromAlignment({}).Num(), 0);
+		});
+
+		It("keeps the aligner's timing instead of re-estimating it", [this, Span]()
+		{
+			// The whole point: a long phoneme stays long. PlanFromText would have given these
+			// two equal time because they are both one character.
+			const TArray<FVisemeSpan> T = FVisemePlanner::PlanFromAlignment(
+				{ Span(TEXT("m"), 0.0f, 0.40f), Span(TEXT("s"), 0.40f, 0.05f) });
+			TestTrue("has spans", T.Num() >= 2);
+			TestTrue("first is the long one", T[0].DurationSeconds > T[1].DurationSeconds * 4.0f);
+		});
+
+		It("treats misaki capitals as DIPHTHONGS, not spelled-out letters", [this]()
+		{
+			// This one is here because I misread it myself: hˌW is /haʊ/, not the letter W.
+			TestEqual("I is /aɪ/", FVisemePlanner::VisemeForIpa(TEXT("I")), EViseme::AA);
+			TestEqual("W is /aʊ/", FVisemePlanner::VisemeForIpa(TEXT("W")), EViseme::AA);
+			TestEqual("A is /eɪ/", FVisemePlanner::VisemeForIpa(TEXT("A")), EViseme::E);
+			TestEqual("Y is /ɔɪ/", FVisemePlanner::VisemeForIpa(TEXT("Y")), EViseme::OH);
+		});
+
+		It("does not punch silence into a stressed syllable", [this, Span]()
+		{
+			// Stress marks carry real frames from the model. Emitting them as Sil would close
+			// the mouth mid-vowel on every stressed syllable in the language.
+			const TArray<FVisemeSpan> T = FVisemePlanner::PlanFromAlignment(
+				{ Span(TEXT("w"), 0.0f, 0.05f), Span(TEXT("ˈ"), 0.05f, 0.05f), Span(TEXT("ɛ"), 0.10f, 0.05f) });
+			for (const FVisemeSpan& S : T)
+			{
+				const bool bHole = (S.Viseme == EViseme::Sil && S.StartSeconds < 0.10f);
+				TestFalse("no silence inside the syllable", bHole);
+			}
+		});
+
+		It("stays contiguous so sampling never falls in a hole", [this, Span]()
+		{
+			const TArray<FVisemeSpan> T = FVisemePlanner::PlanFromAlignment(
+				{ Span(TEXT("k"), 0.0f, 0.05f), Span(TEXT("ˈ"), 0.05f, 0.03f),
+				  Span(TEXT("æ"), 0.08f, 0.09f),
+				  Span(TEXT("t"), 0.17f, 0.04f) });
+			for (int32 i = 0; i + 1 < T.Num(); ++i)
+			{
+				TestTrue("no gap", FMath::IsNearlyEqual(T[i].EndSeconds(), T[i + 1].StartSeconds, 0.002f));
+			}
+		});
+
+		It("maps the consonant families a viewer can actually see", [this]()
+		{
+			TestEqual("m closes", FVisemePlanner::VisemeForIpa(TEXT("m")), EViseme::PP);
+			TestEqual("v is labiodental", FVisemePlanner::VisemeForIpa(TEXT("v")), EViseme::FF);
+			TestEqual("ʤ is postalveolar", FVisemePlanner::VisemeForIpa(TEXT("ʤ")), EViseme::CH);
+			TestEqual("schwa is mid", FVisemePlanner::VisemeForIpa(TEXT("ə")), EViseme::E);
+		});
+
+		It("ends closed", [this, Span]()
+		{
+			const TArray<FVisemeSpan> T = FVisemePlanner::PlanFromAlignment({ Span(TEXT("a"), 0.0f, 0.2f) });
+			TestTrue("has spans", T.Num() > 0);
+			TestEqual("last is silence", T.Last().Viseme, EViseme::Sil);
+		});
+	});
 }
