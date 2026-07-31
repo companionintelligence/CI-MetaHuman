@@ -233,6 +233,20 @@ void AMetaHumanCompanionCharacter::SubmitUserText(const FString& Text)
 		FOnOllamaError::CreateUObject(this, &AMetaHumanCompanionCharacter::HandleError));
 }
 
+void AMetaHumanCompanionCharacter::SpeakWithoutLLM(const FString& Text)
+{
+	if (Text.IsEmpty())
+	{
+		return;
+	}
+	OnSpeak(Text);
+	OnCompanionSpoke.Broadcast(Text);
+	if (TextToSpeech)
+	{
+		TextToSpeech->Speak(Text);
+	}
+}
+
 void AMetaHumanCompanionCharacter::ResetConversation()
 {
 	IChatBackend* Backend = GetBackend();

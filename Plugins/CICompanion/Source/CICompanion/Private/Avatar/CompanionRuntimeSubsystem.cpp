@@ -119,9 +119,16 @@ bool UCompanionRuntimeSubsystem::SpeakLiteral(const FString& Text)
 	{
 		return false;
 	}
-	// Deliberately routed through the same handler a generated reply uses, so scripted and live
-	// speech can never drift apart in how they drive the face.
-	HandleCompanionSpoke(Text);
+	// Route through the CHARACTER, not straight at the face. Calling HandleCompanionSpoke here
+	// looked equivalent -- it drives the same visemes -- but it skipped TextToSpeech->Speak
+	// entirely, so the scripted opening mouthed the brand line while the Pixel Streaming audio
+	// track carried digital silence. "Same handler" was true of the face and false of the voice.
+	if (Companion)
+	{
+		Companion->SpeakWithoutLLM(Text);
+		return true;
+	}
+	HandleCompanionSpoke(Text);   // face-only fallback if the brain failed to spawn
 	return true;
 }
 
