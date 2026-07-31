@@ -200,6 +200,23 @@ try:
         except Exception as e:
             w("paint warn: %s" % e)
 
+
+    # ---------- Companion Intelligence brand tokens ----------
+    # Source: companionintelligence/CI-Common -> assets/brand.config.json + docs/colors.md.
+    # CI teal #0f717a is the brand's load-bearing colour and navy #041620 its ground. Both sit
+    # COOL, which is why they read against warm Olivetti amber instead of muddying it: the set is
+    # warm at eye level and CI-cool in the machine light and the deep background. Mint #58ebbf is
+    # the accent and is used sparingly -- it is the brightest thing in frame wherever it appears.
+    def srgb(h):
+        h = h.lstrip("#")
+        f = [int(h[i:i+2], 16) / 255.0 for i in (0, 2, 4)]
+        # approximate sRGB -> linear so UE does not wash the brand colours out
+        return tuple((c / 12.92) if c <= 0.04045 else (((c + 0.055) / 1.055) ** 2.4) for c in f)
+    CI_TEAL   = srgb("#0f717a")
+    CI_TEAL_L = srgb("#abd4d8")
+    CI_NAVY   = srgb("#041620")
+    CI_MINT   = srgb("#58ebbf")
+
     floor = spawn(unreal.StaticMeshActor, (450,0,0))
     floor.static_mesh_component.set_static_mesh(plane)
     floor.set_actor_scale3d(unreal.Vector(30,15,1))
@@ -211,11 +228,11 @@ try:
     left = spawn(unreal.StaticMeshActor, (450,-720,250))  # left wall
     left.static_mesh_component.set_static_mesh(cube)
     left.set_actor_scale3d(unreal.Vector(28,0.2,5))
-    paint(left, "M_SetWallL", (0.86, 0.85, 0.83), 0.7)
+    paint(left, "M_SetWallL", CI_TEAL, 0.7)      # CI teal, not neutral grey
     right = spawn(unreal.StaticMeshActor, (450,720,250))  # right wall (closes the set)
     right.static_mesh_component.set_static_mesh(cube)
     right.set_actor_scale3d(unreal.Vector(28,0.2,5))
-    paint(right, "M_SetWallR", (0.86, 0.85, 0.83), 0.7)
+    paint(right, "M_SetWallR", CI_TEAL, 0.7)
     # Ceiling: r.SkyAtmosphere is disabled on the stream, so anything above the walls renders
     # as dead black sky. A real ceiling both closes the room and bounces nothing (no GI) —
     # it is there to frame the shot, not to light it.
@@ -288,7 +305,7 @@ try:
     # lit face, and a dark rectangle in a bright room reads as switched-off equipment -- exactly
     # the "museum after hours" feel we are trying to avoid. Phosphor green and amber are the
     # period-correct CRT colours and they are the only saturated light in the room.
-    VECTOR_GREEN = (0.18, 1.00, 0.42)
+    VECTOR_GREEN = CI_MINT          # CI mint doubles as period phosphor green
     VECTOR_AMBER = (1.00, 0.62, 0.12)
     panels = 0
     for i, (px, py, pz, col) in enumerate([
@@ -325,6 +342,13 @@ try:
     for wx, wy in ((300, -260), (300, 300), (620, -120), (620, 160)):
         point((wx, wy, 205), (1.00, 0.72, 0.42), 5200, 1500.0)
     w("warm eye-level wash placed")
+
+    # CI-cool rim from deep in the hall. Warm at eye level, cool in the distance -- that split is
+    # what gives the storefront reference its depth, and it lets the brand teal register as light
+    # rather than only as paint.
+    for ry in (-300, 0, 300):
+        point((1500, ry, 300), CI_TEAL_L, 3000, 2200.0)
+    w("CI-cool depth rim placed")
 
     # ---------- desk under the small artifacts ----------
     desk = spawn(unreal.StaticMeshActor, (115,-320,66))
