@@ -6,6 +6,7 @@
 #include "Widgets/Input/SEditableTextBox.h"
 #include "Widgets/Input/SSlider.h"
 #include "Widgets/Layout/SBorder.h"
+#include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SUniformGridPanel.h"
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/Text/STextBlock.h"
@@ -43,24 +44,35 @@ void SCompanionSettingsPanel::Construct(const FArguments& InArgs)
 	LastNotified = Settings;	// baseline, so the first real edit diffs against what listeners have
 	OnSettingsChanged = InArgs._OnSettingsChanged;
 
+	// The panel must OCCUPY only its own corner. Previously the SBorder was the whole ChildSlot,
+	// so it stretched to the viewport and its 0.86-alpha plate dimmed the entire scene -- the
+	// console worked, but it turned the shot it is meant to sit over into a murky silhouette.
+	// Constraining the width and pinning to the top-left keeps the character lit.
 	ChildSlot
+	.HAlign(HAlign_Left)
+	.VAlign(VAlign_Top)
 	[
-		SNew(SBorder)
-		.BorderBackgroundColor(PanelBg())
-		.Padding(FMargin(14.0f, 10.0f))
+		SNew(SBox)
+		.WidthOverride(430.0f)
+		.Padding(FMargin(8.0f, 8.0f, 0.0f, 0.0f))
 		[
-			SNew(SVerticalBox)
-			+ SVerticalBox::Slot().AutoHeight()
+			SNew(SBorder)
+			.BorderBackgroundColor(PanelBg())
+			.Padding(FMargin(14.0f, 10.0f))
 			[
-				SNew(STextBlock)
-				.Text(LOCTEXT("Title", "COMPANION INTELLIGENCE — CONSOLE"))
-				.ColorAndOpacity(ValueCol())
+				SNew(SVerticalBox)
+				+ SVerticalBox::Slot().AutoHeight()
+				[
+					SNew(STextBlock)
+					.Text(LOCTEXT("Title", "COMPANION INTELLIGENCE — CONSOLE"))
+					.ColorAndOpacity(ValueCol())
+				]
+				+ SVerticalBox::Slot().AutoHeight()[ BuildAvatarSection() ]
+				+ SVerticalBox::Slot().AutoHeight()[ BuildVoiceSection()  ]
+				+ SVerticalBox::Slot().AutoHeight()[ BuildAudioSection()  ]
+				+ SVerticalBox::Slot().AutoHeight()[ BuildChatSection()   ]
+				+ SVerticalBox::Slot().AutoHeight()[ BuildDebugSection()  ]
 			]
-			+ SVerticalBox::Slot().AutoHeight()[ BuildAvatarSection() ]
-			+ SVerticalBox::Slot().AutoHeight()[ BuildVoiceSection()  ]
-			+ SVerticalBox::Slot().AutoHeight()[ BuildAudioSection()  ]
-			+ SVerticalBox::Slot().AutoHeight()[ BuildChatSection()   ]
-			+ SVerticalBox::Slot().AutoHeight()[ BuildDebugSection()  ]
 		]
 	];
 
