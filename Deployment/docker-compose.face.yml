@@ -15,6 +15,11 @@ services:
       # replies, so it would mask exactly the failure this deployment is meant to expose.
       MHLLM_FACE_SELFTEST: "0"
 
+      # Operator console. Hidden by default so the opening reads as a brand moment rather than a
+      # settings screen; "/console" in the chat box toggles it at any time. Set to 1 to start it
+      # open, which is what a kiosk operator (or a screenshot) wants.
+      MHLLM_CONSOLE: "${MHLLM_CONSOLE:-0}"
+
       # Cognition runs on BETA-1, not this box. core-2 is a Strix Halo iGPU and the best it
       # manages is gemma4:e2b at ~12s per reply -- not a conversation. beta-1 has two discrete
       # Navi 31 GPUs (2x25.7GB, ROCm 6.4), and serves a 27B model in well under a second.

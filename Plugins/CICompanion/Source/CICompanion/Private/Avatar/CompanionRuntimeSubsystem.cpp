@@ -153,6 +153,18 @@ void UCompanionRuntimeSubsystem::CreateHud()
 	GEngine->GameViewport->AddViewportWidgetContent(
 		SNew(SWeakWidget).PossiblyNullContent(SettingsPanel.ToSharedRef()), 10001);
 
+	// The console is hidden by default -- the opening is a brand moment, not a settings screen --
+	// but it then needs a way IN. Two, because they fail differently: MHLLM_CONSOLE=1 starts it
+	// open (no input path required, which is what makes it screenshottable and what a kiosk
+	// operator wants), and "/console" typed in the chat box toggles it live. A key binding was the
+	// obvious third option and is the one that does NOT work here: the streamed client's keystrokes
+	// arrive through the HUD's focused text box, so a raw key handler would never see them.
+	if (CICompanionEnv::IsEnabled(TEXT("MHLLM_CONSOLE")))
+	{
+		SettingsPanel->SetVisible(true);
+		UE_LOG(LogCompanionRuntime, Log, TEXT("Console opened by MHLLM_CONSOLE=1."));
+	}
+
 	Hud->SetStatusText(TEXT("Type to Eliza and press Enter"));
 	UE_LOG(LogCompanionRuntime, Log, TEXT("Chat box + console attached to viewport. Settings: %s"),
 		*Initial.ToCompactString());
@@ -269,6 +281,27 @@ void UCompanionRuntimeSubsystem::HandleHudTextSubmitted(const FString& Text)
 	// Logged at the boundary: this line is the proof that a real keystroke crossed from Slate into
 	// the conversation stack, which is the exact link that was broken.
 	UE_LOG(LogCompanionRuntime, Log, TEXT("Chat box submitted (%d chars): %s"), Text.Len(), *Text.Left(160));
+	// Chat commands are intercepted BEFORE the model sees them. Routing "/console" to the LLM
+	// would make her answer a question about consoles instead of opening one.
+	const FString Trimmed = Text.TrimStartAndEnd();
+	if (Trimmed.Equals(TEXT("/console"), ESearchCase::IgnoreCase)
+		|| Trimmed.Equals(TEXT("/settings"), ESearchCase::IgnoreCase))
+	{
+		if (SettingsPanel.IsValid())
+		{
+			const bool bNowVisible = !SettingsPanel->IsPanelVisible();
+			SettingsPanel->SetVisible(bNowVisible);
+			if (Hud.IsValid())
+			{
+				Hud->SetStatusText(bNowVisible ? TEXT("console open — /console to close")
+				                               : TEXT("Type to Eliza and press Enter"));
+			}
+			UE_LOG(LogCompanionRuntime, Log, TEXT("Console toggled -> %s"),
+				bNowVisible ? TEXT("open") : TEXT("closed"));
+		}
+		return;
+	}
+
 	if (Hud.IsValid())
 	{
 		Hud->AppendChatEntry(TEXT("You"), Text);
