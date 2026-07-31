@@ -485,6 +485,42 @@ try:
         point((hx, -300, 300), (0.90, 0.94, 1.00), 7000, 1100.0)  # cool fill, left rank
         point((hx,  340, 300), (0.90, 0.94, 1.00), 7000, 1100.0)  # cool fill, right rank
 
+
+    # ---------- IBM 729 tape units (authored in Blender, not scavenged) ----------
+    # The scavenged props had no tape machine in them, so the hall was 20 featureless slabs. This
+    # GLB is modelled to real 729 proportions (0.76 x 0.74 x 1.80m) with the reference palette.
+    # Its two reels are SEPARATE objects with their own origins: that is the whole point, because a
+    # reel baked into the shell looks identical in a still and can never turn. Spinning tape is the
+    # single most recognisable motion in a machine room of this era.
+    try:
+        t_body = import_prop("ibm729", "ibm-729-tape.glb")
+        reel_meshes = []
+        for a in unreal.AssetRegistryHelpers.get_asset_registry().get_assets_by_path(
+                "/Game/Diorama/ibm729", recursive=True):
+            if str(a.asset_class_path.asset_name) == "StaticMesh" and "Reel" in str(a.asset_name):
+                reel_meshes.append(unreal.load_asset(str(a.package_name)))
+        w("729: body=%s reels=%d" % (t_body is not None, len(reel_meshes)))
+
+        placed729 = 0
+        for bank_y, face in ((-155.0, 90.0), (195.0, -90.0)):
+            for i in range(6):
+                bx = 560.0 + i * 190.0
+                if t_body:
+                    a = spawn(unreal.StaticMeshActor, (bx, bank_y, 0), yaw=face)
+                    a.static_mesh_component.set_static_mesh(t_body)
+                    a.set_actor_label("IBM729_%s_%d" % ("L" if bank_y < 0 else "R", i))
+                    placed729 += 1
+                # Reels ride as their own actors at the same transform, tagged for the spinner.
+                for rm in reel_meshes:
+                    r = spawn(unreal.StaticMeshActor, (bx, bank_y, 0), yaw=face)
+                    r.static_mesh_component.set_static_mesh(rm)
+                    r.tags = ["TapeReel"]
+                    r.set_actor_label("Reel_%s_%d_%s" % ("L" if bank_y < 0 else "R", i, rm.get_name()))
+        w("729 tape units placed: %d bodies, %d reel actors" % (placed729, placed729 * len(reel_meshes)))
+    except Exception as e:
+        import traceback as _t
+        w("729 PLACEMENT WARN: %s" % e)
+
     # ---------- the resident: MetaHuman "Seo" ----------
     # Converted from mhc_seo.mhpkg (5.6 EditableCharacter): assembled in a local 5.8 editor,
     # exported Face+Body+Outfit to FBX (version-agnostic), re-imported HERE into 5.5 as
