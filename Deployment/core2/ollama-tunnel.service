@@ -1,0 +1,30 @@
+[Unit]
+# Forwards beta-1's Ollama to a local port on core-2.
+#
+# WHY A TUNNEL rather than pointing straight at beta-1:11434 — beta-1's ollama.service declares
+# OLLAMA_HOST=0.0.0.0:11434, but the RUNNING process predates that edit and is still bound to
+# 127.0.0.1, so nothing off-box can reach it. Applying the operator's own setting needs a service
+# restart with sudo, and beta-1 serves other work, so this takes the non-invasive route instead.
+# If that service is ever restarted, this tunnel can be dropped and OLLAMA_BASE_URL pointed
+# directly at http://100.124.211.75:11434.
+#
+# Auth is Tailscale SSH (no key material). Runs as a --user unit with lingering enabled, so it
+# needs no root and survives logout and reboot.
+Description=SSH tunnel: core-2 localhost:11435 -> beta-1 Ollama :11434
+After=network-online.target
+
+[Service]
+# ExitOnForwardFailure so a port clash fails loudly instead of leaving a dead tunnel that looks
+# healthy; ServerAlive* so a silently dropped link is noticed and restarted rather than hanging.
+ExecStart=/usr/bin/ssh -N \
+  -o ExitOnForwardFailure=yes \
+  -o ServerAliveInterval=30 \
+  -o ServerAliveCountMax=3 \
+  -o StrictHostKeyChecking=accept-new \
+  -L 127.0.0.1:11435:127.0.0.1:11434 \
+  ci@100.124.211.75
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

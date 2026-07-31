@@ -128,4 +128,26 @@ void FOllamaClientSpec::Define()
 			}
 		});
 	});
+
+	Describe("thinking suppression", [this]()
+	{
+		It("disables thinking by default, because it is pure latency for a companion", [this]()
+		{
+			// Measured on beta-1: qwen3.6:27b answers a one-line greeting in ~814ms with thinking
+			// off and 16-21s with it on. Ollama returns the reasoning in a separate `thinking`
+			// field that never reaches the mouth, so the wait buys nothing.
+			TArray<FOllamaMessage> History;
+			History.Emplace(EOllamaRole::User, TEXT("hi"));
+			const FString Body = UOllamaClient::BuildRequestBody(History, TEXT("qwen3.6:27b"));
+			TestTrue("sends think:false", Body.Contains(TEXT("\"think\": false")) || Body.Contains(TEXT("\"think\":false")));
+		});
+
+		It("can opt back in when deliberation is wanted", [this]()
+		{
+			TArray<FOllamaMessage> History;
+			History.Emplace(EOllamaRole::User, TEXT("hi"));
+			const FString Body = UOllamaClient::BuildRequestBody(History, TEXT("qwen3.6:27b"), true);
+			TestTrue("sends think:true", Body.Contains(TEXT("\"think\": true")) || Body.Contains(TEXT("\"think\":true")));
+		});
+	});
 }

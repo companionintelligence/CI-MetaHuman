@@ -1,5 +1,35 @@
 # Handoff — Finish the MetaHuman skin (for Opus)
 
+> **RESOLVED 2026-07-19.** Root cause was NOT the LOD material map or texture bakes — it was that
+> `M_SeoSkin`/`M_SeoHidden` (created via `MaterialFactoryNew`) had **no usage flags**, so applying
+> them to a SkeletalMesh made the cook fall back to the DEFAULT gray material (log: "Material with
+> missing usage flag was applied to skeletal mesh"). That single cause explains why all 5 attempts
+> below rendered pixel-identical gray. **Fix:** set `used_with_skeletal_mesh=True` +
+> `used_with_morph_targets=True` on both materials before `recompile_material` (see
+> `author_diorama.py`, the "gray-render root cause" comment). Verified: "missing usage flag"
+> warnings 54→0; cooked + deployed; Seo now renders warm skin on the live stream. A **fast GPU
+> preview loop** was also built to get here — `Deployment/Dockerfile.editorpreview` →
+> `ci/ue55-editor-preview:mesa` + `/home/ci/gpu_preview.sh` (renders the UNCOOKED map on the GPU;
+> see `metahuman-mhpkg-to-55.md` memory for the ICD/setpriv/group gotchas).
+>
+> **What "skin" means here — read before judging a frame.** Only her **head/neck, forearms and
+> lower legs** render. **Torso, upper arms and thighs are ABSENT** — MetaHuman hides the body
+> geometry that sits under clothing, and the garment mesh is meant to fill it. In the streamed
+> frame the large pale slab behind her is a **prop box, not a dress** (her arm casts a shadow onto
+> it); don't mistake it for her torso, and don't sample it for "is the skin warm?" — I did, and
+> briefly mis-reported the torso as skinned. Compare `/home/ci/shots/ship-view.png` (pre-fix, gray)
+> with `m2-canvas.png` (post-fix, warm): the SAME parts are missing in both, so it is geometry, not
+> a material bug.
+>
+> **Next step, and it is cheap:** `Content/Seo/Outfit/MHC_Seo_Outfits.uasset` (+ its
+> `MI_WI_DefaultGarment_*_Shirt/Short` materials) was already imported, but `author_diorama.py`
+> **never spawns it** — `seo_parts` lists only Body and Face. Import/place the outfit at the same
+> transform (and give its materials the same skeletal-mesh usage flags) to clothe the gap. After
+> that: real skin textures (or `export_dcc` for MetaHuman's own materials) + the DNA face.
+> The rest of this doc is the original investigation, kept for context.
+
+---
+
 Focused handoff for one job: **the converted MetaHuman "Seo" renders in the UE 5.5 AMD
 Pixel Streaming diorama but is flat gray. Make her skinned.** Everything else about the
 MetaHuman works. Read the general `HANDOFF.md` first for the project + the core-2 build loop;

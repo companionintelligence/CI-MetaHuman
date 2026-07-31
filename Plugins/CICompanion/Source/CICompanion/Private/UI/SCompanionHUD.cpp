@@ -61,15 +61,49 @@ void SCompanionHUD::AppendChatEntry(const FString& Speaker, const FString& Text)
 
 	if (ChatScrollBox.IsValid())
 	{
+		const TSharedRef<STextBlock> EntryWidget = SNew(STextBlock)
+			.AutoWrapText(true)
+			.Text(FText::FromString(FString::Printf(TEXT("%s: %s"), *Speaker, *Text)));
+
 		ChatScrollBox->AddSlot()
 			.Padding(0.f, 2.f)
 			[
-				SNew(STextBlock)
-				.AutoWrapText(true)
-				.Text(FText::FromString(FString::Printf(TEXT("%s: %s"), *Speaker, *Text)))
+				EntryWidget
 			];
+		ChatEntryWidgets.Add(EntryWidget);
+	}
+
+	TrimChatLog();
+
+	// After the trim, not before: eviction shortens the content and would otherwise leave the view
+	// parked short of the line that was just added.
+	if (ChatScrollBox.IsValid())
+	{
 		ChatScrollBox->ScrollToEnd();
 	}
+}
+
+void SCompanionHUD::TrimChatLog()
+{
+	const int32 NumToDrop = ChatEntries.Num() - MaxRetainedChatEntries;
+	if (NumToDrop <= 0)
+	{
+		return;
+	}
+
+	ChatEntries.RemoveAt(0, NumToDrop);
+
+	// ChatEntryWidgets can be shorter than ChatEntries if entries were appended before Construct
+	// ran, so drop against its own length rather than assuming the two arrays are the same size.
+	const int32 NumWidgetsToDrop = FMath::Min(NumToDrop, ChatEntryWidgets.Num());
+	if (ChatScrollBox.IsValid())
+	{
+		for (int32 Index = 0; Index < NumWidgetsToDrop; ++Index)
+		{
+			ChatScrollBox->RemoveSlot(ChatEntryWidgets[Index]);
+		}
+	}
+	ChatEntryWidgets.RemoveAt(0, NumWidgetsToDrop);
 }
 
 void SCompanionHUD::SetStatusText(const FString& Status)
@@ -83,6 +117,7 @@ void SCompanionHUD::SetStatusText(const FString& Status)
 void SCompanionHUD::ClearChatLog()
 {
 	ChatEntries.Reset();
+	ChatEntryWidgets.Reset();
 	if (ChatScrollBox.IsValid())
 	{
 		ChatScrollBox->ClearChildren();

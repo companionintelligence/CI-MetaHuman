@@ -48,17 +48,26 @@
 		{
 			"Name": "MCPClientToolset",
 			"Enabled": true,
-			"Optional": true
+			"Optional": true,
+			"TargetAllowList": [
+				"Editor"
+			]
 		},
 		{
 			"Name": "ModelContextProtocol",
 			"Enabled": true,
-			"Optional": true
+			"Optional": true,
+			"TargetAllowList": [
+				"Editor"
+			]
 		},
 		{
 			"Name": "AllToolsets",
 			"Enabled": true,
-			"Optional": true
+			"Optional": true,
+			"TargetAllowList": [
+				"Editor"
+			]
 		},
 		{
 			"Name": "MetaHuman",
@@ -113,6 +122,14 @@
 				"Win64",
 				"Linux",
 				"Mac"
+			]
+		},
+		{
+			"Name": "AIAssistant",
+			"Enabled": true,
+			"Optional": true,
+			"TargetAllowList": [
+				"Editor"
 			]
 		}
 	]

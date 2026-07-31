@@ -85,6 +85,20 @@ bool FWavAudioReader::Parse(const TArray<uint8>& Bytes, FWavData& OutData)
 			uint32 ByteRate; if (!ReadU32(Bytes, P, ByteRate)) return false;
 			uint16 BlockAlign; if (!ReadU16(Bytes, P, BlockAlign)) return false;
 			if (!ReadU16(Bytes, P, BitsPerSample)) return false;
+
+			// WAVE_FORMAT_EXTENSIBLE announces 0xFFFE and puts the REAL format code in the first
+			// two bytes of a SubFormat GUID that follows cbSize(2) + validBits(2) + mask(4).
+			// Without this an otherwise ordinary float or PCM clip is rejected purely for being
+			// tagged extensible, which is common from encoders that emit >2 channels or >16 bits.
+			if (AudioFormat == 0xFFFE && ChunkSize >= 40)
+			{
+				int32 SubFormatOffset = ChunkBodyOffset + 24;
+				uint16 SubFormat = 0;
+				if (ReadU16(Bytes, SubFormatOffset, SubFormat))
+				{
+					AudioFormat = SubFormat;
+				}
+			}
 			bHaveFmt = true;
 		}
 		else if (TagEquals(Bytes, ChunkIdOffset, "data"))
@@ -94,11 +108,22 @@ bool FWavAudioReader::Parse(const TArray<uint8>& Bytes, FWavData& OutData)
 		}
 
 		// Chunks are word-aligned: an odd size is followed by a pad byte.
-		int32 Advance = ChunkBodyOffset + static_cast<int32>(ChunkSize);
-		if (ChunkSize % 2 == 1)
+		//
+		// Arithmetic is done in int64 and clamped because a chunk size is an unsigned 32-bit
+		// field and real encoders DO write 0xFFFFFFFF to mean "streaming, length unknown" --
+		// Kokoro does. Casting that to int32 yields -1, which walked the cursor BACKWARDS into
+		// the middle of the header, where misaligned bytes could spuriously match a "fmt "/"data"
+		// tag and hand the sample loop a bogus offset. The result was a segfault triggered purely
+		// by a well-formed response from our own TTS service.
+		const int64 ChunkEnd = static_cast<int64>(ChunkBodyOffset) + static_cast<int64>(ChunkSize);
+		int64 Advance64 = ChunkEnd + (ChunkSize % 2 == 1 ? 1 : 0);
+		if (Advance64 > Bytes.Num())
 		{
-			Advance += 1;
+			// A size that runs past the buffer means this is the last chunk (or a lie); either
+			// way there is nothing further to walk to.
+			break;
 		}
+		int32 Advance = static_cast<int32>(Advance64);
 		if (Advance <= Offset)
 		{
 			break; // malformed / zero-progress guard
@@ -110,14 +135,29 @@ bool FWavAudioReader::Parse(const TArray<uint8>& Bytes, FWavData& OutData)
 	{
 		return false;
 	}
-	// Only uncompressed integer PCM (format 1) is supported.
-	if (AudioFormat != 1 || (BitsPerSample != 16 && BitsPerSample != 8))
+	// Accept integer PCM (format 1) at 8/16/24/32-bit and IEEE float (format 3) at 32-bit.
+	//
+	// The float case is not hypothetical: AMD Lemonade's Kokoro endpoint returns 24kHz MONO
+	// 32-BIT FLOAT, and this reader previously rejected it outright. Because Parse() failing is
+	// indistinguishable from a network error to the caller, the symptom was a companion that
+	// simply never spoke, with one warning line to explain it. The conversation E2E test caught
+	// it before it shipped. WAVE_FORMAT_EXTENSIBLE (0xFFFE) carries the true format in a
+	// subformat GUID whose first two bytes mirror these codes, so it is resolved above.
+	const bool bIntegerPcm = (AudioFormat == 1) &&
+		(BitsPerSample == 8 || BitsPerSample == 16 || BitsPerSample == 24 || BitsPerSample == 32);
+	const bool bFloatPcm = (AudioFormat == 3) && (BitsPerSample == 32);
+	if (!bIntegerPcm && !bFloatPcm)
 	{
 		return false;
 	}
 
-	// Clamp declared data size to what's actually present.
-	const int32 AvailableBytes = FMath::Min(static_cast<int32>(DataSize), Bytes.Num() - DataOffset);
+	// Clamp the DECLARED size to what actually arrived, in 64-bit. The old int32 cast turned the
+	// 0xFFFFFFFF streaming placeholder into -1 and rejected the clip outright, so even once the
+	// crash above was avoided a real Kokoro response still decoded to nothing.
+	const int64 DeclaredBytes = static_cast<int64>(DataSize);
+	const int64 PresentBytes = static_cast<int64>(Bytes.Num()) - static_cast<int64>(DataOffset);
+	const int32 AvailableBytes = static_cast<int32>(FMath::Clamp<int64>(
+		FMath::Min(DeclaredBytes, PresentBytes), 0, MAX_int32));
 	if (AvailableBytes <= 0)
 	{
 		return false;
@@ -134,7 +174,10 @@ bool FWavAudioReader::Parse(const TArray<uint8>& Bytes, FWavData& OutData)
 	{
 		return false;
 	}
-	const int32 NumFrames = AvailableBytes / FrameBytes;
+	// Belt and braces: derive the frame count from bytes that provably exist. Every read below
+	// indexes Bytes[] directly, so a header that over-promises must not be able to reach past it.
+	const int32 SafeBytes = FMath::Min(AvailableBytes, Bytes.Num() - DataOffset);
+	const int32 NumFrames = SafeBytes / FrameBytes;
 	OutData.MonoSamples.Reserve(NumFrames);
 
 	for (int32 Frame = 0; Frame < NumFrames; ++Frame)
@@ -145,7 +188,43 @@ bool FWavAudioReader::Parse(const TArray<uint8>& Bytes, FWavData& OutData)
 		for (int32 Ch = 0; Ch < NumChannels; ++Ch)
 		{
 			const int32 SampleStart = FrameStart + Ch * BytesPerSample;
-			if (BitsPerSample == 16)
+			if (bFloatPcm)
+			{
+				// Already normalised to [-1,1] by definition; copy the bit pattern rather than
+				// casting the pointer, which would trip strict-aliasing and alignment.
+				uint32 Bits = static_cast<uint32>(Bytes[SampleStart])
+					| (static_cast<uint32>(Bytes[SampleStart + 1]) << 8)
+					| (static_cast<uint32>(Bytes[SampleStart + 2]) << 16)
+					| (static_cast<uint32>(Bytes[SampleStart + 3]) << 24);
+				float S;
+				FMemory::Memcpy(&S, &Bits, sizeof(S));
+				// Encoders occasionally overshoot unity; clamp so one hot sample cannot wrap to
+				// full-scale noise once quantised to int16 downstream.
+				ChannelSum += FMath::Clamp(S, -1.0f, 1.0f);
+			}
+			else if (BitsPerSample == 32)
+			{
+				const int32 S = static_cast<int32>(
+					static_cast<uint32>(Bytes[SampleStart])
+					| (static_cast<uint32>(Bytes[SampleStart + 1]) << 8)
+					| (static_cast<uint32>(Bytes[SampleStart + 2]) << 16)
+					| (static_cast<uint32>(Bytes[SampleStart + 3]) << 24));
+				ChannelSum += static_cast<float>(S) / 2147483648.0f;
+			}
+			else if (BitsPerSample == 24)
+			{
+				// Sign-extend the 24-bit little-endian value into 32 bits.
+				int32 S = static_cast<int32>(
+					static_cast<uint32>(Bytes[SampleStart])
+					| (static_cast<uint32>(Bytes[SampleStart + 1]) << 8)
+					| (static_cast<uint32>(Bytes[SampleStart + 2]) << 16));
+				if (S & 0x00800000)
+				{
+					S |= ~0x00FFFFFF;
+				}
+				ChannelSum += static_cast<float>(S) / 8388608.0f;
+			}
+			else if (BitsPerSample == 16)
 			{
 				const int16 S = static_cast<int16>(
 					static_cast<uint16>(Bytes[SampleStart]) | (static_cast<uint16>(Bytes[SampleStart + 1]) << 8));

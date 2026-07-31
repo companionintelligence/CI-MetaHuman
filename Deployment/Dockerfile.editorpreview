@@ -1,0 +1,45 @@
+# syntax=docker/dockerfile:1
+#
+# FAST-PREVIEW editor image. The problem this solves:
+#
+#   Epic's `dev-5.5` image (which has UnrealEditor-Cmd) is Ubuntu 22.04 / Mesa 23.2.1 and ships
+#   NO RADV Vulkan ICD, so it CANNOT create a Vulkan instance on the Strix Halo (gfx1151) GPU:
+#   every offscreen render aborts at instance creation with VK_ERROR_INCOMPATIBLE_DRIVER.
+#   (gpu_stage.sh / gpu_render.sh both hit this — the old "it renders" note was a false positive.)
+#   The *deploy* runtime renders fine because it is a SEPARATE ubuntu:26.04 + Mesa 26.0.3 image
+#   (Dockerfile.amd stage 2) — but that image has only the packaged game, not the editor.
+#
+# This image = the deploy's proven render stack (ubuntu:26.04 + mesa-vulkan-drivers 26.0.3, RADV
+# STRIX_HALO, Vulkan 1.4) with the UE 5.5 EDITOR tree copied in on top. Result: UnrealEditor-Cmd
+# can render an UNCOOKED authored map offscreen on the real GPU in ~minutes — no 20-min cook.
+#
+#   docker build -f Deployment/Dockerfile.editorpreview -t ci/ue55-editor-preview:mesa .
+#
+# The build context is irrelevant (both FROM images are local); nothing is COPYed from context.
+
+FROM ghcr.io/epicgames/unreal-engine:dev-5.5 AS engine
+
+FROM ubuntu:26.04
+ENV DEBIAN_FRONTEND=noninteractive
+# The deploy runtime set (proven to render UE 5.5 on this GPU) + editor extras: python3 for
+# -run=pythonscript, icu/xml/fontconfig for the editor's non-nullrhi module set. The engine
+# bundles most of its own ThirdParty .so's under Engine/Binaries/ThirdParty, so this stays small.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        mesa-vulkan-drivers mesa-va-drivers libvulkan1 vulkan-tools vainfo \
+        libva2 libva-drm2 libgl1 libglu1-mesa \
+        libsm6 libxext6 libxrender1 libxi6 libxkbcommon0 libx11-6 libx11-xcb1 libxcb1 \
+        libasound2t64 libpulse0 libssl3 ca-certificates libnss3 libatk1.0-0 libcups2 \
+        python3 libicu78 libxml2-16 libfontconfig1 libfreetype6 zlib1g \
+    && rm -rf /var/lib/apt/lists/*
+
+# The engine files are owned by uid 1000 in dev-5.5 (its "ue4" user). ubuntu:26.04 already has a
+# uid-1000 user ("ubuntu"); reuse that uid so the copied tree is owned by the runtime user and
+# shader/DDC writes into the engine tree succeed. UE only refuses to run as ROOT, not as 1000.
+COPY --from=engine /home/ue4/UnrealEngine /home/ue4/UnrealEngine
+# NB: do NOT touch /usr/share/vulkan/icd.d/radeon_icd.json — on ubuntu:26.04 that IS the real
+# RADV ICD (there is no radeon_icd.x86_64.json). An earlier ln -sf clobbered it with a dangling
+# symlink, so only llvmpipe enumerated and UE rejected it ("None of the 1 devices meet the
+# criteria"). Leave the packaged ICD alone; the loader auto-discovers it (don't set VK_ICD_FILENAMES).
+RUN mkdir -p /home/ue4 && chown 1000:1000 /home/ue4 && chmod 777 /home/ue4
+ENV HOME=/home/ue4
+USER 1000

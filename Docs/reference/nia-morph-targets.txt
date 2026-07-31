@@ -1,0 +1,291 @@
+TOTAL 286
+ARKit-named present: 0/10 -> []
+CC viseme morphs present: 15/15 -> ['V_Open', 'V_Wide', 'V_Tight', 'V_Tight_O', 'V_Explosive', 'V_Dental_Lip', 'V_Affricate', 'V_Lip_Open', 'V_Tongue_up', 'V_Tongue_Raise', 'V_Tongue_Out', 'V_Tongue_Narrow', 'V_Tongue_Lower', 'V_Tongue_Curl_U', 'V_Tongue_Curl_D']
+--- ALL MORPH TARGETS ---
+Brow_Compress_L
+Brow_Compress_R
+Brow_Drop_L
+Brow_Drop_R
+Brow_Raise_Inner_L
+Brow_Raise_Inner_R
+Brow_Raise_Outer_L
+Brow_Raise_Outer_R
+Cheek_Puff_L
+Cheek_Puff_R
+Cheek_Raise_L
+Cheek_Raise_R
+Cheek_Suck_L
+Cheek_Suck_R
+EO Bulge L
+EO Bulge R
+EO Center Lower Depth L
+EO Center Lower Depth R
+EO Center Lower Height L
+EO Center Lower Height R
+EO Center Upper Depth L
+EO Center Upper Depth R
+EO Center Upper Height L
+EO Center Upper Height R
+EO Depth L
+EO Depth R
+EO Duct Depth L
+EO Duct Depth R
+EO Inner Depth L
+EO Inner Depth R
+EO Inner Height L
+EO Inner Height R
+EO Inner Lower Depth L
+EO Inner Lower Depth R
+EO Inner Lower Height L
+EO Inner Lower Height R
+EO Inner Upper Depth L
+EO Inner Upper Depth R
+EO Inner Upper Height L
+EO Inner Upper Height R
+EO Inner Width L
+EO Inner Width R
+EO Lower Depth L
+EO Lower Depth R
+EO Outer Depth L
+EO Outer Depth R
+EO Outer Height L
+EO Outer Height R
+EO Outer Lower Depth L
+EO Outer Lower Depth R
+EO Outer Lower Height L
+EO Outer Lower Height R
+EO Outer Upper Depth L
+EO Outer Upper Depth R
+EO Outer Upper Height L
+EO Outer Upper Height R
+EO Outer Width L
+EO Outer Width R
+EO Upper Depth L
+EO Upper Depth R
+Ear_Down_L
+Ear_Down_R
+Ear_Out_L
+Ear_Out_R
+Ear_Up_L
+Ear_Up_R
+Eye_Blink_L
+Eye_Blink_R
+Eye_L_Look_Down
+Eye_L_Look_L
+Eye_L_Look_R
+Eye_L_Look_Up
+Eye_Pupil_Contract
+Eye_Pupil_Dilate
+Eye_R_Look_Down
+Eye_R_Look_L
+Eye_R_Look_R
+Eye_R_Look_Up
+Eye_Squint_L
+Eye_Squint_R
+Eye_Wide_L
+Eye_Wide_R
+Eyelash_Lower_Down_L
+Eyelash_Lower_Down_R
+Eyelash_Lower_Up_L
+Eyelash_Lower_Up_R
+Eyelash_Upper_Down_L
+Eyelash_Upper_Down_R
+Eyelash_Upper_Up_L
+Eyelash_Upper_Up_R
+Hair_Back_Behind
+Hair_Bangs_Long
+Hair_Bangs_Out
+Hair_Bangs_Short
+Hair_Fluffy
+Hair_Front_Forth
+Hair_Long
+Hair_Mess_Out
+Hair_Outward
+Hair_Short
+Hairline_High_All
+Hairline_High_Left
+Hairline_High_Middle
+Hairline_High_Right
+Hairline_Low_All
+Hairline_Low_Left
+Hairline_Low_Middle
+Hairline_Low_Right
+Hairline_Out
+Hairline_Out_All
+Head_Backward
+Head_Forward
+Head_L
+Head_R
+Head_Tilt_L
+Head_Tilt_R
+Head_Turn_Down
+Head_Turn_L
+Head_Turn_R
+Head_Turn_Up
+Jaw_Backward
+Jaw_Down
+Jaw_Forward
+Jaw_L
+Jaw_Open
+Jaw_R
+Jaw_Up
+Mouth_Blow_L
+Mouth_Blow_R
+Mouth_Chin_Up
+Mouth_Close
+Mouth_Contract
+Mouth_Dimple_L
+Mouth_Dimple_R
+Mouth_Down
+Mouth_Down_Lower_L
+Mouth_Down_Lower_R
+Mouth_Drop_Lower
+Mouth_Drop_Upper
+Mouth_Frown_L
+Mouth_Frown_R
+Mouth_Funnel_Down_L
+Mouth_Funnel_Down_R
+Mouth_Funnel_Up_L
+Mouth_Funnel_Up_R
+Mouth_L
+Mouth_Lower_L
+Mouth_Lower_R
+Mouth_Press_L
+Mouth_Press_R
+Mouth_Pucker_Down_L
+Mouth_Pucker_Down_R
+Mouth_Pucker_Up_L
+Mouth_Pucker_Up_R
+Mouth_Pull_Lower_L
+Mouth_Pull_Lower_R
+Mouth_Pull_Upper_L
+Mouth_Pull_Upper_R
+Mouth_Push_Lower_L
+Mouth_Push_Lower_R
+Mouth_Push_Upper_L
+Mouth_Push_Upper_R
+Mouth_R
+Mouth_Roll_In_Lower_L
+Mouth_Roll_In_Lower_R
+Mouth_Roll_In_Upper_L
+Mouth_Roll_In_Upper_R
+Mouth_Roll_Out_Lower_L
+Mouth_Roll_Out_Lower_R
+Mouth_Roll_Out_Upper_L
+Mouth_Roll_Out_Upper_R
+Mouth_Shrug_Lower
+Mouth_Shrug_Upper
+Mouth_Smile_L
+Mouth_Smile_R
+Mouth_Smile_Sharp_L
+Mouth_Smile_Sharp_R
+Mouth_Stretch_L
+Mouth_Stretch_R
+Mouth_Tighten_L
+Mouth_Tighten_R
+Mouth_Up
+Mouth_Up_Upper_L
+Mouth_Up_Upper_R
+Mouth_Upper_L
+Mouth_Upper_R
+Neck_Swallow_Down
+Neck_Swallow_Up
+Neck_Tighten_L
+Neck_Tighten_R
+Nose_Crease_L
+Nose_Crease_R
+Nose_Nostril_Dilate_L
+Nose_Nostril_Dilate_R
+Nose_Nostril_Down_L
+Nose_Nostril_Down_R
+Nose_Nostril_In_L
+Nose_Nostril_In_R
+Nose_Nostril_Raise_L
+Nose_Nostril_Raise_R
+Nose_Sneer_L
+Nose_Sneer_R
+Nose_Tip_Down
+Nose_Tip_L
+Nose_Tip_R
+Nose_Tip_Up
+TL Center Lower Depth L
+TL Center Lower Depth R
+TL Center Lower Height L
+TL Center Lower Height R
+TL Center Upper Depth L
+TL Center Upper Depth R
+TL Center Upper Height L
+TL Center Upper Height R
+TL Depth L
+TL Depth R
+TL Duct Depth L
+TL Duct Depth R
+TL Inner Depth L
+TL Inner Depth R
+TL Inner Height L
+TL Inner Height R
+TL Inner Lower Depth L
+TL Inner Lower Depth R
+TL Inner Lower Height L
+TL Inner Lower Height R
+TL Inner Upper Depth L
+TL Inner Upper Depth R
+TL Inner Upper Height L
+TL Inner Upper Height R
+TL Inner Width L
+TL Inner Width R
+TL Lower Depth L
+TL Lower Depth R
+TL Outer Depth L
+TL Outer Depth R
+TL Outer Height L
+TL Outer Height R
+TL Outer Lower Depth L
+TL Outer Lower Depth R
+TL Outer Lower Height L
+TL Outer Lower Height R
+TL Outer Upper Depth L
+TL Outer Upper Depth R
+TL Outer Upper Height L
+TL Outer Upper Height R
+TL Outer Width L
+TL Outer Width R
+TL Upper Depth L
+TL Upper Depth R
+Tongue_Bulge_L
+Tongue_Bulge_R
+Tongue_Down
+Tongue_Enlarge
+Tongue_Extend
+Tongue_In
+Tongue_L
+Tongue_Mid_Up
+Tongue_Narrow
+Tongue_Out
+Tongue_R
+Tongue_Roll
+Tongue_Tip_Down
+Tongue_Tip_L
+Tongue_Tip_R
+Tongue_Tip_Up
+Tongue_Twist_L
+Tongue_Twist_R
+Tongue_Up
+Tongue_Wide
+V_Affricate
+V_Dental_Lip
+V_Explosive
+V_Lip_Open
+V_Open
+V_Tight
+V_Tight_O
+V_Tongue_Curl_D
+V_Tongue_Curl_U
+V_Tongue_Lower
+V_Tongue_Narrow
+V_Tongue_Out
+V_Tongue_Raise
+V_Tongue_up
+V_Wide
+straighten
+MORPHS_DONE

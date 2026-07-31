@@ -33,7 +33,7 @@ public:
 	virtual void Deinitialize() override;
 
 	// Pure helper, exposed for unit testing without a live request.
-	static FString BuildRequestBody(const TArray<FOllamaMessage>& History, const FString& Model);
+	static FString BuildRequestBody(const TArray<FOllamaMessage>& History, const FString& Model, bool bEnableThinking = false);
 
 private:
 	struct FActiveRequest

@@ -7,11 +7,14 @@
 #include "Serialization/JsonSerializer.h"
 #include "CICompanion.h"
 
-FString UOllamaClient::BuildRequestBody(const TArray<FOllamaMessage>& History, const FString& Model)
+FString UOllamaClient::BuildRequestBody(const TArray<FOllamaMessage>& History, const FString& Model, bool bEnableThinking)
 {
 	TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
 	Root->SetStringField(TEXT("model"), Model);
 	Root->SetBoolField(TEXT("stream"), true);
+	// Suppress chain-of-thought unless explicitly wanted: it is the single largest latency term
+	// against a reasoning model and none of it is ever spoken. See bEnableThinking.
+	Root->SetBoolField(TEXT("think"), bEnableThinking);
 
 	TArray<TSharedPtr<FJsonValue>> Messages;
 	Messages.Reserve(History.Num());
@@ -47,7 +50,7 @@ FOllamaRequestHandle UOllamaClient::SendChat(
 		BaseUrl.LeftChopInline(1);
 	}
 	const FString Url = BaseUrl + TEXT("/api/chat");
-	const FString Body = BuildRequestBody(History, Settings->OllamaModel);
+	const FString Body = BuildRequestBody(History, Settings->OllamaModel, Settings->bEnableThinking);
 
 	const FOllamaRequestHandle Handle = NextHandle++;
 	TSharedPtr<FActiveRequest> Active = MakeShared<FActiveRequest>();

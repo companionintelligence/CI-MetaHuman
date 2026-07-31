@@ -39,6 +39,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM")
 	void ResetConversation();
 
+	// Speaks an exact line through the SAME path a generated reply takes -- OnSpeak, the
+	// OnCompanionSpoke broadcast, and crucially TextToSpeech->Speak. The scripted opening used to
+	// bypass this and drive only the face, so she mouthed the brand line in total silence.
+	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM")
+	void SpeakWithoutLLM(const FString& Text);
+
 	// Routes the HUD mic control through the configured STT backend. Returns false when the
 	// project is using the null backend or a live capture device could not be opened.
 	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM|Voice")

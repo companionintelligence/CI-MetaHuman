@@ -172,4 +172,69 @@ void FWavVisemeSpec::Define()
 			TestTrue("has text field", Body.Contains(TEXT("\"text\":\"hello\"")));
 		});
 	});
+
+	Describe("float and wide PCM decoding", [this]()
+	{
+		// Builds a WAV header by hand so the exact shapes seen in the wild can be asserted.
+		auto MakeWav = [](uint16 Format, uint16 Bits, const TArray<uint8>& Data, uint32 DeclaredDataSize)
+		{
+			TArray<uint8> B;
+			auto PutStr = [&B](const char* S) { for (int i = 0; i < 4; ++i) B.Add((uint8)S[i]); };
+			auto Put32 = [&B](uint32 V) { B.Add(V & 0xFF); B.Add((V >> 8) & 0xFF); B.Add((V >> 16) & 0xFF); B.Add((V >> 24) & 0xFF); };
+			auto Put16 = [&B](uint16 V) { B.Add(V & 0xFF); B.Add((V >> 8) & 0xFF); };
+			PutStr("RIFF"); Put32(0xFFFFFFFF); PutStr("WAVE");
+			PutStr("fmt "); Put32(16);
+			Put16(Format); Put16(1); Put32(24000); Put32(24000 * (Bits / 8)); Put16(Bits / 8); Put16(Bits);
+			PutStr("data"); Put32(DeclaredDataSize);
+			B.Append(Data);
+			return B;
+		};
+
+		It("decodes 32-bit IEEE float, which is what Kokoro actually returns", [this, MakeWav]()
+		{
+			// Regression: this was rejected outright, and because a parse failure looks identical
+			// to a network error the only symptom was a companion that never spoke.
+			TArray<uint8> Data;
+			const float Samples[] = { 0.0f, 0.5f, -0.5f, 1.0f };
+			for (float F : Samples)
+			{
+				uint32 Bits; FMemory::Memcpy(&Bits, &F, sizeof(Bits));
+				Data.Add(Bits & 0xFF); Data.Add((Bits >> 8) & 0xFF); Data.Add((Bits >> 16) & 0xFF); Data.Add((Bits >> 24) & 0xFF);
+			}
+			FWavData Out;
+			TestTrue("parsed", FWavAudioReader::Parse(MakeWav(3, 32, Data, 0xFFFFFFFF), Out));
+			TestEqual("sample count", Out.MonoSamples.Num(), 4);
+			TestTrue("mid value survives", FMath::IsNearlyEqual(Out.MonoSamples[1], 0.5f, 0.001f));
+			TestTrue("negative survives", FMath::IsNearlyEqual(Out.MonoSamples[2], -0.5f, 0.001f));
+		});
+
+		It("survives the 0xFFFFFFFF streaming placeholder data size", [this, MakeWav]()
+		{
+			// Kokoro declares an unknown-length data chunk. Trusting it would mean reading 4GB.
+			TArray<uint8> Data;
+			for (int i = 0; i < 8; ++i) { Data.Add(0); Data.Add(0); }
+			FWavData Out;
+			TestTrue("parsed", FWavAudioReader::Parse(MakeWav(1, 16, Data, 0xFFFFFFFF), Out));
+			TestEqual("clamped to real bytes", Out.MonoSamples.Num(), 8);
+		});
+
+		It("resolves WAVE_FORMAT_EXTENSIBLE to its subformat", [this]()
+		{
+			TArray<uint8> B;
+			auto PutStr = [&B](const char* S) { for (int i = 0; i < 4; ++i) B.Add((uint8)S[i]); };
+			auto Put32 = [&B](uint32 V) { B.Add(V & 0xFF); B.Add((V >> 8) & 0xFF); B.Add((V >> 16) & 0xFF); B.Add((V >> 24) & 0xFF); };
+			auto Put16 = [&B](uint16 V) { B.Add(V & 0xFF); B.Add((V >> 8) & 0xFF); };
+			PutStr("RIFF"); Put32(0xFFFFFFFF); PutStr("WAVE");
+			PutStr("fmt "); Put32(40);
+			Put16(0xFFFE); Put16(1); Put32(24000); Put32(24000 * 2); Put16(2); Put16(16);
+			Put16(22); Put16(16); Put32(4);
+			Put16(1);            // SubFormat = PCM
+			for (int i = 0; i < 14; ++i) B.Add(0);
+			PutStr("data"); Put32(4);
+			for (int i = 0; i < 4; ++i) B.Add(0);
+			FWavData Out;
+			TestTrue("extensible parsed as pcm", FWavAudioReader::Parse(B, Out));
+			TestEqual("two samples", Out.MonoSamples.Num(), 2);
+		});
+	});
 }

@@ -42,6 +42,15 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Ollama", meta = (EditCondition = "BackendType == EChatBackendType::OllamaNative"))
 	FString OllamaModel = TEXT("llama3.2");
 
+	// Reasoning models (qwen3.x, deepseek-r1, ...) emit a chain of thought before answering.
+	// For a companion that is pure latency cost: measured on beta-1, qwen3.6:27b answers a
+	// one-line greeting in ~814ms with thinking off and 16-21s with it on -- a ~20x penalty for
+	// reasoning nobody reads, since Ollama returns it in a separate `thinking` field that never
+	// reaches the mouth. Off by default; turn it on only where answer quality needs deliberation.
+	// Sent as "think": false, which Ollama ignores for non-reasoning models.
+	UPROPERTY(Config, EditAnywhere, Category = "Ollama", meta = (EditCondition = "BackendType == EChatBackendType::OllamaNative"))
+	bool bEnableThinking = false;
+
 	// --- OpenAI-compatible backend ---
 
 	// Base URL up to and including the version segment, no trailing slash — the client
@@ -73,6 +82,24 @@ public:
 	// Base URL of a local whisper.cpp server (built with `whisper-server`). The Whisper STT
 	// component POSTs captured audio to "<url>/inference". Intentionally blank by default so
 	// host services must be configured explicitly rather than guessed from local ports.
+	// --- AMD Lemonade Server (one ROCm-accelerated service for chat + STT + TTS) ---
+	// Base URL of a Lemonade instance, e.g. http://127.0.0.1:13305. Empty disables Kokoro TTS.
+	// NOTE the API lives under /api/v1/..., not /v1/... — verified by probe, not assumed.
+	UPROPERTY(Config, EditAnywhere, Category = "Voice")
+	FString KokoroServerUrl;
+
+	UPROPERTY(Config, EditAnywhere, Category = "Voice")
+	FString KokoroModel = TEXT("Kokoro-82M-ONNX");
+
+	UPROPERTY(Config, EditAnywhere, Category = "Voice")
+	FString KokoroVoice = TEXT("af_sky");
+
+	// Path appended to WhisperServerUrl. whisper.cpp's own server serves "/inference"; Lemonade
+	// serves the OpenAI shape at "/api/v1/audio/transcriptions". Both return {"text": ...}, so
+	// only the path differs and one setting covers both rather than needing a second client.
+	UPROPERTY(Config, EditAnywhere, Category = "Voice")
+	FString WhisperEndpointPath = TEXT("/inference");
+
 	UPROPERTY(Config, EditAnywhere, Category = "Voice")
 	FString WhisperServerUrl;
 

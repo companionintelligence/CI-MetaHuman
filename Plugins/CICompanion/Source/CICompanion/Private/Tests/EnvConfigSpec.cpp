@@ -111,4 +111,78 @@ void FEnvConfigSpec::Define()
 		FMetaHumanLLMEnvConfig::Apply(*Settings, MakeLookup(Env));
 		TestEqual("backend unchanged for bad value", Settings->BackendType, DefaultBackend);
 	});
+
+	Describe("backend precedence", [this, MakeLookup]()
+	{
+		It("lets an explicit MHLLM_BACKEND=ollama beat an incidental CI_HUB_URL", [this, MakeLookup]()
+		{
+			// The regression this guards: the base compose ALWAYS sets CI_HUB_URL, so while its
+			// presence overrode MHLLM_BACKEND, a deploy that plainly asked for Ollama silently
+			// talked to the hub with a placeholder token and every turn failed with HTTP 405.
+			UMetaHumanLLMSettings* Settings = NewObject<UMetaHumanLLMSettings>(GetTransientPackage());
+			TMap<FString, FString> Env;
+			Env.Add(TEXT("MHLLM_BACKEND"), TEXT("ollama"));
+			Env.Add(TEXT("CI_HUB_URL"), TEXT("https://hub.example.com/v1"));
+			FMetaHumanLLMEnvConfig::Apply(*Settings, MakeLookup(Env));
+
+			TestEqual("stays on native Ollama", Settings->BackendType, EChatBackendType::OllamaNative);
+			TestEqual("but still records the hub base url", Settings->OpenAIBaseUrl, FString(TEXT("https://hub.example.com/v1")));
+		});
+
+		It("still infers OpenAI from CI_HUB_URL when no backend is stated", [this, MakeLookup]()
+		{
+			UMetaHumanLLMSettings* Settings = NewObject<UMetaHumanLLMSettings>(GetTransientPackage());
+			TMap<FString, FString> Env;
+			Env.Add(TEXT("CI_HUB_URL"), TEXT("https://hub.example.com/v1"));
+			FMetaHumanLLMEnvConfig::Apply(*Settings, MakeLookup(Env));
+
+			TestEqual("infers OpenAI-compatible", Settings->BackendType, EChatBackendType::OpenAICompatible);
+		});
+
+		It("honours an explicit MHLLM_BACKEND=openai as well", [this, MakeLookup]()
+		{
+			UMetaHumanLLMSettings* Settings = NewObject<UMetaHumanLLMSettings>(GetTransientPackage());
+			TMap<FString, FString> Env;
+			Env.Add(TEXT("MHLLM_BACKEND"), TEXT("openai"));
+			FMetaHumanLLMEnvConfig::Apply(*Settings, MakeLookup(Env));
+
+			TestEqual("selects OpenAI-compatible", Settings->BackendType, EChatBackendType::OpenAICompatible);
+		});
+	});
+
+	Describe("thin client endpoints", [this, MakeLookup]()
+	{
+		It("points at LM Studio from LMSTUDIO_BASE_URL alone", [this, MakeLookup]()
+		{
+			UMetaHumanLLMSettings* S = NewObject<UMetaHumanLLMSettings>(GetTransientPackage());
+			TMap<FString, FString> Env;
+			Env.Add(TEXT("LMSTUDIO_BASE_URL"), TEXT("http://box:1234/v1"));
+			Env.Add(TEXT("LMSTUDIO_MODEL"), TEXT("qwen2.5-7b"));
+			FMetaHumanLLMEnvConfig::Apply(*S, MakeLookup(Env));
+			TestEqual("openai backend", S->BackendType, EChatBackendType::OpenAICompatible);
+			TestEqual("base url", S->OpenAIBaseUrl, FString(TEXT("http://box:1234/v1")));
+			TestEqual("model", S->OpenAIModel, FString(TEXT("qwen2.5-7b")));
+			TestFalse("a key is supplied (LM Studio 401s on none)", S->OpenAIApiKey.IsEmpty());
+		});
+
+		It("lets a generic OPENAI_BASE_URL override an inherited CI_HUB_URL", [this, MakeLookup]()
+		{
+			UMetaHumanLLMSettings* S = NewObject<UMetaHumanLLMSettings>(GetTransientPackage());
+			TMap<FString, FString> Env;
+			Env.Add(TEXT("CI_HUB_URL"), TEXT("https://hub.example.com/v1"));
+			Env.Add(TEXT("OPENAI_BASE_URL"), TEXT("http://local:8000/v1"));
+			FMetaHumanLLMEnvConfig::Apply(*S, MakeLookup(Env));
+			TestEqual("generic wins", S->OpenAIBaseUrl, FString(TEXT("http://local:8000/v1")));
+		});
+
+		It("still lets MHLLM_BACKEND=ollama win over an LM Studio url", [this, MakeLookup]()
+		{
+			UMetaHumanLLMSettings* S = NewObject<UMetaHumanLLMSettings>(GetTransientPackage());
+			TMap<FString, FString> Env;
+			Env.Add(TEXT("MHLLM_BACKEND"), TEXT("ollama"));
+			Env.Add(TEXT("LMSTUDIO_BASE_URL"), TEXT("http://box:1234/v1"));
+			FMetaHumanLLMEnvConfig::Apply(*S, MakeLookup(Env));
+			TestEqual("explicit backend authoritative", S->BackendType, EChatBackendType::OllamaNative);
+		});
+	});
 }

@@ -1,0 +1,78 @@
+# Companion + face overlay: the configuration that turns the diorama into a virtual being.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.amd.yml -f docker-compose.ollama.yml \
+#                  -f docker-compose.face.yml up -d project
+#
+services:
+  project:
+    image: ci/metahuman-local-llm:5.5-face
+    environment:
+      # Rig naming for the resident. CC = Reallusion Character Creator (Nia's V_* morphs);
+      # ARKit = MetaHuman. The two share no curve names, so this is not cosmetic.
+      MHLLM_FACE_PROFILE: "CC"
+
+      # Viseme cycling. Leave OFF here: with it on, the mouth moves whether or not the LLM ever
+      # replies, so it would mask exactly the failure this deployment is meant to expose.
+      MHLLM_FACE_SELFTEST: "0"
+
+      # Cognition runs on BETA-1, not this box. core-2 is a Strix Halo iGPU and the best it
+      # manages is gemma4:e2b at ~12s per reply -- not a conversation. beta-1 has two discrete
+      # Navi 31 GPUs (2x25.7GB, ROCm 6.4), and serves a 27B model in well under a second.
+      #
+      # Measured warm, one-line greeting, thinking disabled:
+      #   qwen3.6:27b on beta-1   ->  814ms   (used here: 27B quality at conversational speed)
+      #   qwen3:8b    on beta-1   ->  262ms   (if latency ever matters more than quality)
+      #   gemma4:e2b  on core-2   ->  ~12s    (the old default; 77s cold)
+      #
+      # :11435 is an SSH tunnel to beta-1's Ollama, run as a --user systemd unit on core-2
+      # (Deployment/core2/ollama-tunnel.service). beta-1's ollama.service declares
+      # OLLAMA_HOST=0.0.0.0 but its running process predates that edit and is still bound to
+      # 127.0.0.1; restarting it needs root on a box that serves other work, so this tunnels
+      # instead. If that service is ever restarted, point straight at http://100.124.211.75:11434
+      # and drop the tunnel.
+      OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://127.0.0.1:11435}"
+      OLLAMA_MODEL: "${OLLAMA_MODEL:-qwen3.6:27b}"
+
+      # Chain-of-thought off. qwen3.6:27b answers in ~814ms without it and 16-21s with it, and
+      # Ollama returns the reasoning in a separate field that never reaches the mouth.
+      MHLLM_THINKING: "${MHLLM_THINKING:-0}"
+
+      # Opening line, sent a few seconds after level load. It exists because there is still no
+      # input path: without an unprompted first turn, a fully working build and a completely
+      # broken one look identical. Set to "none" to disable.
+      # The opening is now a SCRIPTED shot, not a generated greeting: the camera flies the hall,
+      # settles behind her, she turns to the lens, and says this verbatim. A brand line has to be
+      # identical every run and must not wait on a model round trip while the camera holds on her.
+      MHLLM_GREETING: "${MHLLM_GREETING:-none}"
+      MHLLM_OPENING_LINE: "${MHLLM_OPENING_LINE:-Welcome to Companion Intelligence, I'm Eliza. How can I help you?}"
+      MHLLM_FLY_SECONDS: "${MHLLM_FLY_SECONDS:-11.0}"
+      # Held before the move starts. Pixel Streaming clients take ~10s to negotiate, so with no
+      # delay the opening plays to an empty room and every real visitor arrives after it.
+      MHLLM_OPENING_DELAY: "${MHLLM_OPENING_DELAY:-3.0}"
+      # Attract loop: replay the opening every N seconds while idle. 0 = once only. A live stream
+      # has no other way to show its opening to someone who connects late.
+      MHLLM_OPENING_REPLAY: "${MHLLM_OPENING_REPLAY:-0}"
+
+      # Set MHLLM_OPENING_SHOT=0 to land straight in the live call framing (useful when iterating
+      # on conversation rather than on the shot).
+      MHLLM_OPENING_SHOT: "${MHLLM_OPENING_SHOT:-1}"
+
+      # She is Eliza -- named for the 1966 program, which is the right joke for a machine room of
+      # this vintage. The persona has to agree with the scripted line or her first two sentences
+      # will introduce two different characters.
+      MHLLM_SYSTEM_PROMPT: "${MHLLM_SYSTEM_PROMPT:-You are Eliza, the resident intelligence of Companion Intelligence, speaking from a 1970s mainframe room. Warm, curious, concise. Reply in one or two short sentences.}"
+
+      # --- Voice, via AMD Lemonade Server on beta-1 (ROCm), reached over the same SSH tunnel as
+      # Ollama. Without KOKORO_SERVER_URL the character keeps its default UNullTextToSpeech and is
+      # MUTE: the Pixel Streaming audio track still negotiates and goes live, and carries digital
+      # silence forever. That is exactly what shipped until this was set, and it is invisible
+      # unless you measure the track's actual energy rather than its existence.
+      KOKORO_SERVER_URL: "${KOKORO_SERVER_URL:-http://127.0.0.1:13305}"
+      KOKORO_MODEL: "${KOKORO_MODEL:-kokoro-v1}"
+      # af_sky measured cleanest of the voices tried; change freely, it is per-request.
+      KOKORO_VOICE: "${KOKORO_VOICE:-af_sky}"
+
+      # STT for the future input path. Lemonade serves the OpenAI shape, NOT whisper.cpp's
+      # /inference, hence the explicit path override.
+      WHISPER_SERVER_URL: "${WHISPER_SERVER_URL:-http://127.0.0.1:13305}"
+      WHISPER_ENDPOINT_PATH: "${WHISPER_ENDPOINT_PATH:-/api/v1/audio/transcriptions}"
