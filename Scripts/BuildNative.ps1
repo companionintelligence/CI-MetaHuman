@@ -82,6 +82,18 @@ if ($isPre56) {
     Write-Host "Stripped 5.8-only plugins for a $(Split-Path $Engine -Leaf) build." -ForegroundColor Cyan
 }
 
+# Intermediate/ShaderAutogen is written by whichever ENGINE last touched this project. This
+# project is opened in the 5.8 editor but cooks against 5.5, so a 5.8-generated
+# AutogenShaderHeaders.ush gets reused by the 5.5 shader compiler and fails with errors that
+# name engine internals rather than anything in this project -- "no member named
+# 'NormalDistribution' in 'FGBufferData'", "undeclared identifier 'SceneTexturesStruct'".
+# Nothing in the message suggests a stale-cache problem, so clear it rather than debug it.
+$autogen = Join-Path $ProjectRoot 'Intermediate\ShaderAutogen'
+if (Test-Path $autogen) {
+    Remove-Item $autogen -Recurse -Force
+    Write-Host 'Cleared Intermediate/ShaderAutogen (written by a different engine version).' -ForegroundColor Cyan
+}
+
 Write-Host "Packaging $Platform ($Config) -> $Archive" -ForegroundColor Cyan
 # Every switch is an explicitly-quoted string. A bare -platform=$Platform token is NOT
 # interpolated by PowerShell in argument mode -- it reaches UAT as the literal text
