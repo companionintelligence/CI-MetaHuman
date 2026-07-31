@@ -53,12 +53,6 @@ services:
       # has no other way to show its opening to someone who connects late.
       MHLLM_OPENING_REPLAY: "${MHLLM_OPENING_REPLAY:-0}"
 
-      # Voice. Kokoro on beta-1 via Lemonade, reached over the same SSH tunnel pattern as Ollama.
-      # Measured in the E2E harness: 1166ms median to synthesize a reply-length line.
-      # Leave EMPTY to disable speech -- the mouth still moves from planned text, so a missing
-      # voice service degrades to a silent talker rather than a dead face.
-      KOKORO_SERVER_URL: "${KOKORO_SERVER_URL:-http://127.0.0.1:13305}"
-      KOKORO_VOICE: "${KOKORO_VOICE:-af_sky}"
       # Set MHLLM_OPENING_SHOT=0 to land straight in the live call framing (useful when iterating
       # on conversation rather than on the shot).
       MHLLM_OPENING_SHOT: "${MHLLM_OPENING_SHOT:-1}"

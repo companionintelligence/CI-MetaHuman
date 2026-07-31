@@ -12,3 +12,5 @@
 *.cs    text
 *.ps1   text
 *.md    text
+# Generated score: a real waveform, not a text asset. Without this, git mangles CRLF in it.
+Deployment/audio/*.wav binary

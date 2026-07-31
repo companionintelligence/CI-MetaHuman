@@ -730,6 +730,51 @@ try:
             a.skeletal_mesh_component.set_skeletal_mesh(skm)
             w("resident: FELL BACK to SKM_Manny (Seo import failed)")
 
+    # ---------- score + branding ----------
+    # Both are authored into the MAP rather than driven from C++, because neither needs to react
+    # to anything. An AmbientSound that loops and a sign that hangs on a wall have no runtime
+    # decisions to make, and putting them in the level keeps them out of the cook-critical path.
+    try:
+        # Score: a 32s machine-room loop synthesized by Scripts/MakeAmbience.py. Mixed at about
+        # -27dBFS so it sits UNDER Kokoro's speech; a bed loud enough to need ducking is a bed
+        # mixed wrong, and ducking would mean C++ that has to know when she is talking.
+        snd_task = unreal.AssetImportTask()
+        snd_task.filename = "/audio/machine_room.wav"
+        snd_task.destination_path = "/Game/Audio"
+        snd_task.automated = True; snd_task.save = True; snd_task.replace_existing = True
+        unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([snd_task])
+        amb = unreal.load_asset("/Game/Audio/machine_room")
+        if amb:
+            amb.set_editor_property("looping", True)
+            unreal.EditorAssetLibrary.save_loaded_asset(amb)
+            # Placed at the camera rather than in the room: this is a bed, not a point source, and
+            # a positioned emitter would swing across the stereo field during the opening flythrough.
+            snd_actor = spawn(unreal.AmbientSound, (330.0 - 160.0, 20.0, 170.0))
+            snd_actor.set_actor_label("Ambience_MachineRoom")
+            snd_actor.audio_component.set_sound(amb)
+            snd_actor.audio_component.set_editor_property("volume_multiplier", 0.55)
+            snd_actor.audio_component.set_editor_property("allow_spatialization", False)
+            w("ambience: machine_room.wav looping, non-spatialized")
+        else:
+            w("ambience: import produced no SoundWave (continuing silent)")
+    except Exception as e:
+        w("ambience: skipped (%s)" % e)
+
+    try:
+        # Branding: a facility sign on the back wall, in the register of the era -- the reference
+        # rooms all have the operator's name on the wall. TextRender needs no imported logo asset,
+        # which matters because the cook tree carries no brand artwork.
+        sign = spawn(unreal.TextRenderActor, (1748.0, 0.0, 330.0), yaw=180.0)
+        sign.set_actor_label("Brand_Wordmark")
+        trc = sign.text_render
+        trc.set_text(unreal.Text("COMPANION INTELLIGENCE"))
+        trc.set_editor_property("world_size", 26.0)
+        trc.set_editor_property("horizontal_alignment", unreal.HorizTextAligment.EHTA_CENTER)
+        trc.set_editor_property("text_render_color", unreal.Color(236, 236, 232, 255))
+        w("branding: wall wordmark placed")
+    except Exception as e:
+        w("branding: skipped (%s)" % e)
+
     # ---------- camera / player ----------
     # The view comes from the DefaultPawn spawned at this PlayerStart — NOT from a
     # CameraActor. An auto-activating CameraActor welds the view target to itself, so the
