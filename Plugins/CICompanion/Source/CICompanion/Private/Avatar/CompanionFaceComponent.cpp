@@ -10,6 +10,9 @@ UCompanionFaceComponent::UCompanionFaceComponent()
 	PrimaryComponentTick.bCanEverTick = true;
 	PrimaryComponentTick.bStartWithTickEnabled = true;
 	Profile = FFaceProfile::CharacterCreator();
+	// Resolved here rather than at BeginPlay so the switch is observable on a component that was
+	// never registered into a world — which is how the tests reach it.
+	bEmotionEnabled = FCompanionEmotionState::IsEnabled();
 }
 
 void UCompanionFaceComponent::BeginPlay()
@@ -21,6 +24,12 @@ void UCompanionFaceComponent::BeginPlay()
 	if (!TargetMesh && GetOwner())
 	{
 		SetTargetMesh(GetOwner()->FindComponentByClass<USkeletalMeshComponent>());
+	}
+
+	if (!bEmotionEnabled)
+	{
+		// Logged, because a still brow is not obviously a CHOICE when you are looking at a frame.
+		UE_LOG(LogCompanionFace, Log, TEXT("Facial emotion disabled by MHLLM_EMOTION=0."));
 	}
 }
 
@@ -93,6 +102,10 @@ void UCompanionFaceComponent::ApplyVisemes(const TMap<EViseme, float>& Weights)
 
 void UCompanionFaceComponent::ApplyCurves(const TMap<FName, float>& Curves)
 {
+	// Recorded here rather than at the call sites so every path — tick, ClearFace, ApplyVisemes —
+	// agrees on whether the mesh currently holds anything that will need clearing.
+	bFaceWritten = Curves.Num() > 0;
+
 	if (!TargetMesh)
 	{
 		return;
@@ -113,7 +126,13 @@ void UCompanionFaceComponent::ApplyCurves(const TMap<FName, float>& Curves)
 
 void UCompanionFaceComponent::ClearFace()
 {
-	ApplyCurves(TMap<FName, float>());
+	// The EXPRESSION SURVIVES a face clear. ClearFace means "stop whatever the mouth was doing",
+	// and the emotional bias is not part of that — it outlives any one utterance by design. Wiping
+	// it here would make every StopSpeaking() punch a one-frame hole in her expression. Anything
+	// that genuinely wants a blank face calls ResetEmotion() as well.
+	TMap<FName, float> Curves;
+	Emotion.AccumulateInto(Profile, Curves);
+	ApplyCurves(Curves);
 }
 
 void UCompanionFaceComponent::StartSelfTest(float SecondsPerViseme)
@@ -129,68 +148,94 @@ void UCompanionFaceComponent::StopSelfTest()
 	ClearFace();
 }
 
-void UCompanionFaceComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
+TMap<FName, float> UCompanionFaceComponent::ComposeFrame(float DeltaTime)
 {
-	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+	TMap<FName, float> Curves;
 
 	// Blink is involuntary and composites over whatever the mouth is doing, so it is computed
 	// every frame regardless of speech or self-test state.
 	const float Blink = TickBlink(DeltaTime);
 
-	// Speech wins over the self-test: once there is real dialogue to say, the diagnostic loop
-	// should get out of the way rather than fight it for the same curves.
+	// So is emotion, and for the same reason — but on its own clock. It is advanced BEFORE the
+	// speech branch and unconditionally, because an expression is not owned by an utterance: it
+	// has to keep blending in while she starts talking and keep decaying after she stops.
+	Emotion.Advance(DeltaTime);
+
+	// LAYER 1: the mouth. Speech wins over the self-test — once there is real dialogue to say, the
+	// diagnostic loop should get out of the way rather than fight it for the same curves.
 	if (bSpeaking)
 	{
 		SpeechElapsed += DeltaTime;
 
-		TMap<EViseme, float> Active = FVisemePlanner::SampleAt(SpeechTrack, SpeechElapsed);
-		TMap<FName, float> Curves;
-		for (const TPair<EViseme, float>& Pair : Active)
+		if (SpeechElapsed >= FVisemePlanner::TrackDuration(SpeechTrack))
 		{
-			Profile.Accumulate(Pair.Key, Pair.Value, Curves);
+			// Ends the utterance and arms the emotion decay. Checked before sampling so the final
+			// frame is not a stale viseme held one tick past the end of the track.
+			EndSpeech();
 		}
+		else
+		{
+			for (const TPair<EViseme, float>& Pair : FVisemePlanner::SampleAt(SpeechTrack, SpeechElapsed))
+			{
+				Profile.Accumulate(Pair.Key, Pair.Value, Curves);
+			}
+		}
+	}
+	else if (bSelfTesting)
+	{
+		SelfTestElapsed += DeltaTime;
+
+		// Walk the vocabulary in order, looping. Each viseme eases in and out within its slot so a
+		// captured frame is unlikely to land on a fully-closed mouth and read as "nothing happened".
+		const int32 VisemeCount = static_cast<int32>(EViseme::OU) + 1;
+		const float Cycle = SelfTestSecondsPerViseme * VisemeCount;
+		const float Phase = FMath::Fmod(SelfTestElapsed, Cycle);
+		const int32 Index = FMath::Clamp(static_cast<int32>(Phase / SelfTestSecondsPerViseme), 0, VisemeCount - 1);
+		const float Local = (Phase - (Index * SelfTestSecondsPerViseme)) / SelfTestSecondsPerViseme;
+		const float Weight = FMath::Sin(Local * PI);	// 0 -> 1 -> 0 across the slot
+
+		Profile.Accumulate(static_cast<EViseme>(Index), Weight, Curves);
+	}
+
+	// LAYER 2: the eyelids, over whatever the mouth is doing.
+	if (Blink > 0.0f)
+	{
 		for (const FName& BlinkCurve : Profile.BlinkCurves)
 		{
 			Curves.Add(BlinkCurve, Blink);
 		}
-		ApplyCurves(Curves);
-
-		if (SpeechElapsed >= FVisemePlanner::TrackDuration(SpeechTrack))
-		{
-			StopSpeaking();
-		}
-		return;
 	}
 
-	if (!bSelfTesting)
+	// LAYER 3: the expression, ON TOP and LAST.
+	//
+	// Order is load-bearing in both directions. It must come after the visemes because
+	// FFaceProfile::Accumulate clamps as it sums, so an emotion accumulated first could be clipped
+	// away by the speech piled on afterwards. And it must ADD rather than replace, because the two
+	// are answering different questions: the visemes say what shape the mouth is passing through
+	// right now, the expression says what she means by the sentence. Choosing between them gives
+	// you a face that can either talk or feel.
+	if (bEmotionEnabled)
 	{
-		// Idle: nothing to say, but keep blinking so the face is not a waxwork.
-		if (Blink > 0.0f)
-		{
-			TMap<FName, float> Curves;
-			for (const FName& BlinkCurve : Profile.BlinkCurves)
-			{
-				Curves.Add(BlinkCurve, Blink);
-			}
-			ApplyCurves(Curves);
-		}
-		return;
+		Emotion.AccumulateInto(Profile, Curves);
 	}
 
-	SelfTestElapsed += DeltaTime;
+	return Curves;
+}
 
-	// Walk the vocabulary in order, looping. Each viseme eases in and out within its slot so a
-	// captured frame is unlikely to land on a fully-closed mouth and read as "nothing happened".
-	const int32 VisemeCount = static_cast<int32>(EViseme::OU) + 1;
-	const float Cycle = SelfTestSecondsPerViseme * VisemeCount;
-	const float Phase = FMath::Fmod(SelfTestElapsed, Cycle);
-	const int32 Index = FMath::Clamp(static_cast<int32>(Phase / SelfTestSecondsPerViseme), 0, VisemeCount - 1);
-	const float Local = (Phase - (Index * SelfTestSecondsPerViseme)) / SelfTestSecondsPerViseme;
-	const float Weight = FMath::Sin(Local * PI);	// 0 -> 1 -> 0 across the slot
+void UCompanionFaceComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
+{
+	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-	TMap<EViseme, float> Active;
-	Active.Add(static_cast<EViseme>(Index), Weight);
-	ApplyVisemes(Active);
+	const TMap<FName, float> Curves = ComposeFrame(DeltaTime);
+
+	// Skip the write when there is nothing to show AND nothing was shown last frame — ApplyCurves
+	// zeroes the profile's entire curve set, which is ~20 SetMorphTarget calls to accomplish
+	// nothing. The bFaceWritten latch is what still guarantees the ONE zeroing pass that clears the
+	// last expression on the way into idle.
+	if (Curves.Num() > 0 || bFaceWritten)
+	{
+		ApplyCurves(Curves);
+	}
 }
 
 void UCompanionFaceComponent::PlayVisemeTrack(const TArray<FVisemeSpan>& Track)
@@ -212,10 +257,51 @@ void UCompanionFaceComponent::StopSpeaking()
 	{
 		return;
 	}
+	EndSpeech();
+	ClearFace();
+}
+
+void UCompanionFaceComponent::EndSpeech()
+{
 	bSpeaking = false;
 	SpeechTrack.Reset();
 	SpeechElapsed = 0.0f;
-	ClearFace();
+
+	// The utterance is over, so the expression that belonged to it starts letting go — held for a
+	// beat first, then blended out. This is what stops an expression sticking on for the session:
+	// nothing else ever tells the face the reply is finished.
+	Emotion.Release();
+}
+
+void UCompanionFaceComponent::SetEmotion(EEmotionType InEmotion, float Intensity)
+{
+	if (!bEmotionEnabled)
+	{
+		return;
+	}
+	Emotion.Set(InEmotion, Intensity);
+}
+
+void UCompanionFaceComponent::ReleaseEmotion(float HoldSeconds)
+{
+	Emotion.Release(HoldSeconds);
+}
+
+void UCompanionFaceComponent::ResetEmotion()
+{
+	Emotion.Reset();
+}
+
+void UCompanionFaceComponent::SetEmotionEnabled(bool bEnabled)
+{
+	bEmotionEnabled = bEnabled;
+	if (!bEnabled)
+	{
+		// Dropped immediately rather than faded: a subsystem that has been switched off must not
+		// keep animating for another half second, and whatever it last wrote must not stay latched
+		// on the mesh. The next tick's zeroing pass finishes the job.
+		Emotion.Reset();
+	}
 }
 
 void UCompanionFaceComponent::SetBlinkEnabled(bool bEnabled)

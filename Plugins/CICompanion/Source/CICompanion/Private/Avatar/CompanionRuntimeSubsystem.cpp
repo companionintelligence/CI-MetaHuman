@@ -5,6 +5,7 @@
 #include "Avatar/CompanionFaceComponent.h"
 #include "Avatar/CompanionFaceSubsystem.h"
 #include "Avatar/CompanionStageDirector.h"
+#include "Avatar/EmotionMapper.h"
 #include "Avatar/MetaHumanCompanionCharacter.h"
 #include "Voice/KokoroTextToSpeech.h"
 #include "Sound/AmbientSound.h"
@@ -21,6 +22,7 @@
 #include "Engine/GameViewportClient.h"
 #include "GameFramework/PlayerController.h"
 #include "Widgets/SWeakWidget.h"
+#include "UObject/Class.h"
 
 
 
@@ -422,6 +424,25 @@ void UCompanionRuntimeSubsystem::HandleCompanionSpoke(const FString& Text)
 		UE_LOG(LogCompanionRuntime, Warning, TEXT("Reply received but no face bound; mouth will not move."));
 		return;
 	}
+
+	// EXPRESSION FIRST, and deliberately ABOVE the TTS branch.
+	//
+	// UEmotionMapper has been implemented and unit-tested since the beginning and nothing ever
+	// called it in the shipped game: AMetaHumanCompanionCharacter fires OnSetEmotion, which is a
+	// BlueprintImplementableEvent with no Blueprint behind it, so the derived emotion was computed
+	// and thrown away every single reply. This is the line that connects it to the face.
+	//
+	// It is set ONCE per reply rather than per viseme because an emotion is a SUSTAINED bias held
+	// across the whole utterance — the face component blends it in over ~0.4s, holds it, and decays
+	// it when the utterance ends. And it is set here rather than in HandleSpeechAudioReady because
+	// with a voice service configured the mouth is deferred to that callback, a network round trip
+	// later; her expression should already be right by the time she opens her mouth, not arrive
+	// after the first syllable.
+	const EEmotionType Emotion = UEmotionMapper::DetectEmotionFromText(Text);
+	Face->SetEmotion(Emotion, 1.0f);
+	UE_LOG(LogCompanionRuntime, Log, TEXT("Emotion for reply: %s (face emotion %s)."),
+		*UEnum::GetValueAsString(Emotion),
+		Face->IsEmotionEnabled() ? TEXT("on") : TEXT("OFF by MHLLM_EMOTION=0"));
 
 	if (Tts)
 	{

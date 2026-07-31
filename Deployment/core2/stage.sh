@@ -46,6 +46,9 @@ check_file "Plugins/CICompanion/Source/CICompanion/Private/Voice/KokoroTextToSpe
 check_symbol "Plugins/CICompanion/Source/CICompanion/Private/UI/SCompanionHUD.cpp" "RestoreInputFocusIfLost" "hud: focus guard"
 check_symbol "Plugins/CICompanion/Source/CICompanion/Private/UI/SCompanionHUD.cpp" "EButtonClickMethod::MouseDown" "hud: send fires on press"
 check_symbol "Plugins/CICompanion/Source/CICompanion/Private/Avatar/CompanionRuntimeSubsystem.cpp" "RearmChatFocus" "runtime: focus guard timer"
+check_file "Plugins/CICompanion/Source/CICompanion/Private/Avatar/CompanionEmotionState.cpp" "emotion state"
+check_symbol "Plugins/CICompanion/Source/CICompanion/Private/Avatar/CompanionRuntimeSubsystem.cpp" "DetectEmotionFromText" "runtime: emotion driven from reply text"
+check_symbol "Plugins/CICompanion/Source/CICompanion/Private/Avatar/CompanionFaceComponent.cpp" "Emotion.AccumulateInto" "face: emotion composited over speech"
 check_grep "docker-compose.face.yml" "MHLLM_OPENING_LINE" "compose: opening line"
 check_grep "stage-out/author_diorama.py" "CAM_DIST = 160" "author: solved framing"
 [ "$FAIL" -eq 0 ] || { echo "STAGE_FAILED — refusing to cook a stale tree"; exit 1; }

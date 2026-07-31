@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "Avatar/CompanionEmotionState.h"
 #include "Avatar/FaceProfile.h"
 #include "Voice/VisemePlanner.h"
 #include "CompanionFaceComponent.generated.h"
@@ -87,6 +88,48 @@ public:
 	UFUNCTION(BlueprintPure, Category = "MetaHumanLLM|Face")
 	bool IsBlinkEnabled() const { return bBlinkEnabled; }
 
+	// Sets the sustained emotional bias, blended in over ~0.4s and held for the utterance.
+	//
+	// This is NOT one of the shapes speech selects between: it is composited ON TOP of the visemes,
+	// on curves the profile deliberately keeps disjoint from them (brow, cheek, eye). An emotion
+	// that competed with speech for the same curves would smear every word she said, and swapping
+	// wholesale between "talking" and "feeling" is what makes a driven face read as a puppet.
+	// Ignored entirely when emotion is disabled — see SetEmotionEnabled.
+	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM|Face")
+	void SetEmotion(EEmotionType Emotion, float Intensity = 1.0f);
+
+	// Begins letting go: holds the expression for HoldSeconds, then blends back to neutral. Called
+	// automatically when an utterance ends, so an expression cannot latch on for the session.
+	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM|Face")
+	void ReleaseEmotion(float HoldSeconds = 1.2f);
+
+	// Drops the expression immediately, with no blend.
+	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM|Face")
+	void ResetEmotion();
+
+	UFUNCTION(BlueprintPure, Category = "MetaHumanLLM|Face")
+	EEmotionType GetEmotion() const { return Emotion.GetEmotion(); }
+
+	UFUNCTION(BlueprintPure, Category = "MetaHumanLLM|Face")
+	float GetEmotionWeight() const { return Emotion.GetWeight(); }
+
+	// Kill switch, resolved from MHLLM_EMOTION at construction and overridable at runtime. Turning
+	// it off also drops whatever is currently on the face, since a disabled subsystem that leaves
+	// its last frame latched on the mesh is indistinguishable from one that is still running.
+	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM|Face")
+	void SetEmotionEnabled(bool bEnabled);
+
+	UFUNCTION(BlueprintPure, Category = "MetaHumanLLM|Face")
+	bool IsEmotionEnabled() const { return bEmotionEnabled; }
+
+	// Advances every channel by one frame and returns the curve set they compose to: speech (or the
+	// self-test) underneath, blink and the emotional bias on top.
+	//
+	// Public and separate from TickComponent purely so the COMPOSITING ORDER is testable — it
+	// touches no mesh, no world and no tick group, which is what lets the whole face pipeline be
+	// exercised headlessly in CI rather than only by looking at a cooked build.
+	TMap<FName, float> ComposeFrame(float DeltaTime);
+
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
 protected:
@@ -99,6 +142,11 @@ private:
 
 	// Advances the blink clock and returns the current eyelid closure, 0..1.
 	float TickBlink(float DeltaTime);
+
+	// Tears down the speech state WITHOUT touching the mesh, and starts the emotion decay. Split
+	// out of StopSpeaking so the end-of-track case inside ComposeFrame does not write the face
+	// mid-composition and then have the caller write it again on the same frame.
+	void EndSpeech();
 
 	UPROPERTY(Transient)
 	TObjectPtr<USkeletalMeshComponent> TargetMesh;
@@ -119,4 +167,13 @@ private:
 	float BlinkTimer = 0.0f;
 	float NextBlinkIn = 3.0f;
 	float BlinkProgress = -1.0f;	// <0 == eyes open
+
+	FCompanionEmotionState Emotion;
+	bool bEmotionEnabled = true;
+
+	// Whether the last frame actually wrote curves. The idle path deliberately does not touch the
+	// mesh when there is nothing to show, so this exists to guarantee ONE final zeroing pass on the
+	// way into idle — without it the last expression would stay latched on the mesh forever, which
+	// is the same trap FFaceProfile::AllCurves() documents for blink.
+	bool bFaceWritten = false;
 };

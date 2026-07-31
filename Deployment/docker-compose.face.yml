@@ -15,6 +15,13 @@ services:
       # replies, so it would mask exactly the failure this deployment is meant to expose.
       MHLLM_FACE_SELFTEST: "0"
 
+      # Facial expression. UEmotionMapper reads the reply text and the face holds the result as a
+      # sustained brow/cheek/eye bias COMPOSITED OVER the visemes -- it never competes with them for
+      # the mouth. ON unless explicitly set to 0: an expressionless face is the regression, so the
+      # kill switch is opt-OUT (unlike MHLLM_OPENING_SHOT, where a moving camera is the surprise).
+      # Set to 0 to isolate a lip-sync problem from an expression problem in a capture.
+      MHLLM_EMOTION: "${MHLLM_EMOTION:-1}"
+
       # Operator console. Hidden by default so the opening reads as a brand moment rather than a
       # settings screen; "/console" in the chat box toggles it at any time. Set to 1 to start it
       # open, which is what a kiosk operator (or a screenshot) wants.
