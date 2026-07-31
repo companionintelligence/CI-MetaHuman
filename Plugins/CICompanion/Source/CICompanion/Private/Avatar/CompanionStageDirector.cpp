@@ -128,7 +128,7 @@ void UCompanionStageDirector::BuildPath(const FVector& Subject, float EyeZ)
 	// static shot (160cm back, aimed 22cm below the eyeline) or the shot would jump at handover.
 	const float FinalDist = 160.0f;
 	const FVector Settle(Subject.X - FinalDist, Subject.Y, EyeZ - 8.0f);
-	const FVector SettleLook(Subject.X, Subject.Y, EyeZ - 22.0f);
+	const FVector SettleLook(Subject.X, Subject.Y, EyeZ - 12.0f);	// must match author_diorama LOOK_AT
 
 	Path.Reset();
 	// Wide, high, deep in the hall — establishes the room before it establishes her.

@@ -6,6 +6,7 @@
 
 class AMetaHumanCompanionCharacter;
 class UCompanionFaceComponent;
+class UKokoroTextToSpeech;
 
 // Instantiates the companion and connects its replies to the face.
 //
@@ -51,9 +52,14 @@ private:
 	UFUNCTION()
 	void HandleCompanionSpoke(const FString& Text);
 
-	// Re-times the mouth to the real clip once TTS reports its measured length.
+	// Receives synthesized speech and drives the mouth from the clip's MEASURED length rather than
+	// an assumed speaking rate. Without this the two clocks diverge over a long reply and the lips
+	// finish before the voice does.
 	UFUNCTION()
 	void HandleSpeechAudioReady(const FString& Text, float DurationSeconds);
+
+	UPROPERTY(Transient)
+	TObjectPtr<UKokoroTextToSpeech> Tts;
 
 	UPROPERTY(Transient)
 	TObjectPtr<AMetaHumanCompanionCharacter> Companion;

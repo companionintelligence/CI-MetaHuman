@@ -6,6 +6,7 @@
 #include "Voice/KokoroTextToSpeech.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
+#include "Voice/KokoroTextToSpeech.h"
 #include "Voice/VisemePlanner.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogCompanionRuntime, Log, All);
@@ -60,6 +61,20 @@ void UCompanionRuntimeSubsystem::OnWorldBeginPlay(UWorld& InWorld)
 	}
 	Companion->SetActorHiddenInGame(true);
 	Companion->OnCompanionSpoke.AddDynamic(this, &UCompanionRuntimeSubsystem::HandleCompanionSpoke);
+
+	// Voice is opt-in on configuration alone: with no Kokoro URL the mouth still moves from planned
+	// text, so a missing speech service degrades to a silent talker rather than a dead face.
+	if (!GetEnv(TEXT("KOKORO_SERVER_URL"), FString()).IsEmpty())
+	{
+		Tts = NewObject<UKokoroTextToSpeech>(Companion, TEXT("CompanionVoice"));
+		Tts->RegisterComponent();
+		Tts->OnSpeechAudioReady.AddDynamic(this, &UCompanionRuntimeSubsystem::HandleSpeechAudioReady);
+		UE_LOG(LogCompanionRuntime, Log, TEXT("Voice enabled (Kokoro)."));
+	}
+	else
+	{
+		UE_LOG(LogCompanionRuntime, Log, TEXT("No KOKORO_SERVER_URL; speaking silently from planned text."));
+	}
 
 	// Prefer MEASURED audio length over an estimated speaking rate when TTS is live. PlanFromText
 	// guesses at 165wpm; the E2E harness measured real replies between 131 and 184wpm, so on a
@@ -139,7 +154,11 @@ void UCompanionRuntimeSubsystem::HandleSpeechAudioReady(const FString& Text, flo
 	{
 		return;
 	}
-	// Replaces the estimated track queued by HandleCompanionSpoke with one rescaled to the clip.
+	// The mouth has been waiting for this: with a voice service configured, HandleCompanionSpoke
+	// deliberately queues NOTHING, because planning from text and then re-timing plays the same
+	// utterance twice at two different speeds. FVisemePlanner assumes ~165wpm while the E2E run
+	// measured Kokoro between 131 and 184wpm, so over a long reply the estimate drifts far enough
+	// for the lips to stop while the voice is still going.
 	const TArray<FVisemeSpan> Track = FVisemePlanner::PlanForDuration(Text, DurationSeconds);
 	Face->PlayVisemeTrack(Track);
 	UE_LOG(LogCompanionRuntime, Log, TEXT("Re-timed to audio: %d spans over %.2fs."),
@@ -157,12 +176,19 @@ void UCompanionRuntimeSubsystem::HandleCompanionSpoke(const FString& Text)
 		return;
 	}
 
-	// Text-planned timing, not audio-aligned: there is no TTS clip to measure yet, so the track is
-	// estimated from a speaking rate. When TTS lands, switch to PlanForDuration with the clip's
-	// real length so the mouth cannot drift against the audio.
+	if (Tts)
+	{
+		// Defer the mouth until the audio exists. Planning now and again on arrival would play the
+		// utterance twice at two different speeds.
+		Tts->Speak(Text);
+		return;
+	}
+
+	// No voice service: fall back to timing estimated from a speaking rate. Visibly fine on its
+	// own, and only wrong once there is real audio to drift against.
 	const TArray<FVisemeSpan> Track = FVisemePlanner::PlanFromText(Text);
 	Face->PlayVisemeTrack(Track);
 
-	UE_LOG(LogCompanionRuntime, Log, TEXT("Speaking: %d viseme spans over %.2fs."),
+	UE_LOG(LogCompanionRuntime, Log, TEXT("Speaking (planned): %d viseme spans over %.2fs."),
 		Track.Num(), FVisemePlanner::TrackDuration(Track));
 }
