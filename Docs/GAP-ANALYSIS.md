@@ -58,9 +58,9 @@ the missing piece is small and structural rather than a body of unwritten featur
 | **Eyes / gaze / blink** | ⚠️ **NEW** Blink done, gaze missing | Randomised 2–6s blink with asymmetric close/open, composited over speech. Gaze/saccades (ANIMATION-PLAN §2) still unstarted. |
 | **Micro-motion / breathing** | ❌ Missing | ANIMATION-PLAN §3 unstarted. |
 | **Gesture / body language** | ❌ Missing | `EAnimationCategory` exists as an enum; no animation set is wired to it. |
-| **User input** | ❌ Missing | Known bug #23: `DefaultPawn` ignores `PlayerStart`, free-look inert. No text or audio channel from browser to app. **Nobody can address her.** |
+| **User input** | ✅ **CORRECTED** Text works | The Slate chat box is live and verified on the stream: typed turns reach `SubmitUserText` and cut the opening short. Free-look is now deliberately OFF (`MHLLM_FREE_LOOK=0`) so a viewer cannot drag the shot off the subject — that is a choice, not bug #23. **Voice input still missing**: no capture path. |
 | **Turn-taking / barge-in** | ⚠️ Code only | `SubmitUserText` cancels in-flight responses. Unreachable without an input path. |
-| **HUD** | ⚠️ Code only | `UCompanionHUDWidget` is a UMG widget nothing creates or adds to a viewport. |
+| **HUD** | ✅ **CORRECTED** Live | `SCompanionHUD` (Slate) is attached as viewport content, so it renders into the same back buffer Pixel Streaming captures. The separate UMG `UCompanionHUDWidget` it superseded is **dead code** — nothing constructs it. |
 | **Delivery** | ✅ Working | Pixel Streaming on AMD/RADV, software VP8, `:8090`. |
 | **Reproducibility** | ⚠️ Improving | Cook now runs from a clean tree of committed source; `cook-m2` had drifted so far it lacked the plugin entirely. |
 | **Durability** | ❌ Fragile | Docker state on core-2 has been fully destroyed several times (`docker system prune --volumes --all --force` appears repeatedly in shell history) plus reboots. No restart policy; restoring costs an 85 GB pull and a 20-minute cook. |

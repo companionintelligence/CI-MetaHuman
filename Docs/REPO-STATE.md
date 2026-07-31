@@ -134,3 +134,90 @@ and look identical to success unless the track's *energy* is measured.
 
 *Snapshot only. `GAP-ANALYSIS.md` is the authority on what works; `LEARNINGS.md` on why things are
 shaped the way they are.*
+
+---
+
+# Addendum — deeper audit
+
+Second pass, looking for problems rather than restating structure.
+
+## 7. Clean
+
+| Check | Result |
+|---|---|
+| Duplicate keys in `docker-compose.face.yml` | None (one was found and fixed earlier) |
+| `TODO` / `FIXME` / `HACK` in plugin source | **0** |
+| Hard-coded secrets | None — all credentials come from env; `CI_HUB_TOKEN` is the `__NEEDS__` placeholder |
+| Build junk tracked (`Intermediate`/`Binaries`/`Saved`) | **0 files** |
+| Git pack size | 2.85 MiB — the binaries live in LFS |
+
+## 8. Dead code
+
+`UCompanionHUDWidget` (`Public/UI/CompanionHUDWidget.h` + `.cpp`, ~124 lines) is **unreferenced**.
+The only mentions outside its own files are UHT-generated. It is a UMG widget superseded by the
+Slate `SCompanionHUD`, which is what actually renders — the Slate one is added as viewport content
+so it reaches the Pixel Streaming back buffer, which a UMG widget nothing constructs never could.
+
+It still compiles into the module and shows up in searches as though it were the HUD, which is
+actively misleading: `GAP-ANALYSIS.md` described the HUD as "code only, nothing creates it" long
+after the Slate HUD went live, because the dead class kept answering the question.
+
+**Recommendation: delete it.** Kept only if a UMG path is genuinely wanted later.
+
+## 9. 262 MB of LFS the cook throws away
+
+28 tracked LFS files, all matched by `Dockerfile.amd`'s strip list for pre-5.6 targets:
+
+```
+Content/MetaHumans/DefaultCompanion.uasset      48 MB
+Content/OA_KhaosMDF492.uasset                  108 MB
+Content/KhaosMDF492/**                          ~100 MB
+```
+
+Every 5.5 cook deletes these before building. They are the **old MetaHuman path**, superseded by
+Nia — and per `PLAN-MULTI-AVATAR.md` we recommend against casting further MetaHumans at all, so
+nothing planned needs them.
+
+They are not free: LFS objects are fetched on clone. Keeping them buys the option of a 5.8
+MetaHuman variant; that option currently has no roadmap entry.
+
+**Recommendation: decide deliberately.** Either drop them and note it, or keep them and say why.
+Right now they persist by inertia.
+
+## 10. Test coverage gaps
+
+223 tests, 0 failing — but six classes have no spec at all:
+
+| Class | Assessment |
+|---|---|
+| `NullSpeechToText`, `NullTextToSpeech` | Null objects. Fine. |
+| `TapeReelSpinner` | Scene prop rotation. Low risk. |
+| `CompanionHUDWidget` | Dead (§8). |
+| **`CompanionFaceSubsystem`** | **Binds the face to the resident.** Untested. |
+| **`CompanionRuntimeSubsystem`** | **Spawns the companion, routes every reply.** Untested. |
+
+The two subsystems are the load-bearing glue and the least covered, because both need a `UWorld` —
+which is exactly why the *logic* was pushed into testable pieces (`FVisemePlanner`,
+`FCompanionSettingsModel`, `FFaceProfile`) and those are well covered.
+
+The residual risk is real though: the failure this project actually shipped was **"nothing ever
+constructed the companion"**, and it lived precisely in this untested seam. A functional test that
+loads the map and asserts the subsystem bound would have caught it.
+
+## 11. Documentation drift — found and fixed
+
+Three claims had gone stale. Corrected in this pass rather than merely listed:
+
+| Doc | Was | Now |
+|---|---|---|
+| `GAP-ANALYSIS.md` | "User input ❌ Missing — nobody can address her" | ✅ Text input works and is verified; **voice** input is what is missing |
+| `GAP-ANALYSIS.md` | "HUD ⚠️ Code only — nothing creates it" | ✅ Slate HUD live; the UMG class it referred to is dead code |
+| `GDD-WEB-EXPERIENCE.md` | §3 opening flythrough marked ✅ | ⚠️ **opt-in** — `MHLLM_OPENING_SHOT` now defaults to **0** |
+
+That last one matters most: the GDD opens by describing the camera move as *the* experience, while
+the default deployment has a static camera. Anyone reading the GDD and then running the stack would
+conclude the feature was broken.
+
+**The pattern worth noting:** every one of these drifted the same way — behaviour improved, the doc
+kept describing the old state, and the stale text read as a defect report rather than as an
+out-of-date sentence. Docs asserting ❌ need re-checking whenever the thing they describe changes.

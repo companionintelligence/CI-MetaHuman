@@ -34,7 +34,13 @@ it should feel like to talk to one. Putting her in that room makes the lineage t
 | **1970s machine room** | Distinguishes the product from every white-void assistant, and earns the name. It also solves a practical problem: a period room full of hard surfaces justifies the ambient hum that covers streaming artefacts. |
 | **Portrait 9:16** | The experience is a *call*. Phones are the majority case and portrait is what a call looks like there. |
 
-## 3. The opening — shot by shot ✅
+## 3. The opening — shot by shot ⚠️ OPT-IN
+
+> **The default deployment no longer plays this.** `MHLLM_OPENING_SHOT` defaults to **0**, so a
+> normal run lands straight in the static call framing. The move below is what you get with
+> `MHLLM_OPENING_SHOT=1`, which is the launch-stream configuration. The default flipped because a
+> moving camera is a surprise for anyone iterating on conversation, and because the solved call
+> framing should not require an undocumented variable to reach.
 
 Authored as timed beats in `UCompanionStageDirector`, not as a Sequencer asset (§8.2 explains
 why). Times are configurable; defaults shown.
