@@ -111,6 +111,8 @@ void UCompanionStageDirector::OnWorldBeginPlay(UWorld& InWorld)
 	}
 
 	FlyDuration = FCString::Atof(*GetEnv(TEXT("MHLLM_FLY_SECONDS"), TEXT("11.0")));
+	StartDelay  = FCString::Atof(*GetEnv(TEXT("MHLLM_OPENING_DELAY"), TEXT("3.0")));
+	ReplayEvery = FCString::Atof(*GetEnv(TEXT("MHLLM_OPENING_REPLAY"), TEXT("0")));
 	bActive = true;
 	Beat = EStageBeat::Flythrough;
 	ApplyCameraAt(0.0f);
@@ -187,8 +189,15 @@ void UCompanionStageDirector::Tick(float DeltaTime)
 
 	if (Beat == EStageBeat::Flythrough)
 	{
-		ApplyCameraAt(Elapsed);
-		if (Elapsed >= FlyDuration)
+		// Hold on the opening pose through StartDelay so a viewer joining at startup sees the move
+		// begin rather than arriving to find it finished.
+		if (Elapsed < StartDelay)
+		{
+			ApplyCameraAt(0.0f);
+			return;
+		}
+		ApplyCameraAt(Elapsed - StartDelay);
+		if (Elapsed - StartDelay >= FlyDuration)
 		{
 			Beat = EStageBeat::Turn;
 			UE_LOG(LogCompanionStage, Log, TEXT("Camera settled; turning to face."));
@@ -198,7 +207,7 @@ void UCompanionStageDirector::Tick(float DeltaTime)
 
 	if (Beat == EStageBeat::Turn)
 	{
-		const float T = Ease(FMath::Clamp((Elapsed - FlyDuration) / TurnDuration, 0.0f, 1.0f));
+		const float T = Ease(FMath::Clamp((Elapsed - StartDelay - FlyDuration) / TurnDuration, 0.0f, 1.0f));
 		if (Resident)
 		{
 			// Interpolate the SHORT way round, so she never spins the long way to arrive.
@@ -212,9 +221,18 @@ void UCompanionStageDirector::Tick(float DeltaTime)
 		return;
 	}
 
+	if (Beat == EStageBeat::Live)
+	{
+		if (ReplayEvery > 0.0f && (Elapsed - LiveSince) >= ReplayEvery)
+		{
+			ReplayOpening();
+		}
+		return;
+	}
+
 	if (Beat == EStageBeat::Speak)
 	{
-		if (Elapsed < FlyDuration + TurnDuration + SpeakDelay)
+		if (Elapsed < StartDelay + FlyDuration + TurnDuration + SpeakDelay)
 		{
 			return;
 		}
@@ -235,9 +253,28 @@ void UCompanionStageDirector::Tick(float DeltaTime)
 			UE_LOG(LogCompanionStage, Log, TEXT("Opening line: %s"), *Line);
 		}
 		Beat = EStageBeat::Live;
-		bActive = false;
-		UE_LOG(LogCompanionStage, Log, TEXT("Stage handed over to live conversation."));
+		LiveSince = Elapsed;
+		// Keep ticking ONLY to time the attract loop; with replay off this subsystem goes quiet.
+		bActive = ReplayEvery > 0.0f;
+		UE_LOG(LogCompanionStage, Log, TEXT("Stage handed over to live conversation.%s"),
+			ReplayEvery > 0.0f ? *FString::Printf(TEXT(" Replaying every %.0fs."), ReplayEvery) : TEXT(""));
+		return;
 	}
+}
+
+void UCompanionStageDirector::ReplayOpening()
+{
+	if (!Camera || !Resident || Path.Num() == 0)
+	{
+		return;
+	}
+	Resident->SetActorRotation(FRotator(0.0f, ResidentStartYaw, 0.0f));
+	Elapsed = 0.0f;
+	bSpoken = false;
+	Beat = EStageBeat::Flythrough;
+	bActive = true;
+	ApplyCameraAt(0.0f);
+	UE_LOG(LogCompanionStage, Log, TEXT("Replaying opening shot."));
 }
 
 void UCompanionStageDirector::SkipToLive()

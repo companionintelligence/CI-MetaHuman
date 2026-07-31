@@ -46,6 +46,12 @@ services:
       MHLLM_GREETING: "${MHLLM_GREETING:-none}"
       MHLLM_OPENING_LINE: "${MHLLM_OPENING_LINE:-Welcome to Companion Intelligence, I'm Eliza. How can I help you?}"
       MHLLM_FLY_SECONDS: "${MHLLM_FLY_SECONDS:-11.0}"
+      # Held before the move starts. Pixel Streaming clients take ~10s to negotiate, so with no
+      # delay the opening plays to an empty room and every real visitor arrives after it.
+      MHLLM_OPENING_DELAY: "${MHLLM_OPENING_DELAY:-3.0}"
+      # Attract loop: replay the opening every N seconds while idle. 0 = once only. A live stream
+      # has no other way to show its opening to someone who connects late.
+      MHLLM_OPENING_REPLAY: "${MHLLM_OPENING_REPLAY:-0}"
       # Set MHLLM_OPENING_SHOT=0 to land straight in the live call framing (useful when iterating
       # on conversation rather than on the shot).
       MHLLM_OPENING_SHOT: "${MHLLM_OPENING_SHOT:-1}"

@@ -60,6 +60,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM|Stage")
 	void SkipToLive();
 
+	// Restarts the opening from the top. The shot otherwise plays ONCE, at level load, before any
+	// viewer has connected -- so in a live stream the intended first impression is delivered to an
+	// empty room and every real visitor arrives mid-scene.
+	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM|Stage")
+	void ReplayOpening();
+
 private:
 	void BuildPath(const FVector& SubjectLocation, float EyeZ);
 	void ApplyCameraAt(float TimeSeconds);
@@ -78,6 +84,13 @@ private:
 	float FlyDuration = 11.0f;
 	float TurnDuration = 1.6f;
 	float SpeakDelay = 0.35f;	// beat of stillness after the turn before she speaks
+	// Held before the shot begins, so a viewer connecting at startup is present for it rather than
+	// joining after the camera has already landed.
+	float StartDelay = 3.0f;
+	// While >0, the opening loops with this gap once live. An attract loop: a kiosk or a demo
+	// stream has no other way to show the opening to someone who arrives late.
+	float ReplayEvery = 0.0f;
+	float LiveSince = 0.0f;
 
 	float ResidentStartYaw = 0.0f;
 	float ResidentFinalYaw = 0.0f;
