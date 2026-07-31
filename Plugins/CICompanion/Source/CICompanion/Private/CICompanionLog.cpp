@@ -10,3 +10,4 @@ DEFINE_LOG_CATEGORY(LogCompanionRuntime);
 DEFINE_LOG_CATEGORY(LogCompanionScene);
 DEFINE_LOG_CATEGORY(LogCompanionStage);
 DEFINE_LOG_CATEGORY(LogCompanionVoice);
+DEFINE_LOG_CATEGORY(LogCompanionUI);

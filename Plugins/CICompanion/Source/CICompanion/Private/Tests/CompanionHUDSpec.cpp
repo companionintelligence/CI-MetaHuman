@@ -53,6 +53,126 @@ void FCompanionHUDSpec::Define()
 		TestEqual("submit not fired", SubmitCount, 0);
 	});
 
+	// --- The "text box does not work" regression. ---
+	//
+	// The box rendered and could be clicked, but nothing ever reached the model. Two of the three
+	// causes were outside this widget (the packaged game starts in FInputModeGameOnly, so the pawn
+	// consumed the keystrokes, and the full-screen overlay was hit-testable so it swallowed the
+	// click) and are covered by the runtime subsystem instead -- they need a PlayerController and
+	// so cannot be reached headlessly. What IS testable here is the commit contract the input mode
+	// exists to feed, and the widget-side conditions the fix depends on.
+	Describe("the submit path", [this]()
+	{
+		It("clears the box after a successful send, so the next turn starts empty", [this]()
+		{
+			HUD->SimulateSubmitText(TEXT("first turn"));
+
+			TestEqual("sent", SubmitCount, 1);
+			TestEqual("box emptied", HUD->GetInputText(), FString());
+		});
+
+		It("keeps accepting turns after the first one", [this]()
+		{
+			// The regression behind ClearKeyboardFocusOnCommit(false): the box worked exactly once,
+			// because Slate drops keyboard focus on commit by default and the second message was
+			// typed into nothing.
+			HUD->SimulateSubmitText(TEXT("first"));
+			HUD->SimulateSubmitText(TEXT("second"));
+			HUD->SimulateSubmitText(TEXT("third"));
+
+			TestEqual("all three sent", SubmitCount, 3);
+			TestEqual("last one wins", LastSubmittedText, TEXT("third"));
+		});
+
+		It("ignores whitespace-only text", [this]()
+		{
+			HUD->SimulateSubmitText(TEXT("   \t  "));
+
+			TestEqual("submit not fired", SubmitCount, 0);
+		});
+
+		It("trims the text it does send", [this]()
+		{
+			HUD->SimulateSubmitText(TEXT("  padded  "));
+
+			TestEqual("sent", SubmitCount, 1);
+			TestEqual("trimmed", LastSubmittedText, TEXT("padded"));
+		});
+
+		It("wants the keyboard, so Slate will consider it for focus at all", [this]()
+		{
+			// Without SupportsKeyboardFocus() the HUD is never a focus candidate and FInputModeUIOnly
+			// has nothing to hand the keyboard to -- the exact state in which the box could be seen
+			// and not typed into.
+			TestTrue("supports keyboard focus", HUD->SupportsKeyboardFocus());
+			TestTrue("and exposes the widget the input mode must focus", HUD->GetInputWidget().IsValid());
+		});
+	});
+
+	// Slate fires OnTextCommitted for four reasons, and only one of them is a message.
+	Describe("commit types other than Enter", [this]()
+	{
+		It("does not submit when focus merely moved away", [this]()
+		{
+			HUD->SimulateTextCommit(TEXT("half typed"), ETextCommit::OnUserMovedFocus);
+
+			TestEqual("submit not fired", SubmitCount, 0);
+			TestEqual("and the draft is left in the box", HUD->GetInputText(), TEXT("half typed"));
+		});
+
+		It("does not submit on a programmatic clear", [this]()
+		{
+			HUD->SimulateTextCommit(TEXT("anything"), ETextCommit::OnCleared);
+
+			TestEqual("submit not fired", SubmitCount, 0);
+		});
+
+		It("does not submit on the default commit type", [this]()
+		{
+			HUD->SimulateTextCommit(TEXT("anything"), ETextCommit::Default);
+
+			TestEqual("submit not fired", SubmitCount, 0);
+		});
+
+		It("does submit on Enter", [this]()
+		{
+			HUD->SimulateTextCommit(TEXT("send me"), ETextCommit::OnEnter);
+
+			TestEqual("submit fired once", SubmitCount, 1);
+			TestEqual("submitted text", LastSubmittedText, TEXT("send me"));
+		});
+	});
+
+	// The pointer-only route to the same place. A phone watching the Pixel Streaming feed has no
+	// Enter key, so an Enter-only box is unusable there however good the focus handling is.
+	Describe("the Send button", [this]()
+	{
+		It("sends whatever is currently typed", [this]()
+		{
+			HUD->SimulateTyping(TEXT("typed but never committed"));
+			HUD->SimulateSendButtonClick();
+
+			TestEqual("submit fired once", SubmitCount, 1);
+			TestEqual("submitted text", LastSubmittedText, TEXT("typed but never committed"));
+			TestEqual("box emptied", HUD->GetInputText(), FString());
+		});
+
+		It("does nothing when the box is empty", [this]()
+		{
+			HUD->SimulateSendButtonClick();
+
+			TestEqual("submit not fired", SubmitCount, 0);
+		});
+
+		It("does nothing when the box holds only whitespace", [this]()
+		{
+			HUD->SimulateTyping(TEXT("  "));
+			HUD->SimulateSendButtonClick();
+
+			TestEqual("submit not fired", SubmitCount, 0);
+		});
+	});
+
 	It("toggles mic state and fires OnMicToggled on each click", [this]()
 	{
 		TestFalse("starts not listening", HUD->IsMicListening());

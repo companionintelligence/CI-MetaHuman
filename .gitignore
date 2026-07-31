@@ -28,3 +28,18 @@ Deployment/.env
 /Build/
 /dist/
 /Samples/
+
+# Authored at build time by Deployment/author_diorama.py — generated content, not source.
+# Scripts/BuildNative.ps1 stages Nia here and re-imports the props on every build, exactly as
+# the container cook does. The set is DEFINED by that script; these are its output, and
+# committing them would be committing a build artifact of one engine version.
+/Content/CC_ControlRig_Nia/
+/Content/Diorama/
+/Content/Seo/
+/Content/Audio/
+Content/Maps/CompanionStage.umap.orig
+MetaHumanLocalLLM.uproject.orig
+
+# Python bytecode from running the authoring scripts locally
+__pycache__/
+*.pyc

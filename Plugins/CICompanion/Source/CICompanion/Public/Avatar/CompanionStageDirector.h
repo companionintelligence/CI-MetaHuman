@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Subsystems/WorldSubsystem.h"
+#include "Templates/Function.h"
 #include "CompanionStageDirector.generated.h"
 
 class ACameraActor;
@@ -66,9 +67,36 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM|Stage")
 	void ReplayOpening();
 
+	// The shot is STATIC unless the opening move is explicitly asked for.
+	//
+	// It used to be the other way round -- the flythrough ran unless MHLLM_OPENING_SHOT was set to
+	// 0 -- which meant every plain `run the app` began with an eleven-second camera move nobody
+	// asked for, and the only way to get the framing the set was solved for was to know an
+	// undocumented env var. A camera that moves is the special case, so it is the one that has to
+	// be requested. Accepts 1/true/yes; anything else, including unset, is static.
+	static bool ShouldPlayOpeningShot(TFunctionRef<FString(const TCHAR*)> Lookup);
+
+	// Free-look is likewise opt-IN. Left on, the GameModeBase DefaultPawn's default movement
+	// bindings turn every mouse move into camera yaw/pitch, so a shot that was framed to the
+	// centimetre drifts off the subject as soon as anyone touches the mouse -- and over Pixel
+	// Streaming, as soon as any VIEWER does.
+	static bool ShouldAllowFreeLook(TFunctionRef<FString(const TCHAR*)> Lookup);
+
+	// Process-environment overloads of the two above; the injectable form exists so the policy is
+	// testable without mutating the real environment (see EnvConfigSpec for the same pattern).
+	static bool ShouldPlayOpeningShot();
+	static bool ShouldAllowFreeLook();
+
 private:
 	void BuildPath(const FVector& SubjectLocation, float EyeZ);
 	void ApplyCameraAt(float TimeSeconds);
+	// Parks the camera on the LAST key -- the framing the set was solved for. Independent of
+	// FlyDuration, which is zero in the static case and would make ApplyCameraAt sample key 0.
+	void ApplyFinalFraming();
+	// Points the player at the stage camera and, unless free-look was asked for, stops the pawn
+	// from acting on look/move input. Retries briefly: the player controller is not guaranteed to
+	// exist by the time a world subsystem's BeginPlay runs.
+	void LockPlayerView();
 	static FVector SampleSpline(const TArray<FStageCameraKey>& Keys, float T, bool bLookAt);
 
 	UPROPERTY(Transient) TObjectPtr<ACameraActor> Camera;
@@ -95,4 +123,13 @@ private:
 	float ResidentStartYaw = 0.0f;
 	float ResidentFinalYaw = 0.0f;
 	bool bSpoken = false;
+
+	// Resolved once at BeginPlay so the whole run agrees on the policy.
+	bool bOpeningShot = false;
+	bool bFreeLook = false;
+
+	// Bounded retry for the player controller. 20 x 0.25s covers a slow map load without spinning
+	// forever in a world that genuinely has no local player.
+	int32 ViewLockAttempts = 0;
+	static constexpr int32 MaxViewLockAttempts = 20;
 };

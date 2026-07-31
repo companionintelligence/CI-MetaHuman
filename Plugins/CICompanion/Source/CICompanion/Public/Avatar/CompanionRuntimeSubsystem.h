@@ -51,14 +51,37 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM")
 	void SetHudVisible(bool bVisible);
 
+	// Puts the caret back in the chat box. Public so anything that steals focus (a future
+	// Blueprint overlay, a Pixel Streaming reconnect) can hand it back.
+	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM")
+	void FocusChatInput();
+
 private:
 	void CreateHud();
 	void HandleHudTextSubmitted(const FString& Text);
+
+	// Switches the player controller into a mode where Slate sees the keyboard and mouse, shows a
+	// cursor, and focuses the text box. Without it a packaged game starts in
+	// FInputModeGameOnly: the viewport captures the mouse, the cursor is hidden, and every
+	// keystroke is routed to the pawn -- so the chat box renders perfectly and cannot be used.
+	//
+	// Retries: the local player controller is not guaranteed to exist when a world subsystem's
+	// BeginPlay runs.
+	void ApplyChatInputMode();
+
+	int32 ChatInputModeAttempts = 0;
+	static constexpr int32 MaxChatInputModeAttempts = 20;
 
 	// Slate, not UMG: UMG needs a WidgetBlueprint asset, and the map is authored headlessly in a
 	// content-only project that cannot carry one (HANDOFF.md Lesson 6). Slate is pure C++ and so
 	// survives that constraint -- the same reason the face driver and stage director are C++.
 	TSharedPtr<class SCompanionHUD> Hud;
+	TSharedPtr<class SCompanionSettingsPanel> SettingsPanel;
+
+	// Pushes changed settings to the systems that own them. Only the subsystems the diff marks
+	// dirty are touched: rebinding the face or restarting audio on every edit would hitch a live
+	// stream, and re-resolving morph curves is not free.
+	void ApplySettings(const struct FCompanionSettingsModel& NewSettings);
 
 	// Receives the finished reply and drives the mouth from it. Must be a UFUNCTION: the delegate
 	// is dynamic, so a lambda or raw member cannot bind to it.
