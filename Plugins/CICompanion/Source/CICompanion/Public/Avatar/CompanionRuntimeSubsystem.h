@@ -69,6 +69,21 @@ private:
 	// BeginPlay runs.
 	void ApplyChatInputMode();
 
+	// Focusing the box ONCE is not enough over Pixel Streaming.
+	//
+	// Focus is not sticky: any click that misses the HUD lands on the game viewport, which takes
+	// keyboard focus and never gives it back, so every later keystroke is discarded. Locally that is
+	// a nuisance you fix by clicking the box again. Over the stream it is fatal, because with the
+	// stock player page the pointer is locked and a click carries a virtual cursor position rather
+	// than the one the viewer aimed at -- the click cannot be aimed back at the box. This ticks a
+	// quarter-second guard that puts the caret back whenever nothing else that can type holds it.
+	void RearmChatFocus();
+
+	FTimerHandle ChatFocusGuardHandle;
+	// Logged once, not every quarter second: the fact that focus was recovered at all is the
+	// interesting event, and a per-tick line would bury a multi-hour kiosk log.
+	bool bLoggedChatFocusRecovery = false;
+
 	int32 ChatInputModeAttempts = 0;
 	static constexpr int32 MaxChatInputModeAttempts = 20;
 

@@ -52,11 +52,31 @@ public:
 
 	// Puts the caret in the text box for EVERY Slate user, not just user 0.
 	//
-	// Pixel Streaming injects its keyboard on whichever Slate user the streamer session owns, which
-	// is not necessarily the local one, so focusing user 0 alone works in a native window and
-	// silently does nothing over the stream. No-ops when the widget is not yet parented into a live
-	// window (headless tests, or before the viewport has laid the HUD out).
+	// MEASURED (core-2, packaged 5.5 + PixelStreaming2, 2026-07-31): a streamed session creates NO
+	// extra Slate user -- the log shows exactly one ("User Index 0"), and FPixelStreaming2InputHandler
+	// hands key events to FSlateApplication under GetUserIndexForKeyboard(), i.e. user 0, the same
+	// one a local keyboard uses. The earlier "Pixel Streaming rides a different user index" reasoning
+	// was never observed and is not what was broken. SetAllUserFocus is kept anyway because it is a
+	// strict superset of focusing user 0 and costs nothing; it is not load-bearing.
+	// No-ops when the widget is not yet parented into a live window (headless tests, or before the
+	// viewport has laid the HUD out).
 	void FocusInputBox();
+
+	// True when the caret is in the chat box -- i.e. the next keystroke will be typed rather than
+	// dropped. Tests focus on the inner SEditableText, not the SEditableTextBox wrapper, so this
+	// deliberately asks about descendants too.
+	bool IsInputFocused() const;
+
+	// Takes the caret back after something else stole it, and does nothing when it did not.
+	//
+	// Over Pixel Streaming a click is not aimed the way a local click is: with the stock player page
+	// the pointer is LOCKED, so the streamer sends a virtual cursor driven by mouse DELTAS and the
+	// first click lands wherever that cursor drifted -- measured at (0,640) and (720,1280) on a
+	// 720x1280 stream when the browser clicked (300,1269) and (657,1269). A click that misses the
+	// HUD reaches the game viewport, which takes keyboard focus, and from then on every keystroke is
+	// silently discarded. Nothing gave it back, so ONE stray click bricked the chat box for the rest
+	// of the session. Driven on a timer by UCompanionRuntimeSubsystem.
+	void RestoreInputFocusIfLost();
 
 	// The widget FInputModeUIOnly/FInputModeGameAndUI should focus. Exposed because the input mode
 	// is owned by the player controller, which lives on the other side of the runtime subsystem.

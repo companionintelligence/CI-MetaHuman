@@ -1,5 +1,6 @@
 #include "UI/SCompanionHUD.h"
 #include "Framework/Application/SlateApplication.h"
+#include "Framework/Application/SlateUser.h"
 #include "Layout/WidgetPath.h"
 #include "Widgets/Text/STextBlock.h"
 #include "Widgets/Input/SButton.h"
@@ -80,6 +81,17 @@ void SCompanionHUD::Construct(const FArguments& InArgs)
 				// focus is correct.
 				SNew(SButton)
 				.Visibility(EVisibility::Visible)
+				// Fire on PRESS, not on press-then-release-while-still-captured.
+				//
+				// A streamed tap is not a local click. Epic's FakeTouchController turns one tap into
+				// MouseEnter/MouseDown/MouseUp/MouseLeave with no MouseMove between them, and
+				// FPixelStreaming2InputHandler drains its whole queue inside a single Tick -- so all
+				// four land in ONE frame, and the default DownAndUp method (which needs the button to
+				// still hold pointer capture on the release) does not fire. Measured on core-2: a
+				// tap on Send delivered MOUSE_DOWN at exactly (657,1269) and produced no click.
+				// MouseDown needs only the press, which is the one event that carries a position.
+				.ClickMethod(EButtonClickMethod::MouseDown)
+				.TouchMethod(EButtonTouchMethod::Down)
 				.Text(FText::FromString(TEXT("Send")))
 				.OnClicked(this, &SCompanionHUD::HandleSendClicked)
 			]
@@ -90,6 +102,8 @@ void SCompanionHUD::Construct(const FArguments& InArgs)
 			[
 				SNew(SButton)
 				.Visibility(EVisibility::Visible)
+				.ClickMethod(EButtonClickMethod::MouseDown)
+				.TouchMethod(EButtonTouchMethod::Down)
 				.Text(FText::FromString(TEXT("Mic")))
 				.OnClicked(this, &SCompanionHUD::HandleMicClicked)
 			]
@@ -121,9 +135,62 @@ void SCompanionHUD::FocusInputBox()
 	{
 		return;
 	}
-	// ALL users, not just user 0 -- see the header: Pixel Streaming's keyboard rides a different
-	// Slate user than the local one.
+	// ALL users, not just user 0. Not because the stream owns a different one -- it does not, see
+	// the header -- but because this is a strict superset and costs nothing.
 	FSlateApplication::Get().SetAllUserFocus(PathToInput, EFocusCause::SetDirectly);
+}
+
+bool SCompanionHUD::IsInputFocused() const
+{
+	// ...OrFocusedDescendants, because Slate parks the caret on the inner SEditableText: asking the
+	// SEditableTextBox wrapper alone reports "not focused" for a box that is being typed into.
+	return InputBox.IsValid() && InputBox->HasAnyUserFocusOrFocusedDescendants();
+}
+
+void SCompanionHUD::RestoreInputFocusIfLost()
+{
+	if (!InputBox.IsValid() || !FSlateApplication::IsInitialized())
+	{
+		return;
+	}
+	// A hidden HUD must stay hidden AND silent: grabbing the keyboard back for a collapsed widget
+	// would take it away from whatever replaced it on screen.
+	const EVisibility Current = GetVisibility();
+	if (Current == EVisibility::Collapsed || Current == EVisibility::Hidden)
+	{
+		return;
+	}
+	if (IsInputFocused())
+	{
+		return;
+	}
+
+	// Do NOT fight another text field for the caret. The operator console carries its own editable
+	// boxes (model name, voice, face profile); yanking focus out of one every quarter second would
+	// make them impossible to type into. Anything else holding focus -- the game viewport above all
+	// -- is not a typing target and has no claim on the keyboard.
+	bool bOtherTextFieldFocused = false;
+	FSlateApplication::Get().ForEachUser([&bOtherTextFieldFocused](FSlateUser& User)
+	{
+		const TSharedPtr<SWidget> Focused = User.GetFocusedWidget();
+		if (!Focused.IsValid())
+		{
+			return;
+		}
+		const FName FocusedType = Focused->GetType();
+		static const FName EditableTextType(TEXT("SEditableText"));
+		static const FName MultiLineEditableTextType(TEXT("SMultiLineEditableText"));
+		if (FocusedType == EditableTextType || FocusedType == MultiLineEditableTextType)
+		{
+			bOtherTextFieldFocused = true;
+		}
+	});
+	if (bOtherTextFieldFocused)
+	{
+		return;
+	}
+
+	FocusInputBox();
 }
 
 void SCompanionHUD::AppendChatEntry(const FString& Speaker, const FString& Text)

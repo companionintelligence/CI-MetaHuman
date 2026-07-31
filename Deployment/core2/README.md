@@ -12,11 +12,61 @@ them to `/home/ci/` rather than editing the server copies in place.
 | `m2_full.sh` | The full pipeline: author → purge + refresh `cook-m2/Content` → `docker build Dockerfile.amd --build-arg RELEASE=5.5` → `docker compose up -d project` → capture a frame. | ~20 min |
 | `gpu_preview.sh` | Renders the **uncooked** authored map on the real GPU via `ci/ue55-editor-preview:mesa`. Skips the cook entirely. See `Dockerfile.editorpreview` for the ICD/`setpriv` gotchas that make this work at all. | ~3-5 min |
 | `cap2.mjs` / `cap5.mjs` | Headless Playwright capture of the live WebRTC stream into a PNG + luminance stats. `cap2` writes `m2-canvas.png`, `cap5` writes `ship-view.png` (no mouse input, so it does not rotate the camera). | ~30 s |
+| `chat_ps.mjs` | Drives the on-screen chat box **from a browser** over the stream: types with no click, clicks-then-types, presses the Send button, waits for the reply. See "Typing over the stream" below. | ~90 s |
 
 **Always verify with pixels, not logs** (Lesson 1). `LoadMap complete` and `HTTP 200` prove the
 stream is up, not that it shows anything. Capture a frame and look at it. `meanLuma ~0.03` is
 black, `~117` is a correctly exposed scene. When checking which way a character faces, look for
 **eyes** — a yaw error survived weeks of "verified" because nobody looked for a face.
+
+## Typing over the stream
+
+The chat box was proven in a native window through four routes and shipped on that evidence. It had
+never been driven from a browser. Those are different tests: a local keystroke comes from the OS, a
+streamed one arrives as a `KeyDown`/`KeyPress`/`KeyUp` triple on the WebRTC data channel and is
+pushed into Slate by `FPixelStreaming2InputHandler`. `chat_ps.mjs` drives the browser end; the proof
+is a pair of lines in the container log, not a screenshot alone:
+
+```
+docker run --rm --network host -v /home/ci/shots:/shots -w /shots \
+  mcr.microsoft.com/playwright:v1.49.0-noble bash -lc 'TAG=chat node chat_ps.mjs'
+docker logs --since <iso8601>Z deployment-project-1 | grep -E 'Chat box submitted|SubmitUserText'
+```
+
+To see the streamed input itself, add `-LogCmds="LogPixelStreaming2Input Verbose"` to the app's
+command line. That is the only way to tell **"the app never received it"** apart from **"the app
+received it and Slate dropped it"**, and it is what settled this: the `KEY_DOWN`/`KEY_PRESSED` lines
+were all there, so the keyboard was never the problem.
+
+What the measurements showed (core-2, packaged 5.5 + PixelStreaming2, 720x1280 portrait stream):
+
+- **Typing works with no click at all.** Auto-focus is real: connect, type, press Enter, and the
+  turn is submitted, echoed into the on-screen log, and answered. The click is not a prerequisite.
+- **A click was what broke it.** The stock player page defaults to the LOCKED-MOUSE control scheme:
+  it calls `requestPointerLock` on first click, after which the browser reports `clientX/clientY`
+  frozen at the centre of the video and the frontend sends a virtual cursor accumulated from
+  movement *deltas*. Clicks at (300,1269) and (657,1269) arrived at the app as **(0,640)** and
+  **(720,1280)** — the left edge and the far corner. The first missed the text box; the second was
+  aimed at Send and hit nothing. And a click that falls through the HUD onto the game viewport takes
+  keyboard focus, which nothing gave back: one stray click made the chat box dead for the session.
+- **`HoveringMouse=true` fixes the aim.** The same two clicks then arrive as (299,1269) and
+  (657,1269), the box focuses on click, and the **Send button submits**. This is now the default —
+  `Deployment/pixelstreaming/player.html` is mounted over the stock page and sets it before
+  `player.js` parses. Append `?HoveringMouse=false` to get the stock behaviour back.
+- **The app no longer depends on either.** `SCompanionHUD::RestoreInputFocusIfLost`, ticked every
+  250 ms by `UCompanionRuntimeSubsystem::RearmChatFocus`, takes the caret back whenever nothing that
+  can type is holding it (it deliberately yields to the operator console's own text fields). Send
+  and Mic now fire on press (`EButtonClickMethod::MouseDown`) rather than on a captured
+  press-and-release, because a streamed tap arrives as `MouseEnter`/`MouseDown`/`MouseUp`/
+  `MouseLeave` inside a single frame with no `MouseMove` between them.
+- **Not proven: a real phone.** Touch was exercised only under Chromium's mobile emulation, where a
+  tap became that same single-frame fake-mouse burst and activated no widget. Treat mobile as
+  untested until someone taps Send on actual glass.
+
+One counter-intuitive note for anyone reading a capture: the HUD's `SScrollBox` fills nearly the
+whole screen and swallows clicks **without** taking keyboard focus, so clicking the middle of the
+scene is harmless. It is the 4px border and the corners — exactly where a drifted virtual cursor
+lands — that reach the viewport and steal the caret.
 
 ## Service tunnels
 

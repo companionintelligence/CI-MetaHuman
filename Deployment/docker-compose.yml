@@ -52,6 +52,14 @@ services:
               { "urls":["turn:${PUBLIC_IP}:3478"], "username":"${TURN_USER}", "credential":"${TURN_PASSWORD}" }
             ]
           }
+    volumes:
+      # The stock player page defaults to the LOCKED-MOUSE control scheme, which makes every click
+      # over the stream arrive at a virtual cursor position instead of the point the viewer clicked
+      # -- measured landing at (0,640) and (720,1280) for clicks at (300,1269) and (657,1269). That
+      # misses the on-screen chat box AND the Send button, and a click that falls through to the
+      # game viewport steals keyboard focus for good. This mounts the same page with hovering mouse
+      # turned on by default; see the comment at the top of the file for the measurements.
+      - "./pixelstreaming/player.html:/SignallingWebServer/www/player.html:ro"
     depends_on:
       - turnserver
 

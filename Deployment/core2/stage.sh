@@ -36,9 +36,16 @@ check_file() {  # path-in-cook-tree, human name
 check_grep() {  # file, pattern, human name
   if ssh "$HOST" "grep -q '$2' /home/ci/$1"; then echo "  OK   $3"; else echo "  MISS $3"; FAIL=1; fi
 }
+check_symbol() {  # path-in-cook-tree, pattern, human name -- a file can be present and still be the
+                  # OLD revision, which is the exact failure this script exists to stop.
+  if ssh "$HOST" "grep -q '$2' /home/ci/cook-clean/$1"; then echo "  OK   $3"; else echo "  MISS $3"; FAIL=1; fi
+}
 check_file "Plugins/CICompanion/Source/CICompanion/Private/Avatar/CompanionStageDirector.cpp" "stage director"
 check_file "Plugins/CICompanion/Source/CICompanion/Private/Avatar/CompanionRuntimeSubsystem.cpp" "companion runtime"
 check_file "Plugins/CICompanion/Source/CICompanion/Private/Voice/KokoroTextToSpeech.cpp" "kokoro tts"
+check_symbol "Plugins/CICompanion/Source/CICompanion/Private/UI/SCompanionHUD.cpp" "RestoreInputFocusIfLost" "hud: focus guard"
+check_symbol "Plugins/CICompanion/Source/CICompanion/Private/UI/SCompanionHUD.cpp" "EButtonClickMethod::MouseDown" "hud: send fires on press"
+check_symbol "Plugins/CICompanion/Source/CICompanion/Private/Avatar/CompanionRuntimeSubsystem.cpp" "RearmChatFocus" "runtime: focus guard timer"
 check_grep "docker-compose.face.yml" "MHLLM_OPENING_LINE" "compose: opening line"
 check_grep "stage-out/author_diorama.py" "CAM_DIST = 160" "author: solved framing"
 [ "$FAIL" -eq 0 ] || { echo "STAGE_FAILED — refusing to cook a stale tree"; exit 1; }

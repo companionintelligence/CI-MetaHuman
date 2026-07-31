@@ -243,8 +243,34 @@ void UCompanionRuntimeSubsystem::ApplyChatInputMode()
 	World->GetTimerManager().SetTimer(FocusHandle,
 		FTimerDelegate::CreateUObject(this, &UCompanionRuntimeSubsystem::FocusChatInput), 0.5f, false);
 
-	UE_LOG(LogCompanionRuntime, Log, TEXT("Chat input armed: cursor shown, keyboard focus on the text box (free-look %s)."),
+	// ...and keep it there. See RearmChatFocus: one focus grab at load survives exactly until the
+	// first click that misses the HUD, which over Pixel Streaming is the FIRST click, because the
+	// stock player page locks the pointer and sends a drifted virtual cursor rather than the point
+	// the viewer clicked.
+	World->GetTimerManager().SetTimer(ChatFocusGuardHandle,
+		FTimerDelegate::CreateUObject(this, &UCompanionRuntimeSubsystem::RearmChatFocus),
+		0.25f, /*bLoop*/ true, /*InFirstDelay*/ 1.0f);
+
+	UE_LOG(LogCompanionRuntime, Log, TEXT("Chat input armed: cursor shown, keyboard focus on the text box, focus guard running (free-look %s)."),
 		UCompanionStageDirector::ShouldAllowFreeLook() ? TEXT("ON") : TEXT("locked"));
+}
+
+void UCompanionRuntimeSubsystem::RearmChatFocus()
+{
+	if (!Hud.IsValid())
+	{
+		return;
+	}
+	if (Hud->IsInputFocused())
+	{
+		return;
+	}
+	Hud->RestoreInputFocusIfLost();
+	if (!bLoggedChatFocusRecovery && Hud->IsInputFocused())
+	{
+		bLoggedChatFocusRecovery = true;
+		UE_LOG(LogCompanionRuntime, Log, TEXT("Chat focus guard recovered the caret after something else took it."));
+	}
 }
 
 void UCompanionRuntimeSubsystem::FocusChatInput()

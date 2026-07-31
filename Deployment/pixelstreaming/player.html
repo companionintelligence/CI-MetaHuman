@@ -1,0 +1,42 @@
+<!--
+  Epic's stock player page (SignallingWebServer/www/player.html from
+  ghcr.io/epicgames/pixel-streaming-signalling-server:5.5), byte-for-byte, with ONE inline script
+  added ahead of player.js. Mounted over the stock path from docker-compose.yml.
+
+  WHY: the stock frontend defaults to the LOCKED-MOUSE control scheme. On the first click it calls
+  requestPointerLock, and from then on the browser stops reporting where the pointer is -- every
+  mousedown carries clientX/clientY frozen at the centre of the video. The frontend therefore sends
+  the streamer a VIRTUAL cursor accumulated from movement deltas, not the point the viewer clicked.
+
+  Measured on core-2 against a 720x1280 portrait stream (2026-07-31), clicking with the stock page:
+
+      browser clicked (300,1269)  ->  app received MOUSE_DOWN at (0, 640)
+      browser clicked (657,1269)  ->  app received MOUSE_DOWN at (720, 1280)
+
+  ...i.e. the left edge and the far corner. Both miss the chat box; the second was aimed at the
+  Send button and hit nothing. Worse, a click that lands on the game viewport takes keyboard focus
+  away from the chat box, so one stray click made the box untypable for the rest of the session.
+
+  With HoveringMouse=true the same two clicks arrive as (299,1269) and (657,1269) -- exact -- the
+  text box focuses on click and the Send button fires. Nothing else about the page changes.
+
+  This is a URL setting the frontend reads through Config({useUrlParams:true}), so the fix is to put
+  it in the URL before player.js is parsed. history.replaceState (not a redirect) keeps it to one
+  load with no flicker, and an explicit ?HoveringMouse=false in the address bar still wins.
+
+  KEEPING IT IN SYNC: this file references player.js and the hashed favicon by the names the :5.5
+  image ships. If SIGNALLING_IMAGE is ever bumped, re-copy the stock player.html out of the new
+  image and re-apply the script block -- a stale copy here would serve a page whose script tags no
+  longer resolve.
+-->
+<!doctype html><html style="width:100%;height:100%"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><script>
+(function () {
+  try {
+    var url = new URL(window.location.href);
+    if (!url.searchParams.has('HoveringMouse')) {
+      url.searchParams.set('HoveringMouse', 'true');
+      window.history.replaceState(null, '', url.toString());
+    }
+  } catch (e) { /* never let this stop the player from loading */ }
+})();
+</script><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Michroma&family=Montserrat:wght@600&display=swap" rel="stylesheet"><link rel="shortcut icon" href="43ef81525e6853dc.ico" type="image/x-icon"><link rel="icon" type="image/png" sizes="96x96" href="images/favicon-96x96.png"><link rel="icon" type="image/png" sizes="32x32" href="images/favicon-32x32.png"><link rel="icon" type="image/png" sizes="16x16" href="images/favicon-16x16.png"><title>Pixel Streaming</title><script defer="defer" src="player.js"></script></head><body style="width:100vw;height:100vh;min-height:-webkit-fill-available;font-family:Montserrat;margin:0"></body></html>
