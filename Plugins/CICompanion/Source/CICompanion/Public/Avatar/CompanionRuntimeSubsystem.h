@@ -46,7 +46,20 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM")
 	bool SpeakLiteral(const FString& Text);
 
+	// Shows/hides the on-screen chat box. Bound to the same entry point every other input path
+	// uses, so native and Pixel Streaming cannot diverge in behaviour.
+	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM")
+	void SetHudVisible(bool bVisible);
+
 private:
+	void CreateHud();
+	void HandleHudTextSubmitted(const FString& Text);
+
+	// Slate, not UMG: UMG needs a WidgetBlueprint asset, and the map is authored headlessly in a
+	// content-only project that cannot carry one (HANDOFF.md Lesson 6). Slate is pure C++ and so
+	// survives that constraint -- the same reason the face driver and stage director are C++.
+	TSharedPtr<class SCompanionHUD> Hud;
+
 	// Receives the finished reply and drives the mouth from it. Must be a UFUNCTION: the delegate
 	// is dynamic, so a lambda or raw member cannot bind to it.
 	UFUNCTION()

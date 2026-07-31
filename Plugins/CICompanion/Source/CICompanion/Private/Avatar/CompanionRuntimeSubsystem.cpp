@@ -2,12 +2,16 @@
 
 #include "Avatar/CompanionFaceComponent.h"
 #include "Avatar/CompanionFaceSubsystem.h"
+#include "Avatar/CompanionStageDirector.h"
 #include "Avatar/MetaHumanCompanionCharacter.h"
 #include "Voice/KokoroTextToSpeech.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
 #include "Voice/KokoroTextToSpeech.h"
 #include "Voice/VisemePlanner.h"
+#include "UI/SCompanionHUD.h"
+#include "Engine/GameViewportClient.h"
+#include "Widgets/SWeakWidget.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogCompanionRuntime, Log, All);
 
@@ -86,6 +90,8 @@ void UCompanionRuntimeSubsystem::OnWorldBeginPlay(UWorld& InWorld)
 		UE_LOG(LogCompanionRuntime, Log, TEXT("Viseme timing bound to measured Kokoro audio duration."));
 	}
 
+	CreateHud();
+
 	UE_LOG(LogCompanionRuntime, Log, TEXT("Companion spawned and bound (backend=%s model=%s)."),
 		*GetEnv(TEXT("MHLLM_BACKEND"), TEXT("<unset>")), *GetEnv(TEXT("OLLAMA_MODEL"), TEXT("<unset>")));
 
@@ -105,6 +111,65 @@ void UCompanionRuntimeSubsystem::OnWorldBeginPlay(UWorld& InWorld)
 			SubmitUserText(Greeting);
 		}, 5.0f, false);
 	}
+}
+
+void UCompanionRuntimeSubsystem::CreateHud()
+{
+	if (EnvDisabled(TEXT("MHLLM_HUD")))
+	{
+		UE_LOG(LogCompanionRuntime, Log, TEXT("HUD disabled by MHLLM_HUD=0."));
+		return;
+	}
+	if (!GEngine || !GEngine->GameViewport)
+	{
+		UE_LOG(LogCompanionRuntime, Warning, TEXT("No game viewport; chat box unavailable."));
+		return;
+	}
+
+	Hud = SNew(SCompanionHUD)
+		.OnTextSubmitted(FOnCompanionTextSubmitted::CreateUObject(this, &UCompanionRuntimeSubsystem::HandleHudTextSubmitted));
+
+	// Added as viewport content so it renders into the SAME back buffer Pixel Streaming captures.
+	// That is what makes one implementation serve both targets: a native window draws it directly,
+	// and the streamed client sees it because it is part of the frame, with keystrokes travelling
+	// back over the existing input channel. A browser-only DOM overlay would have worked for the
+	// stream and left the native build with no way to type at all.
+	GEngine->GameViewport->AddViewportWidgetContent(
+		SNew(SWeakWidget).PossiblyNullContent(Hud.ToSharedRef()), 10000);
+
+	Hud->SetStatusText(TEXT("Type to Eliza and press Enter"));
+	UE_LOG(LogCompanionRuntime, Log, TEXT("Chat box attached to viewport."));
+}
+
+void UCompanionRuntimeSubsystem::SetHudVisible(bool bVisible)
+{
+	if (Hud.IsValid())
+	{
+		Hud->SetVisibility(bVisible ? EVisibility::SelfHitTestInvisible : EVisibility::Collapsed);
+	}
+}
+
+void UCompanionRuntimeSubsystem::HandleHudTextSubmitted(const FString& Text)
+{
+	if (Text.IsEmpty())
+	{
+		return;
+	}
+	if (Hud.IsValid())
+	{
+		Hud->AppendChatEntry(TEXT("You"), Text);
+		Hud->SetStatusText(TEXT("thinking..."));
+	}
+	// A typed turn must cut the scripted opening short: making someone wait out a camera move
+	// after they have spoken is the rudest thing an assistant can do.
+	if (UWorld* World = GetWorld())
+	{
+		if (UCompanionStageDirector* Stage = World->GetSubsystem<UCompanionStageDirector>())
+		{
+			Stage->SkipToLive();
+		}
+	}
+	SubmitUserText(Text);
 }
 
 bool UCompanionRuntimeSubsystem::SubmitUserText(const FString& Text)
@@ -168,6 +233,12 @@ void UCompanionRuntimeSubsystem::HandleSpeechAudioReady(const FString& Text, flo
 void UCompanionRuntimeSubsystem::HandleCompanionSpoke(const FString& Text)
 {
 	UE_LOG(LogCompanionRuntime, Log, TEXT("Companion replied (%d chars): %s"), Text.Len(), *Text.Left(160));
+
+	if (Hud.IsValid())
+	{
+		Hud->AppendChatEntry(TEXT("Eliza"), Text);
+		Hud->SetStatusText(TEXT("Type to Eliza and press Enter"));
+	}
 
 	UCompanionFaceComponent* Face = ResolveFace();
 	if (!Face)
