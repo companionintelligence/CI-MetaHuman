@@ -56,11 +56,27 @@ def _load():
                                      providers=["CPUExecutionProvider"])
         tok = json.load(open(hf_hub_download(REPO, "tokenizer.json")))
         _vocab = tok["model"]["vocab"]
-        from misaki import en
+        from misaki import en, espeak
         # misaki is Kokoro's OWN phonemizer, so its IPA symbol set matches the model vocab
         # exactly. A generic G2P would emit symbols the vocab lacks, and those tokens would
         # be dropped silently -- shortening the audio with no error anywhere.
-        _g2p = en.G2P(trf=False, british=False)
+        #
+        # The espeak fallback is NOT optional. misaki's dictionary is closed-vocabulary, and
+        # without a fallback an out-of-vocabulary word is not flagged -- it is mangled or
+        # dropped. Caught on our own opening line: "Welcome to Companion Intelligence, I am
+        # Eliza. How can I help you?" phonemized to "...ɪntˈɛləʤᵊns, ˌI æm . hˌW kæn..." --
+        # the brand name ELIZA vanished entirely, replaced by a bare full stop. Since phonemes
+        # drive both the waveform and the alignment, the character silently failed to say her
+        # own name and nothing anywhere reported an error. With the fallback: ɪlˈIzə.
+        #
+        # Note for anyone reading that phoneme string and reaching for a bug report, as I did:
+        # misaki writes DIPHTHONGS as capitals, so hˌW is /haʊ/ ("how") and ˌI is /aɪ/ ("I").
+        # Those are correct output, not mangled letters.
+        try:
+            _g2p = en.G2P(trf=False, british=False, fallback=espeak.EspeakFallback(british=False))
+        except Exception as exc:  # espeak-ng missing: degrade loudly rather than silently
+            print(f"WARNING: espeak fallback unavailable ({exc}); OOV words will be mangled")
+            _g2p = en.G2P(trf=False, british=False)
     return _sess, _vocab, _g2p
 
 
