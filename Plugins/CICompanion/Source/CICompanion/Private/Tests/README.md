@@ -37,7 +37,10 @@ Run: `Scripts/RunBackendTests.ps1`
 
 - `CompanionHUDSpec.cpp` — drives the native Slate HUD (`SCompanionHUD`) via its
   `Simulate*` test hooks (no real mouse/keyboard input needed): text submission, empty
-  submission is ignored, mic toggle state + callback, chat log append/clear.
+  submission is ignored, mic toggle state + callback, chat log append/clear. Also pins the
+  `MaxRetainedChatEntries` cap — the HUD is an overlay on the companion, and an unbounded
+  log grew until it covered the character, so the tests assert both the tracked array *and*
+  the scroll box rows stop at the cap with the newest line kept and the oldest evicted.
 
 Run: `Scripts/RunFrontendTests.ps1`
 

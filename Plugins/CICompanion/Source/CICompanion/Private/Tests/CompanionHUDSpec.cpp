@@ -93,5 +93,54 @@ void FCompanionHUDSpec::Define()
 		HUD->ClearChatLog();
 
 		TestEqual("no entries after clear", HUD->NumChatEntries(), 0);
+		TestEqual("no rows after clear", HUD->NumVisibleChatEntries(), 0);
+	});
+
+	// The regression these three cover: a kiosk session that runs for hours grew the log without
+	// limit until it covered the companion. Overshooting the cap deliberately, because the real
+	// failure was gradual accumulation rather than one oversized burst.
+	It("stops growing once the chat log reaches the cap", [this]()
+	{
+		const int32 Cap = SCompanionHUD::MaxRetainedChatEntries;
+
+		for (int32 Index = 0; Index < Cap * 2; ++Index)
+		{
+			HUD->AppendChatEntry(TEXT("Assistant"), FString::Printf(TEXT("Line %d"), Index));
+		}
+
+		TestEqual("tracked entries held at the cap", HUD->NumChatEntries(), Cap);
+		TestEqual("scroll box rows held at the cap", HUD->NumVisibleChatEntries(), Cap);
+	});
+
+	It("drops the oldest entries and keeps the newest when over the cap", [this]()
+	{
+		const int32 Cap = SCompanionHUD::MaxRetainedChatEntries;
+		const int32 Overflow = 7;
+
+		for (int32 Index = 0; Index < Cap + Overflow; ++Index)
+		{
+			HUD->AppendChatEntry(TEXT("Assistant"), FString::Printf(TEXT("Line %d"), Index));
+		}
+
+		const TArray<FCompanionChatEntry>& Entries = HUD->GetChatEntries();
+		TestEqual("kept exactly the cap", Entries.Num(), Cap);
+		TestEqual("oldest survivor is the first line past the overflow", Entries[0].Text, FString::Printf(TEXT("Line %d"), Overflow));
+		TestEqual("newest line survives", Entries.Last().Text, FString::Printf(TEXT("Line %d"), Cap + Overflow - 1));
+	});
+
+	It("keeps accepting entries after a clear that followed an overflow", [this]()
+	{
+		const int32 Cap = SCompanionHUD::MaxRetainedChatEntries;
+
+		for (int32 Index = 0; Index < Cap + 10; ++Index)
+		{
+			HUD->AppendChatEntry(TEXT("Assistant"), FString::Printf(TEXT("Line %d"), Index));
+		}
+		HUD->ClearChatLog();
+		HUD->AppendChatEntry(TEXT("You"), TEXT("Still here"));
+
+		TestEqual("one entry after clear and refill", HUD->NumChatEntries(), 1);
+		TestEqual("one row after clear and refill", HUD->NumVisibleChatEntries(), 1);
+		TestEqual("and it is the new one", HUD->GetChatEntries()[0].Text, TEXT("Still here"));
 	});
 }
