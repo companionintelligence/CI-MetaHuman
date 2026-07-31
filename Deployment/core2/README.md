@@ -18,6 +18,45 @@ stream is up, not that it shows anything. Capture a frame and look at it. `meanL
 black, `~117` is a correctly exposed scene. When checking which way a character faces, look for
 **eyes** — a yaw error survived weeks of "verified" because nobody looked for a face.
 
+## Service tunnels
+
+core-2 runs the app but none of the models. Cognition and voice both live on beta-1
+(`100.124.211.75`), and every one of those ports is bound to **beta-1's loopback** — Ollama by a
+running process that predates its own `OLLAMA_HOST=0.0.0.0`, Lemonade and kokoro-align by
+container port mappings published to `127.0.0.1`. None of them is reachable across Tailscale as
+published, so each is forwarded by a `--user` systemd unit here. Copy to
+`~/.config/systemd/user/` and `systemctl --user enable --now <unit>`.
+
+| unit | core-2 port | beta-1 service | used by |
+|---|---|---|---|
+| `ollama-tunnel.service` | 11435 | Ollama :11434 | `OLLAMA_BASE_URL` — replies |
+| `lemonade-tunnel.service` | 13305 | Lemonade Server :13305 | `KOKORO_SERVER_URL` (TTS) + `WHISPER_SERVER_URL` (STT) |
+| `kokoro-align-tunnel.service` | 13400 | kokoro-align :13400 | nothing yet — see below |
+
+**One port per unit.** They were briefly merged into a single `ssh -L ... -L ...`; with
+`ExitOnForwardFailure=yes` that makes any one port clash take down every service at once.
+
+**A listener is not a tunnel.** The failure that motivated these units looked healthy from `ss`
+— `127.0.0.1:13305 LISTEN`, owned by a real `ssh` pid — and returned `HTTP 000` to curl, because
+the forward had been established by an `ssh -L` launched with `nohup` from inside an SSH session
+and the far end was gone. Verify with a status code, never with a socket:
+
+```
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:13305/api/v1/models   # 200
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:13400/health          # 200
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:11435/api/tags        # 200
+```
+
+And a 200 through the tunnel is not proof the *service* is healthy either — it only proves
+something answered. The tunnels can be perfect and still serve `000` when the container behind
+them is stopped, which is how this last broke: `lemonade-trial` on beta-1 carries
+`RestartPolicy=no`, so once stopped it stays stopped until someone runs `docker start`.
+
+`kokoro-align` has no consumer in the shipped build. `FVisemePlanner::PlanFromAlignment` exists
+but nothing calls it over HTTP; the `Re-timed to audio` line comes from `PlanForDuration` against
+the audio length Kokoro reports, not from :13400. The tunnel is in place for when the aligner is
+wired up — it does not currently affect lip-sync.
+
 ## Durability
 
 `docker system prune --volumes --all --force` has been run on core-2 repeatedly (it appears

@@ -1,0 +1,34 @@
+[Unit]
+# Forwards beta-1's kokoro-align sidecar to core-2.
+#
+# WHAT IT IS — kokoro-align re-times the viseme track against the audio Kokoro actually
+# produced. Without it the mouth plays a track timed to the *predicted* duration and drifts out
+# of sync with the speech, so this tunnel is as load-bearing for lip-sync as :13305 is for audio.
+#
+# WHY A UNIT rather than `nohup ssh -L ... &` — an ad-hoc tunnel launched from inside an SSH
+# session dies with that session, which is exactly how core-2 ended up with a listening socket
+# whose forwarding was dead (curl returned HTTP 000 while `ss` still showed a LISTEN). A --user
+# unit with lingering (`loginctl enable-linger ci`) survives logout and reboot.
+#
+# Kept separate from ollama-tunnel.service on purpose: one port per unit, so a clash or a dropped
+# link on one service cannot take the others down with it under ExitOnForwardFailure.
+#
+# Auth is Tailscale SSH (no key material).
+Description=SSH tunnel: core-2 localhost:13400 -> beta-1 kokoro-align :13400
+After=network-online.target
+
+[Service]
+# ExitOnForwardFailure so a port clash fails loudly instead of leaving a dead tunnel that looks
+# healthy; ServerAlive* so a silently dropped link is noticed and restarted rather than hanging.
+ExecStart=/usr/bin/ssh -N \
+  -o ExitOnForwardFailure=yes \
+  -o ServerAliveInterval=30 \
+  -o ServerAliveCountMax=3 \
+  -o StrictHostKeyChecking=accept-new \
+  -L 127.0.0.1:13400:127.0.0.1:13400 \
+  ci@100.124.211.75
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
