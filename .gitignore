@@ -23,3 +23,8 @@ Thumbs.db
 # Local secrets — never commit real OIDC/hub credentials
 Deployment/.env
 *.local.env
+
+# Native build output (BuildNative.ps1 / RunUAT BuildCookRun)
+/Build/
+/dist/
+/Samples/
