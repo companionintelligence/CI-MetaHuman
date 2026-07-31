@@ -1,4 +1,5 @@
 #include "Avatar/CompanionStageDirector.h"
+#include "CICompanionLog.h"
 
 #include "Avatar/CompanionFaceSubsystem.h"
 #include "Avatar/CompanionRuntimeSubsystem.h"
@@ -10,7 +11,6 @@
 #include "EngineUtils.h"
 #include "GameFramework/PlayerController.h"
 
-DEFINE_LOG_CATEGORY_STATIC(LogCompanionStage, Log, All);
 
 namespace
 {

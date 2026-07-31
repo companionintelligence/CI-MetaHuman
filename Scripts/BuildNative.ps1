@@ -73,8 +73,11 @@ $BuildProject = $UProject
 if ($isPre56) {
     $json = Get-Content $UProject -Raw | ConvertFrom-Json
     $json.Plugins = @($json.Plugins | Where-Object { $plugins58 -notcontains $_.Name })
-    $BuildProject = Join-Path $env:TEMP 'MetaHumanLocalLLM.build.uproject'
-    Copy-Item $UProject $BuildProject -Force
+    # MUST live inside the project root. A .uproject locates Source/, Plugins/ and Content/
+    # RELATIVE TO ITSELF, so a copy in $env:TEMP is a project with no code -- UE then synthesises
+    # a placeholder Target.cs and the build dies on C# syntax errors that mention neither the
+    # real cause nor the real file.
+    $BuildProject = Join-Path $ProjectRoot 'MetaHumanLocalLLM.build.uproject'
     $json | ConvertTo-Json -Depth 12 | Set-Content $BuildProject
     Write-Host "Stripped 5.8-only plugins for a $(Split-Path $Engine -Leaf) build." -ForegroundColor Cyan
 }
@@ -93,7 +96,11 @@ $uatArgs = @(
     '-utf8output', '-nodebuginfo', '-noP4'
 )
 & $RunUAT @uatArgs
-if ($LASTEXITCODE -ne 0) { throw "BuildCookRun failed ($LASTEXITCODE)" }
+$uatExit = $LASTEXITCODE
+if ($BuildProject -ne $UProject -and (Test-Path $BuildProject)) {
+    Remove-Item $BuildProject -Force   # never leave a second .uproject beside the real one
+}
+if ($uatExit -ne 0) { throw "BuildCookRun failed ($uatExit)" }
 
 Write-Host "OK -> $Archive" -ForegroundColor Green
 Write-Host 'Runtime config is environment variables, same as the container:' -ForegroundColor Cyan

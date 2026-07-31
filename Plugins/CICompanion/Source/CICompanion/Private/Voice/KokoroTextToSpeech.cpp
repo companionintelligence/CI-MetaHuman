@@ -1,4 +1,5 @@
 #include "Voice/KokoroTextToSpeech.h"
+#include "CICompanionLog.h"
 
 #include "Components/AudioComponent.h"
 #include "Dom/JsonObject.h"
@@ -11,7 +12,6 @@
 #include "Sound/SoundWaveProcedural.h"
 #include "Voice/WavAudioReader.h"
 
-DEFINE_LOG_CATEGORY_STATIC(LogCompanionVoice, Log, All);
 
 FString UKokoroTextToSpeech::BuildRequestBody(const FString& Text, const FString& Model, const FString& Voice)
 {

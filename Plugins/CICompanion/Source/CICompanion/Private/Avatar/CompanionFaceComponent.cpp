@@ -1,9 +1,9 @@
 #include "Avatar/CompanionFaceComponent.h"
+#include "CICompanionLog.h"
 
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
 
-DEFINE_LOG_CATEGORY_STATIC(LogCompanionFace, Log, All);
 
 UCompanionFaceComponent::UCompanionFaceComponent()
 {

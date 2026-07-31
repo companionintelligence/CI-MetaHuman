@@ -1,4 +1,5 @@
 #include "Avatar/CompanionRuntimeSubsystem.h"
+#include "CICompanionLog.h"
 
 #include "Avatar/CompanionFaceComponent.h"
 #include "Avatar/CompanionFaceSubsystem.h"
@@ -13,7 +14,6 @@
 #include "Engine/GameViewportClient.h"
 #include "Widgets/SWeakWidget.h"
 
-DEFINE_LOG_CATEGORY_STATIC(LogCompanionRuntime, Log, All);
 
 namespace
 {

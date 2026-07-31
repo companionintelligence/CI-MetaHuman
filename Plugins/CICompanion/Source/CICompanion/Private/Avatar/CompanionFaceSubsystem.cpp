@@ -1,4 +1,5 @@
 #include "Avatar/CompanionFaceSubsystem.h"
+#include "CICompanionLog.h"
 
 #include "Avatar/CompanionFaceComponent.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -8,7 +9,6 @@
 #include "GameFramework/Actor.h"
 #include "Misc/CommandLine.h"
 
-DEFINE_LOG_CATEGORY_STATIC(LogCompanionFace, Log, All);
 
 const FName UCompanionFaceSubsystem::ResidentTag(TEXT("CompanionFace"));
 
