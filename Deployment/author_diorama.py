@@ -277,6 +277,55 @@ try:
         paint(ped, "M_ConsolePed_%d" % i, (0.30, 0.30, 0.31), 0.55)
     w("operator console placed")
 
+    # ---------- Olivetti + IBM + Cray: vector displays, warm grade, curved bench ----------
+    # The brief is a 70s mainframe STOREFRONT, not a museum floor: Olivetti warmth (amber, cream,
+    # rounded forms) over IBM structure (orange wall, blue panels, white tile), with Cray's
+    # signature curved padded bench. The reference storefront photograph reads warm because the
+    # interior is lit AMBER against a dark exterior -- so the fluorescents stay cool and tight
+    # while everything at eye level is warm. With GI off, that contrast has to be placed by hand.
+    #
+    # Vector displays matter more than their size suggests. Every machine in the reference has a
+    # lit face, and a dark rectangle in a bright room reads as switched-off equipment -- exactly
+    # the "museum after hours" feel we are trying to avoid. Phosphor green and amber are the
+    # period-correct CRT colours and they are the only saturated light in the room.
+    VECTOR_GREEN = (0.18, 1.00, 0.42)
+    VECTOR_AMBER = (1.00, 0.62, 0.12)
+    panels = 0
+    for i, (px, py, pz, col) in enumerate([
+            ( 470, -300, 150, VECTOR_GREEN),   # 1401 CPU face
+            ( 470, -160, 145, VECTOR_AMBER),   # 1401 mainframe
+            ( 470,  210, 130, VECTOR_GREEN),   # 3350 disk
+            ( 440,  370, 155, VECTOR_AMBER),   # 2401 tape
+            ( 440, -360, 140, VECTOR_GREEN),   # RAMAC
+            ( 245,   20,  74, VECTOR_AMBER)]): # the operator console she stands behind
+        panel = spawn(unreal.StaticMeshActor, (px, py, pz), yaw=90.0)
+        panel.static_mesh_component.set_static_mesh(cube)
+        panel.set_actor_scale3d(unreal.Vector(0.06, 0.42, 0.16))
+        emissive(panel, "M_Vector_%d" % i, col, 4.5)
+        panels += 1
+    w("vector display panels: %d" % panels)
+
+    # Cray-1 bench: the curved padded seat ring that made that machine iconic. Approximated as a
+    # short arc of segments -- close enough at this distance, and it puts a warm horizontal mass
+    # low in frame where the reference has one.
+    import math as _m
+    for seg in range(7):
+        ang = _m.radians(-52 + seg * 17)
+        bx = 690 + 150 * _m.cos(ang)
+        by = -40 + 150 * _m.sin(ang)
+        bench = spawn(unreal.StaticMeshActor, (bx, by, 44), yaw=_m.degrees(ang) + 90.0)
+        bench.static_mesh_component.set_static_mesh(cube)
+        bench.set_actor_scale3d(unreal.Vector(0.42, 0.62, 0.42))
+        # Olivetti oxblood/tan leatherette, the warm mass the palette needs at seat height.
+        paint(bench, "M_Bench_%d" % seg, (0.42, 0.14, 0.09), 0.65)
+    w("cray bench ring placed")
+
+    # Warm eye-level wash. The ceiling troffers stay cool and overhead; these sit low and amber so
+    # faces and cabinet fronts pick up Olivetti warmth rather than clinical white.
+    for wx, wy in ((300, -260), (300, 300), (620, -120), (620, 160)):
+        point((wx, wy, 205), (1.00, 0.72, 0.42), 5200, 1500.0)
+    w("warm eye-level wash placed")
+
     # ---------- desk under the small artifacts ----------
     desk = spawn(unreal.StaticMeshActor, (115,-320,66))
     desk.static_mesh_component.set_static_mesh(cube)
