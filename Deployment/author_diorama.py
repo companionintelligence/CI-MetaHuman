@@ -16,9 +16,23 @@ import unreal, traceback, math, os
 def _dir(var, default):
     return os.environ.get(var, default).replace("\\", "/").rstrip("/")
 
-GLB_DIR   = _dir("MHLLM_GLB_DIR",   "/glb")      # prop GLBs + T_CRT_Vector.png + S_RoomTone.wav
+GLB_DIR   = _dir("MHLLM_GLB_DIR",   "/glb")      # prop GLBs (scavenged Sketchfab assets)
 MH_DIR    = _dir("MHLLM_MH_DIR",    "/mh")       # MetaHuman "Seo" FBX/TGA (fallback resident only)
 AUDIO_DIR = _dir("MHLLM_AUDIO_DIR", "/audio")    # Deployment/audio — the machine-room score
+# Deployment/generated — set dressing this repo SYNTHESIZES rather than scavenges:
+# T_CRT_Vector.png (Scripts/MakeCRTTexture.py) and S_RoomTone.wav (Scripts/MakeAmbience.py
+# --mode roomtone). Both are committed, so any checkout can author the full set.
+#
+# The DEFAULT IS GLB_DIR, not a repo path, and that is deliberate. On core-2 these two files
+# have only ever existed inside the props mount, so defaulting anywhere else would break the
+# server pipeline to fix the native one. The container therefore keeps reading them from /glb
+# exactly as before, while BuildNative.ps1 points MHLLM_GEN_DIR at Deployment/generated.
+#
+# This is also the bug this variable exists to close: both files were previously read straight
+# out of GLB_DIR, so a checkout without core-2's props directory silently shipped no powered
+# CRT screens and no room tone -- the imports are wrapped in try/except and the only trace was
+# "There was nothing to import" in the authoring log.
+GEN_DIR   = _dir("MHLLM_GEN_DIR",   GLB_DIR)
 RESULT    = os.environ.get("MHLLM_AUTHOR_RESULT", "/out/AUTHOR_RESULT.txt")
 def w(s):
     try:
@@ -858,7 +872,7 @@ try:
     # by explicit lights, so a screen that is merely bright-coloured would look dead beside them.
     try:
         t = unreal.AssetImportTask()
-        t.set_editor_property("filename", GLB_DIR + "/T_CRT_Vector.png")
+        t.set_editor_property("filename", GEN_DIR + "/T_CRT_Vector.png")
         t.set_editor_property("destination_path", "/Game/Diorama/Tex")
         t.set_editor_property("automated", True); t.set_editor_property("save", True)
         t.set_editor_property("replace_existing", True)
@@ -881,16 +895,33 @@ try:
                 except Exception: pass
             MEL.recompile_material(M_CRT)
             # Face the screens down the aisle so the camera catches them on the fly-in.
+            # COUNT the placements and report the count. The old line printed unconditionally, so
+            # a run where /Engine/BasicShapes/Plane failed to load spawned three EMPTY actors and
+            # still logged "CRT vector displays placed" -- the identical trap to the tuple-binding
+            # bug that logged a working tape rank while "Tape reels spinning: 0" (see the 729
+            # section above). A line that cannot say zero is not evidence of anything.
+            pl = unreal.load_asset("/Engine/BasicShapes/Plane")
+            placed_crt = 0
             for sx, sy, sz, syaw in ((520, -150, 120, 90), (520, 190, 120, -90), (760, -150, 120, 90)):
+                if not pl:
+                    break
                 scr = spawn(unreal.StaticMeshActor, (sx, sy, sz), yaw=syaw)
-                pl = unreal.load_asset("/Engine/BasicShapes/Plane")
-                if pl:
-                    scr.static_mesh_component.set_static_mesh(pl)
-                    scr.set_actor_scale3d(unreal.Vector(0.34, 0.26, 1.0))
-                    scr.set_actor_rotation(unreal.Rotator(roll=90.0, pitch=0.0, yaw=syaw), False)
-                    scr.static_mesh_component.set_material(0, M_CRT)
-                    scr.set_actor_label("CRT_%d_%d" % (sx, sy))
-            w("CRT vector displays placed (emissive scan-line trace)")
+                scr.static_mesh_component.set_static_mesh(pl)
+                scr.set_actor_scale3d(unreal.Vector(0.34, 0.26, 1.0))
+                scr.set_actor_rotation(unreal.Rotator(roll=90.0, pitch=0.0, yaw=syaw), False)
+                scr.static_mesh_component.set_material(0, M_CRT)
+                scr.set_actor_label("CRT_%d_%d" % (sx, sy))
+                # Read the mesh BACK off the component. set_static_mesh on a Static-mobility
+                # component is the step that can quietly do nothing, and it is the only one whose
+                # failure leaves a correctly-placed, correctly-named, invisible actor behind.
+                placed_crt += 1 if scr.static_mesh_component.static_mesh else 0
+            w("CRT vector displays placed: %d of 3 (emissive scan-line trace)%s"
+              % (placed_crt, "" if pl else " -- /Engine/BasicShapes/Plane did not load"))
+        else:
+            # SAY SO. The import failing produced no line at all before, so a build with dead
+            # screens looked identical in the log to a build with lit ones, and the only hint was
+            # a stray "There was nothing to import" among the engine's own noise.
+            w("CRT displays: no texture imported from %s (screens left unlit)" % GEN_DIR)
     except Exception as e:
         w("CRT displays skipped: %s" % e)
 
@@ -899,7 +930,7 @@ try:
     # no resample. Looping, attenuated, centred in the hall.
     try:
         ta = unreal.AssetImportTask()
-        ta.set_editor_property("filename", GLB_DIR + "/S_RoomTone.wav")
+        ta.set_editor_property("filename", GEN_DIR + "/S_RoomTone.wav")
         ta.set_editor_property("destination_path", "/Game/Diorama/Audio")
         ta.set_editor_property("automated", True); ta.set_editor_property("save", True)
         ta.set_editor_property("replace_existing", True)
@@ -912,6 +943,8 @@ try:
             amb.get_editor_property("audio_component").set_sound(tone)
             amb.set_actor_label("RoomTone")
             w("room tone placed (48kHz, looping)")
+        else:
+            w("room tone: no SoundWave imported from %s (hall left silent)" % GEN_DIR)
     except Exception as e:
         w("room tone skipped: %s" % e)
 

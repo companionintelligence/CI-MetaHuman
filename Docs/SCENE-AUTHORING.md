@@ -23,12 +23,22 @@ must, or you ship an empty room:
 | consumer | how | inputs |
 |---|---|---|
 | the Linux cook on core-2 | `Deployment/core2/run_author_m2.sh` -> `dev-5.5` container, `-nullrhi` | mounted at `/glb`, `/mh`, `/audio`, `/nia` |
-| the native Windows build | `Scripts/BuildNative.ps1` -> installed `UnrealEditor-Cmd.exe`, `-nullrhi` | `MHLLM_GLB_DIR` / `MHLLM_MH_DIR` / `MHLLM_AUDIO_DIR`, Nia staged into `Content/CC_ControlRig_Nia` |
+| the native Windows build | `Scripts/BuildNative.ps1` -> installed `UnrealEditor-Cmd.exe`, `-nullrhi` | `MHLLM_GLB_DIR` / `MHLLM_MH_DIR` / `MHLLM_AUDIO_DIR` / `MHLLM_GEN_DIR`, Nia staged into `Content/CC_ControlRig_Nia` |
 
 The script reads every external path through `MHLLM_*` environment variables whose **defaults are
 the container mount points**, so the server pipeline is unchanged and the local build simply
 points them at Windows paths. Never hard-code a new input path — add it to that block, or the
 native build silently diverges from the cook.
+
+That rule has already been broken once and cost the set two features. `T_CRT_Vector.png` and
+`S_RoomTone.wav` were read straight out of `GLB_DIR`, where they existed **only on core-2**, and
+both imports are wrapped in `try/except` — so every native build shipped with unpowered CRT
+screens and a silent hall, and the only evidence was `There was nothing to import` buried in the
+authoring log. Both files are now generated into the repo (below) and resolved through
+`MHLLM_GEN_DIR`, whose default is `GLB_DIR` so the container keeps reading them from `/glb`
+exactly as before. Both import sites now also log when they find nothing, and `BuildNative.ps1`
+fails the build if `CRT vector displays placed` or `room tone placed` is missing from
+`AUTHOR_RESULT.txt`.
 
 `Content/Maps/CompanionStage.umap` in the repo is a **23 KB stub** (sky + ground). It exists only
 so `Dockerfile.amd` has something to find; it is not the set. A build that does not author will
@@ -50,10 +60,56 @@ rebuilds it: real proportions (0.76 x 0.74 x 1.80 m), off-white shell, chrome fr
 door over the reel bay, IBM-blue lower panel, amber supply reel, white take-up reel, CI-mint
 status lamps.
 
+```
+blender --background --python Deployment/blender/make_ibm729.py -- --out <glb dir>
+```
+
+Every dimension in that script is an explicit constant rather than a viewport adjustment, and the
+output is verified against the shipped `ibm-729-tape.glb`: node names and transforms, all seven
+materials (including the lamp's emissive strength), and all seven primitives' vertex counts,
+index counts and bounding boxes match to four decimals. The prop is reproducible from source, not
+just re-creatable by hand.
+
 **The reels are separate objects with their own origins.** This is the load-bearing decision. A
 reel baked into the shell looks identical in a still frame and can never turn; spinning tape is
 the most recognisable motion in a machine room of this era. Keeping them separate is what makes
-the hall able to move at all.
+the hall able to move at all. For the same reason the chrome **hub caps belong to the body, not
+to the reels** — a cap that turned with its reel would put a rotating specular highlight on all
+24 of them and strobe the whole hall.
+
+## Assets: generated
+
+Three pieces of the set are **synthesized by scripts in this repo** rather than sourced. All are
+stdlib-only Python, and all are committed so a fresh checkout can author the complete set:
+
+| output | generator | why generated |
+|---|---|---|
+| `Deployment/audio/machine_room.wav` | `Scripts/MakeAmbience.py --mode score` | 44.1kHz, 32s. The bed, non-spatialized at the camera. |
+| `Deployment/generated/S_RoomTone.wav` | `Scripts/MakeAmbience.py --mode roomtone` | 48kHz (UE's mixer rate, so no resample), 20s. A positioned emitter out in the hall. |
+| `Deployment/generated/T_CRT_Vector.png` | `Scripts/MakeCRTTexture.py` | 512x384 emissive scan-line trace for the CRT screens. |
+
+Generating rather than sourcing buys three things: no licence question about shipping them, the
+freedom to tune them to this specific room, and — for the loops — a **computed** join instead of
+an editor crossfade. Every partial sits at an exact integer number of cycles per loop, so each
+sine ends where it began.
+
+Noise cannot be cycle-locked that way. The score hides its noise seam under the sines; the room
+tone has no pad to hide behind, so its noise is filtered **circularly** — the one-pole is run
+twice round the same periodic input and only the second lap is kept, making the filter state at
+sample 0 the state it ends on. Measured, the room tone's wrap is **0.92x its own median
+sample-to-sample step**: the join is not merely quiet, it is indistinguishable from any other
+sample transition. Judge a loop by that ratio, never by raw `|x[0] - x[-1]|` — a brighter bed
+scores "worse" on the raw number while looping better.
+
+The CRT texture exists because a flat-colour screen reads as **painted plastic**. With GI off,
+the set is lit entirely by explicit lights, so a screen that is merely bright-coloured renders
+dimmer than the cabinet beside it and looks switched off. What sells a CRT is the raster:
+alternating bright and dark lines, a trace with a bloom around it, a phosphor black that is not
+quite black, and a persistence ghost trailing the beam so a still frame implies motion. The trace
+is drawn at six sub-pixel samples per column — a per-pixel walk breaks into dashes on the steep
+flanks and reads as a corrupted signal. Phosphor colour is CI mint `#58ebbf`, authored in **sRGB
+display space** because the material samples it as an sRGB base colour and multiplies it into
+emissive; converting to linear here would double-apply the transform.
 
 ## Reels
 
@@ -175,9 +231,22 @@ Absolute luminance across two builds is therefore not a clean comparison — com
 render with `r.EyeAdaptation.ExposureOverride` fixed.
 
 ## Next
-- `T_CRT_Vector.png` and `S_RoomTone.wav` are read from the GLB directory but exist only on
-  core-2, so the native build skips the CRT scan-line screens and the room tone entirely. They
-  should be generated into the repo like `machine_room.wav` is (`Scripts/MakeAmbience.py`).
-- `Deployment/blender/make_ibm729.py` is referenced above but the directory holds only `.keep` —
-  the 729 GLB cannot currently be rebuilt from this repo.
-- Author scan-line art on the CRTs (currently flat emissive colour).
+- **The reels are flat discs, so their rotation is invisible even where the camera can see them.**
+  `UTapeReelSpinner` turns them and the log confirms 24 spinning, but a featureless disc looks
+  identical at every angle — the frame-diff evidence above measures the framing problem and would
+  have measured the same 0.08% with a fixed camera pointed straight at one. Spokes, a hub slot or
+  an asymmetric tape pack in `make_ibm729.py` would cost nothing and make the motion legible.
+- The room tone's `AmbientSound` has **no attenuation asset**, so a sound placed deliberately out
+  in the hall at (700, 20, 150) plays at the same level everywhere. It is mixed low enough not to
+  matter today, but the position currently buys nothing.
+- **The CRT screens render but are effectively invisible to the shipped shot.** Confirmed in a
+  captured frame from the packaged build (debug camera, 89-degree FOV): the emissive trace is
+  there — dark phosphor panel, readout blocks along the top, mint trace pixels mid-screen — but
+  the screen occupies about 11x36 px at 1280x720, and at 26 degrees off-axis it is outside the
+  21-degree portrait framing altogether. They were placed to be caught on the opening flythrough,
+  which (see above) has never actually played. Placing at least one screen INSIDE the call cone,
+  facing the camera, is a one-line change and the only way the texture earns its place.
+- The authoring log now reports `CRT vector displays placed: N of 3` rather than an
+  unconditional success line, and `BuildNative.ps1` gates on `[1-9]`. The old line printed even
+  when `/Engine/BasicShapes/Plane` failed to load and three empty actors were spawned — the same
+  shape of lie as `Tape reels spinning: 0`. Worth auditing the remaining `placed` lines for it.

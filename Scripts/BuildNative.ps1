@@ -159,6 +159,18 @@ function Invoke-StageAuthoring {
     $env:MHLLM_GLB_DIR = $glb
     $env:MHLLM_MH_DIR = Join-Path $ProjectRoot 'Deployment\metahuman'
     $env:MHLLM_AUDIO_DIR = Join-Path $ProjectRoot 'Deployment\audio'
+    # Synthesized set dressing (CRT screen texture + room tone), committed under Deployment/.
+    # author_diorama.py defaults MHLLM_GEN_DIR to the GLB directory because on core-2 that is
+    # where these two files live; pointing it into the repo is what stops the native build
+    # depending on a machine it is not running on.
+    $gen = Join-Path $ProjectRoot 'Deployment\generated'
+    foreach ($f in @('T_CRT_Vector.png', 'S_RoomTone.wav')) {
+        if (-not (Test-Path (Join-Path $gen $f))) {
+            throw ("Generated set dressing missing: $gen\$f. Rebuild it with " +
+                   'Scripts/MakeCRTTexture.py and Scripts/MakeAmbience.py --mode roomtone.')
+        }
+    }
+    $env:MHLLM_GEN_DIR = $gen
     $env:MHLLM_AUTHOR_RESULT = $result
 
     Write-Host "Authoring the diorama with $script (headless editor, this takes a few minutes)" -ForegroundColor Cyan
@@ -167,9 +179,9 @@ function Invoke-StageAuthoring {
         -unattended -nullrhi -nosplash -noP4 -stdout -utf8output -NoLogTimes `
         '-ini:EditorPerProjectUserSettings:[/Script/ModelContextProtocolEngine.ModelContextProtocolSettings]:bAutoStartServer=False' `
         > $log 2>&1
-    # The commandlet exits non-zero on its ERROR COUNT alone, and this run logs benign ones (a
-    # missing optional CRT texture, an OpenXR loader complaint). AUTHOR_RESULT.txt is the real
-    # verdict, so gate on that rather than on $LASTEXITCODE.
+    # The commandlet exits non-zero on its ERROR COUNT alone, and this run logs benign ones (an
+    # OpenXR loader complaint among them). AUTHOR_RESULT.txt is the real verdict, so gate on that
+    # rather than on $LASTEXITCODE.
 
     if (-not (Test-Path $result)) { throw "Authoring produced no result file. See $log" }
     $lines = Get-Content $result
@@ -178,6 +190,17 @@ function Invoke-StageAuthoring {
     # FAIL FAST, loudly, on every condition that has previously shipped an empty stage.
     if (-not ($lines -match '^SUCCESS')) { throw "Authoring did not report SUCCESS. See $log and $result" }
     if (-not ($lines -match 'resident: NIA placed')) { throw "Authoring placed no resident. See $result" }
+    # Both of these ship in the repo now, so a miss is a regression rather than a missing optional
+    # input. They used to fail SILENTLY -- try/except around the import, no line in the result
+    # either way -- and the build went out with dead screens and a silent hall for weeks.
+    # Match the COUNT, not just the words: the authoring line reports "N of 3" precisely so this
+    # gate can tell "placed three screens" from "placed nothing and said so cheerfully".
+    if (-not ($lines -match 'CRT vector displays placed: [1-9]')) {
+        throw "Authoring placed no CRT displays (screens will read as painted plastic). See $result"
+    }
+    if (-not ($lines -match 'room tone placed')) {
+        throw "Authoring placed no room tone (the hall will be silent). See $result"
+    }
     if (-not (Test-Path $StageMap)) { throw "Authoring reported SUCCESS but wrote no $StageMap" }
     $size = (Get-Item $StageMap).Length
     if ($size -lt 200KB) { throw "Authored map is only $size bytes — that is the empty stub, not the set." }
