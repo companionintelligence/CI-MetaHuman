@@ -70,16 +70,22 @@ $plugins58 = @('AIAssistant','MCPClientToolset','ModelContextProtocol','AllTools
                'MetaHumanCalibrationDiagnostics')
 $isPre56 = (Split-Path $Engine -Leaf) -match 'UE_5\.[0-5]'
 $BuildProject = $UProject
+$UProjectBackup = $null
 if ($isPre56) {
+    # The project must keep its EXACT name. Cooking a renamed copy
+    # (MetaHumanLocalLLM.build.uproject) writes cooked output to Saved/Cooked/Windows/
+    # MetaHumanLocalLLM.build/ while the staging step still looks for .../MetaHumanLocalLLM/,
+    # and fails with "A package store manifest or project store is required when staging to
+    # IoStore" -- a message that says nothing about the rename that caused it.
+    #
+    # So the real .uproject is edited in place and restored in the finally block below. Uglier
+    # than a copy, but it is the only form that keeps cook and stage agreeing on the name.
+    $UProjectBackup = "$UProject.orig"
+    Copy-Item $UProject $UProjectBackup -Force
     $json = Get-Content $UProject -Raw | ConvertFrom-Json
     $json.Plugins = @($json.Plugins | Where-Object { $plugins58 -notcontains $_.Name })
-    # MUST live inside the project root. A .uproject locates Source/, Plugins/ and Content/
-    # RELATIVE TO ITSELF, so a copy in $env:TEMP is a project with no code -- UE then synthesises
-    # a placeholder Target.cs and the build dies on C# syntax errors that mention neither the
-    # real cause nor the real file.
-    $BuildProject = Join-Path $ProjectRoot 'MetaHumanLocalLLM.build.uproject'
-    $json | ConvertTo-Json -Depth 12 | Set-Content $BuildProject
-    Write-Host "Stripped 5.8-only plugins for a $(Split-Path $Engine -Leaf) build." -ForegroundColor Cyan
+    $json | ConvertTo-Json -Depth 12 | Set-Content $UProject
+    Write-Host "Stripped 5.8-only plugins for a $(Split-Path $Engine -Leaf) build (restored afterwards)." -ForegroundColor Cyan
 }
 
 # Intermediate/ShaderAutogen is written by whichever ENGINE last touched this project. This
@@ -107,10 +113,17 @@ $uatArgs = @(
     "-archivedirectory=$Archive",
     '-utf8output', '-nodebuginfo', '-noP4'
 )
-& $RunUAT @uatArgs
-$uatExit = $LASTEXITCODE
-if ($BuildProject -ne $UProject -and (Test-Path $BuildProject)) {
-    Remove-Item $BuildProject -Force   # never leave a second .uproject beside the real one
+try {
+    & $RunUAT @uatArgs
+    $uatExit = $LASTEXITCODE
+}
+finally {
+    # ALWAYS restore, including on Ctrl-C: leaving the developer's .uproject stripped of its
+    # editor plugins would silently break the next editor session.
+    if ($UProjectBackup -and (Test-Path $UProjectBackup)) {
+        Move-Item $UProjectBackup $UProject -Force
+        Write-Host 'Restored the original .uproject.' -ForegroundColor Cyan
+    }
 }
 if ($uatExit -ne 0) { throw "BuildCookRun failed ($uatExit)" }
 
