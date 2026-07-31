@@ -17,6 +17,34 @@
 # "Optional": true, so a 5.5 cook hard-fails with "Unable to find plugin". Anything 5.8-only that
 # shows up must be listed here or the next cook from a full checkout breaks.
 #
+# AND THE TYPE STILL HAS TO RESOLVE. Stripping the DefaultGame.ini rule was not sufficient alone:
+# the strip demonstrably runs ("stripped the GameFeatureData asset-manager rule") and the cook STILL
+# ended on `Ensure condition failed: AssetBaseClassLoaded ... Failed to load class
+# /Script/GameFeatures.GameFeatureData for Primary Asset Type GameFeatureData` -- with that rule the
+# only declaration anywhere in the tree. So GameFeatures is now ENABLED for pre-5.6 cooks rather
+# than reasoned about: it is an engine plugin present in 5.5, and giving the type its class cures
+# the error the log actually names, whichever config layer asks for the scan.
+#
+# This failure looks the opposite of what it is: `LogCook: Display: Done!` appears FIRST -- every
+# package cooked -- and the ensure fires afterwards at engine init, inside the end-of-run
+# "Warning/Error Summary". The commandlet exits 1 on the error COUNT, and UAT reports
+# Error_UnknownCookFailure(25). A successful cook that still fails the build.
+#
+# GameFeatures is enabled EXPLICITLY below, and that line is load-bearing. DefaultGame.ini carries an
+# asset-manager rule for GameFeatureData whose AssetBaseClass is /Script/GameFeatures.GameFeatureData.
+# Stripping the 5.8 plugins leaves GameFeatures to arrive late, as somebody else's dependency, which
+# puts it on the wrong side of UAssetManager::ScanPrimaryAssetTypesFromConfig at engine init. Both
+# ways of being wrong here fail the cook, and they look nothing alike:
+#
+#   rule present, class not yet loadable -> AssetBaseClassLoaded ensure, ~20 Error lines, 23 errors
+#   rule removed, GameFeatures then loads -> LogGameFeatures "no rule for GameFeatureData", 2 errors
+#
+# In BOTH cases every package cooks and "Finalisation: End / Done!" is reached; the commandlet exits
+# 1 purely on the logged error COUNT, and UAT relabels that as Error_UnknownCookFailure(25). So the
+# cure is neither to keep nor to drop the rule but to make the class resolvable BEFORE the scan --
+# which is what enabling the plugin as a project plugin does. Removing this line resurrects one of
+# the two failures above depending on which way you then edit the .ini, so do not "simplify" it.
+#
 # Stage 1 packages on Epic's dev image; stage 2 is an Ubuntu+Mesa (RADV/VAAPI) runtime so the app
 # renders with Vulkan and hardware-encodes over /dev/dri. Prereq: ghcr.io/epicgames access.
 
@@ -32,7 +60,8 @@ RUN cd /home/ue4/project-src \
  && python3 -c "import json; p=json.load(open('MetaHumanLocalLLM.uproject')); p['EngineAssociation']='${RELEASE}'; json.dump(p, open('MetaHumanLocalLLM.uproject','w'), indent='\t')" \
  && MINOR="$(echo "${RELEASE}" | cut -d. -f2)" \
  && if [ "${MINOR:-8}" -lt 6 ]; then \
-        python3 -c "import json; path='MetaHumanLocalLLM.uproject'; p=json.load(open(path)); disabled={'MCPClientToolset','ModelContextProtocol','AllToolsets','MetaHuman','MetaHumanCharacter','MetaHumanCalibrationProcessing','MetaHumanCoreTech','MetaHumanLiveLink','MetaHumanGenerator','MetaHumanCharacterUAF','MetaHumanCalibrationDiagnostics','AIAssistant'}; p['Plugins']=[plugin for plugin in p.get('Plugins', []) if plugin.get('Name') not in disabled]; json.dump(p, open(path,'w'), indent='\t')"; \
+        python3 -c "import json; path='MetaHumanLocalLLM.uproject'; p=json.load(open(path)); disabled={'MCPClientToolset','ModelContextProtocol','AllToolsets','MetaHuman','MetaHumanCharacter','MetaHumanCalibrationProcessing','MetaHumanCoreTech','MetaHumanLiveLink','MetaHumanGenerator','MetaHumanCharacterUAF','MetaHumanCalibrationDiagnostics','AIAssistant'}; p['Plugins']=[plugin for plugin in p.get('Plugins', []) if plugin.get('Name') not in disabled]; p['Plugins'].append({'Name':'GameFeatures','Enabled':True}); json.dump(p, open(path,'w'), indent='\t')"; \
+        python3 -c "import json; path='MetaHumanLocalLLM.uproject'; p=json.load(open(path)); names={x.get('Name') for x in p.get('Plugins', [])}; p['Plugins'].append({'Name':'GameFeatures','Enabled':True}) if 'GameFeatures' not in names else None; json.dump(p, open(path,'w'), indent='\t'); print('GameFeatures enabled explicitly for the 5.5 cook')"; \
         echo "RELEASE ${RELEASE} < 5.6: dropping 5.8-only MetaHumanCharacter assets"; \
         rm -rf Content/MetaHumans Content/KhaosMDF492 Content/TestMetaHumanCharacter.uasset \
                Content/OA_KhaosMDF492.uasset Content/WI_KhaosMDF492.uasset; \

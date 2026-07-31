@@ -59,6 +59,24 @@ the hall able to move at all.
 
 `UTapeReelSpinner` finds actors tagged `TapeReel` and rotates them on Roll.
 
+Roll is correct and not a guess: in the GLB each reel is its own node with its origin at the hub,
+disc in local XY, axis local Z. glTF Z maps to Unreal X, so the reel's axis *is* the actor's Roll
+axis. `FRotator` composes as `Rz(Yaw) * Ry(Pitch) * Rx(Roll)`, so Roll is applied in local space
+before the cabinet's +/-90 yaw — the units can face across the aisle and the reels still spin about
+themselves rather than orbiting.
+
+**None of this is visible on the stream, and that is a framing problem, not a reel problem.** The
+shipped shot is a 21-degree portrait solved for the resident's face, from x=170 looking down +X.
+The tape rank sits at x 560..1510, y +/-155/195, yawed +/-90 so the reel faces look *across* the
+aisle. At the near bank the units are outside the horizontal cone entirely (half-width 72cm at
+x=560 versus |y| 155); at the far bank they are inside it but edge-on and largely behind her. A
+camera-held-still diff over four frames confirms it: the machine-only strips move 0.08% (right,
+indistinguishable from the 0.02% encoder noise floor) and 4.8% (left, consistent with encoder
+bleed from her adjacent hair and arm). `Tape reels spinning: 24` in the log is real; the pixels
+simply do not contain a reel to watch.
+
+Reviewing this asset needs a camera that is not the call framing — see the camera note below.
+
 Rates are deliberately **not uniform**. A hall turning in lockstep reads as a screensaver; real
 machines run independent jobs. Each reel's speed (90-240 deg/s) and direction are seeded from its
 world position, so the variation is deterministic across runs — a captured frame is reproducible —
@@ -106,13 +124,57 @@ so the brand accent and the era cue are the same colour with no compromise.
 - Camera height is derived from measured mesh bounds, not hand-picked. A guessed z cut her head off.
 - GI is **disabled** on this stream, so a coloured wall cannot bounce on its own. Colour bounce is
   placed as explicit point lights.
+- **The camera cannot be moved from outside the app, by any route.** Three separate mechanisms have
+  to agree and currently do not:
+  1. `MHLLM_FREE_LOOK=1` used to un-ignore input while `LockPlayerView` still called
+     `SetViewTarget(Camera)` on a camera that never moves. Input was live the whole time and the
+     pawn really was walking around the set; the picture just did not come from it. Fixed — the
+     pawn now receives the view and starts on the call framing.
+  2. Even so, nothing reaches the pawn: the app arms the chat box on connect ("Chat input armed:
+     cursor shown, keyboard focus on the text box"), so Slate owns cursor and keyboard. Mouse
+     deltas and WASD from a browser go to the text field, not to look/move.
+  3. `MHLLM_OPENING_SHOT=1` runs its beats correctly in the log — `Opening shot: 18.0s flythrough`,
+     then `Stage handed over` 25s later — while the streamed image does not move at all. The map's
+     auto-activating `StageCamera` wins the view target over the director's spawned camera, so the
+     flythrough animates an actor nobody is looking through. **The opening shot has therefore never
+     actually played on the stream.**
+  For now, review non-hero angles by GPU-rendering the authored map offscreen with the camera moved
+  in Python (no cook needed, and `ExposureOverride` makes renders comparable). Note this needs an
+  engine image with Mesa/RADV installed — the stock `ghcr.io/epicgames/unreal-engine:dev-5.5` ships
+  no Vulkan ICD, so `-Vulkan` finds no device and the editor dies right after `LogVulkanRHI`.
+
+## Measured, not remembered
+
+Numbers from captured stream frames (720x1280 portrait), 2026-07-31. **Exclude the top 34 and
+bottom 28 rows before measuring anything**: the chat HUD is drawn by the app and is therefore *in*
+the video, and its pure-white prompt text puts `max luminance = 255` in every single frame. That
+one artefact is why the ceiling was reported as "blowing out" — the brightest thing in the actual
+render was 211.
+
+| build | troffer emissive | frame mean | render max (HUD excluded) | %px >= 250 | ceiling band mean | ceiling / frame | troffer fittings mean |
+|---|---|---|---|---|---|---|---|
+| before | 7.0 | 100.4 | 211 | 0.00% | 141.3 | 1.41x | 192.1 |
+| after  | 3.8 | 101.3 | 213 | 0.00% | 146.3 | 1.45x | 193.1 |
+
+Three things follow, and the third is the useful one:
+
+- **The ceiling has never clipped.** Not at 7.0, not at 3.8. `%px >= 250` is 0.00 in both, and peak
+  render luminance is ~211/255 with roughly 4-5% of the ceiling band above 200. It reads pale and
+  washed because it is a large, evenly-lit, near-white surface — not because it is saturating.
+- **Halving the troffer emissive did essentially nothing.** A 46% cut moved the troffer fittings'
+  own pixels from 192.1 to 193.1. That is not a small effect, it is *no* effect.
+- **Therefore the troffer emissive is not what lights that band.** The pale ceiling comes from the
+  nine-point ceiling grid at z=430 (intensity 3200, radius 2600) washing a 0.90/0.90/0.88 slab
+  70cm above it, plus the hall troffer-run lights. The emissive material only makes the fittings
+  read as *sources*; it contributes almost nothing to the surface around them. Anyone trying to
+  darken the ceiling must go at the **point-light grid**, not the emissive value.
+
+Auto-exposure is why the "after" numbers are slightly *higher*: the stream runs histogram
+auto-exposure with wide bounds, so it re-grades the whole frame whenever the light budget moves.
+Absolute luminance across two builds is therefore not a clean comparison — compare a ratio, or
+render with `r.EyeAdaptation.ExposureOverride` fixed.
 
 ## Next
-
-- **Check the exposure on a captured frame.** The first native build showed the hall washed to
-  near white — walls, cabinets and floor all clipping, only the orange back wall holding colour.
-  The grade was tuned against the stream's no-GI render, so it has to be re-checked against a
-  captured frame on each target rather than by eye in the editor.
 - `T_CRT_Vector.png` and `S_RoomTone.wav` are read from the GLB directory but exist only on
   core-2, so the native build skips the CRT scan-line screens and the room tone entirely. They
   should be generated into the repo like `machine_room.wav` is (`Scripts/MakeAmbience.py`).
