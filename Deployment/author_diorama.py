@@ -225,6 +225,58 @@ try:
     paint(ceil, "M_SetCeiling", (0.90, 0.90, 0.88), 0.8)                  # pale troffer ceiling
     w("shell ok (walls + ceiling)")
 
+    # ---------- reference match: fluorescent troffers + operator desk ----------
+    # From the Old IBM Datacenter reference set. Two details do most of the work in those images
+    # and neither is prop geometry, which is why they are worth doing even though we do not own
+    # that asset pack: the ceiling is a GRID OF LIT TROFFERS (bright rectangles reading as light
+    # SOURCES, not a pale surface), and the operator sits at a white console desk in the
+    # foreground with the tape ranks behind. Our ceiling was a flat pale slab, so with GI off it
+    # read as grey card -- lit by nothing, lighting nothing.
+    def emissive(actor, name, rgb, strength):
+        try:
+            mat = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
+                name, "/Game/Diorama/Mat", unreal.Material, unreal.MaterialFactoryNew())
+            MELx = unreal.MaterialEditingLibrary
+            col = MELx.create_material_expression(mat, unreal.MaterialExpressionConstant3Vector, -380, 0)
+            col.set_editor_property("constant", unreal.LinearColor(rgb[0], rgb[1], rgb[2], 1.0))
+            mul = MELx.create_material_expression(mat, unreal.MaterialExpressionMultiply, -180, 0)
+            amt = MELx.create_material_expression(mat, unreal.MaterialExpressionConstant, -380, 160)
+            amt.set_editor_property("r", strength)
+            MELx.connect_material_expressions(col, "", mul, "A")
+            MELx.connect_material_expressions(amt, "", mul, "B")
+            MELx.connect_material_property(mul, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+            MELx.connect_material_property(col, "", unreal.MaterialProperty.MP_BASE_COLOR)
+            MELx.recompile_material(mat)
+            actor.static_mesh_component.set_material(0, mat)
+        except Exception as e:
+            w("emissive warn: %s" % e)
+
+    # Troffer bays, slightly BELOW the ceiling slab so they are visible as fittings rather than
+    # co-planar z-fighting with it. Cool white, matching the reference's fluorescent tubes.
+    troffers = 0
+    for tx in range(0, 6):
+        for ty in (-1, 0, 1):
+            t = spawn(unreal.StaticMeshActor, (60 + tx * 300, ty * 380, 492))
+            t.static_mesh_component.set_static_mesh(cube)
+            t.set_actor_scale3d(unreal.Vector(2.2, 0.55, 0.06))
+            emissive(t, "M_Troffer_%d_%d" % (tx, ty + 1), (0.95, 0.97, 1.00), 7.0)
+            troffers += 1
+    w("troffers placed: %d" % troffers)
+
+    # Operator console desk, set BETWEEN the camera and her so the shot reads as a workstation in
+    # a machine room rather than a portrait taken in one. She stands behind it; the desk crops at
+    # the bottom of a 9:16 frame exactly where the reference desks do.
+    console = spawn(unreal.StaticMeshActor, (250, 20, 68))
+    console.static_mesh_component.set_static_mesh(cube)
+    console.set_actor_scale3d(unreal.Vector(1.5, 2.6, 0.10))
+    paint(console, "M_ConsoleTop", (0.88, 0.87, 0.84), 0.30)   # white console laminate
+    for i, dy in enumerate((-95, 95)):
+        ped = spawn(unreal.StaticMeshActor, (250, 20 + dy, 33))
+        ped.static_mesh_component.set_static_mesh(cube)
+        ped.set_actor_scale3d(unreal.Vector(1.2, 0.5, 0.66))
+        paint(ped, "M_ConsolePed_%d" % i, (0.30, 0.30, 0.31), 0.55)
+    w("operator console placed")
+
     # ---------- desk under the small artifacts ----------
     desk = spawn(unreal.StaticMeshActor, (115,-320,66))
     desk.static_mesh_component.set_static_mesh(cube)
@@ -655,7 +707,11 @@ try:
     # call puts them, instead of dead centre.
     CAM_DIST = 160.0
     CAM_POS = (330.0 - CAM_DIST, 20.0, EYE_Z - 8.0)
-    LOOK_AT = (330.0, 20.0, EYE_Z - 22.0)
+    # Aim raised 10cm from EYE_Z-22. At -22 the frame ran 105-211cm: eyes at 71% with almost no
+    # headroom and a lot of chest below, which for a line like "Welcome to Companion Intelligence"
+    # reads as a glamour crop rather than a corporate one. At -12 it runs 115-221cm, eyes ~62%,
+    # ~21cm of headroom -- the proportions of a video call.
+    LOOK_AT = (330.0, 20.0, EYE_Z - 12.0)
     dx, dy, dz = (LOOK_AT[0]-CAM_POS[0], LOOK_AT[1]-CAM_POS[1], LOOK_AT[2]-CAM_POS[2])
     cam_yaw = math.degrees(math.atan2(dy, dx))
     cam_pitch = math.degrees(math.atan2(dz, math.sqrt(dx*dx + dy*dy)))
