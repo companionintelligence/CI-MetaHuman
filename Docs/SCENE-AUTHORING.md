@@ -199,9 +199,108 @@ so the brand accent and the era cue are the same colour with no compromise.
   engine image with Mesa/RADV installed — the stock `ghcr.io/epicgames/unreal-engine:dev-5.5` ships
   no Vulkan ICD, so `-Vulkan` finds no device and the editor dies right after `LogVulkanRHI`.
 
+## Exposure — the room was never lit wrong, it was graded wrong
+
+`Config/DefaultEngine.ini` carries
+`r.DefaultFeature.AutoExposure.ExtendDefaultLuminanceRange=True`. That single line changes the
+**units** of the PostProcessVolume's `AutoExposureMinBrightness` / `MaxBrightness` from average
+scene luminance to **EV100**. The values that sat in `author_diorama.py` for months, `0.03` and
+`8.0`, are UE**4**'s luminance-space defaults. Read as EV100 they are not "wide bounds" — they are
+a hard ceiling of EV100 8.0, i.e. an average scene luminance of `1.2 * 2^8` = 307 cd/m². This room
+meters near EV100 11.5 (~3500 cd/m²). Auto exposure asked for 11.5, got clamped to 8.0, and every
+frame rendered **3.5 stops — 11x — overexposed**.
+
+That is the whole "white haze", and the giveaway is in the histogram rather than the mean:
+
+| packaged Win64 build, 720x1280, HUD off | before | after |
+|---|---|---|
+| mean luminance | 221.5 | 122.9 |
+| median | 226.1 | 117.8 |
+| 5th percentile | 191.2 | 67.6 |
+| 95th percentile | 245.1 | 187.7 |
+| max | 252.2 | 222.9 |
+| std dev | 20.7 | 37.7 |
+| %px >= 250 | 0.27% | 0.00% |
+| %px >= 240 | 14.7% | 0.00% |
+| %px >= 200 | 90.1% | 1.9% |
+| %px <= 40 | 0.04% | 1.7% |
+
+**The 5th percentile is the number to read.** At 191 the *darkest* five percent of the frame was
+brighter than middle grey: the entire image lived in the top fifth of the range, which is what a
+white haze is. The orange back wall looked like the one surviving colour only because its albedo
+is (0.62, 0.20, 0.09) — its RED channel was pinned at 255 like everything else and green and blue
+were what was left. It was clipping too.
+
+Two structural faults fed the same result and are fixed alongside it:
+
+- **The ceiling grid hung 60cm under the ceiling.** Point lights at z=430 under a 0.90-albedo slab
+  whose underside is at 490 put `I/0.6²` on the ceiling and `I/4.3²` on the floor — **51x** more
+  on the ceiling. The single brightest surface in a machine room was its ceiling. At z=330 that
+  ratio is 4.3:1. The fittings that read as *sources* are the emissive troffers at 492; they are
+  unchanged, and per the measurements below they never lit that band anyway.
+- **Attenuation radii spanned the whole room.** At r=1500..2600 in a 28m hall, every "accent" lit
+  every surface, so twenty-odd lights summed into one omnidirectional wash — the flat evenly-lit
+  box. This is a no-GI-specific trap: with bounce light you spend a few big sources and let the
+  room distribute them; without it the temptation is to keep adding sources until nothing is dark,
+  which is the same thing as deleting the shading. Held to r~850..1200 each light lights its bay
+  and the hall recedes. Measured on the near cabinets, left vs right went from 240 : 229 (1.05:1,
+  no falloff) to 169 : 108 (1.6:1).
+
+**Exposure is now PINNED** — `min == max == EV100 9.4` in the volume — and that is deliberate, not
+a shortcut:
+
+1. `r.EyeAdaptation.*` console vars do **not** rescue it. Verified on the packaged build: EV
+   overrides of 11/12/13/14 via `-ExecCmds` moved the frame by less than 0.2/255, because a volume
+   that overrides exposure wins. The lever has to be the volume. (This is the same dead end the
+   previous attempt hit, and why `gpu_preview.sh` hard-codes `ExposureOverride 14` and still
+   cannot be trusted to judge exposure.)
+2. One camera, one fixed shot, one light rig — there is nothing for adaptation to adapt to, so
+   every stop it can move is a stop of unpredictability, not of robustness.
+3. Auto exposure silently **re-grades a lighting change away**. See the troffer numbers below:
+   halving the emissive made the frame come back *brighter*. Pinned, luminance means something
+   across builds, and it converges on frame **zero** — which is what finally makes a single
+   offscreen render trustworthy.
+
+`EXPOSURE_EV100` and the light intensities are **one setting solved together**. Change either and
+re-measure: capture a frame and land the mean near 120/255 with nothing over 240. 9.7 came back at
+mean 112 and lost the highlights; 8.0 was the bug, at 221.
+
+### Verifying a lighting change in two minutes
+
+The set is pure content, so no cook is needed to look at it:
+
+```
+Deployment/author_diorama.py via UnrealEditor-Cmd -run=pythonscript   # ~20 s
+UnrealEditor.exe <proj> /Game/Maps/CompanionStage -game -ResX=720 -ResY=1280 -windowed
+```
+
+Screen-capture the client area (a D3D swapchain does not render into a `PrintWindow` DC; copy it
+off the desktop instead) and measure. That path was checked against the packaged build and is
+**pixel-equivalent**: mean 221.6 vs 221.5 before, 122.9 vs 122.9 after. `MHLLM_HUD=0` keeps the
+chat overlay out of the measurement; `MHLLM_OPENING_SHOT=0` gives the static call framing.
+
+What that loop is **not** good for: `Content/Maps/CompanionStage.umap` is left authored on disk
+afterwards, and `BuildNative.ps1` will then back up and restore *that* instead of the committed
+stub. Check `git status` before committing.
+
+### What can and cannot judge this
+
+| path | GI off | same `Config/` | trustworthy for exposure |
+|---|---|---|---|
+| packaged Win64 (`BuildNative.ps1`) | yes | yes | **yes** |
+| `UnrealEditor -game` on this project | yes | yes | **yes** (verified pixel-equal) |
+| editor viewport | no (Lumen) | n/a | no |
+| `core2/gpu_preview.sh` | yes | **no** — renders in `authorproj`, whose config has no `ExtendDefaultLuminanceRange`, so the volume's EV100 numbers are read as luminance | no |
+| the live stream | yes | yes | yes, but only after a fresh cook |
+
 ## Measured, not remembered
 
-Numbers from captured stream frames (720x1280 portrait), 2026-07-31. **Exclude the top 34 and
+Numbers from captured stream frames (720x1280 portrait), 2026-07-31. **These came off the
+deployment that was running that day, which is NOT this source tree** — a frame captured from the
+live stream on core-2 while writing the exposure section above shows black untextured cabinets and
+measures mean 102.3, so that container predates the current authoring script. Treat the table as a
+record of that build, not as evidence about this one; the exposure numbers above were taken from a
+packaged build of the current source. **Exclude the top 34 and
 bottom 28 rows before measuring anything**: the chat HUD is drawn by the app and is therefore *in*
 the video, and its pure-white prompt text puts `max luminance = 255` in every single frame. That
 one artefact is why the ceiling was reported as "blowing out" — the brightest thing in the actual

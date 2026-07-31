@@ -201,6 +201,14 @@ function Invoke-StageAuthoring {
     if (-not ($lines -match 'room tone placed')) {
         throw "Authoring placed no room tone (the hall will be silent). See $result"
     }
+    # Exposure is PINNED in the PostProcessVolume, and that is the difference between a lit room
+    # and the white haze this set shipped for weeks (mean luminance 221/255, 90% of pixels over
+    # 200). It failed silently: AutoExposureMinBrightness/MaxBrightness are read as EV100 in this
+    # project, so the old 0.03/8.0 looked like generous bounds and were in fact a hard 3.5-stop
+    # overexposure. Nothing in the log said so. This line makes the map assert it.
+    if (-not ($lines -match 'exposure PINNED at EV100')) {
+        throw "Authoring did not pin the exposure (the room will render blown out). See $result"
+    }
     if (-not (Test-Path $StageMap)) { throw "Authoring reported SUCCESS but wrote no $StageMap" }
     $size = (Get-Item $StageMap).Length
     if ($size -lt 200KB) { throw "Authored map is only $size bytes — that is the empty stub, not the set." }

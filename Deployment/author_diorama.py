@@ -158,47 +158,98 @@ try:
     # A LOW even base — just enough that nothing falls to pure black. Cranking this grid up
     # is what flattened the room: nine bright ceiling lights wash out every texture and kill
     # the shadows the set reads by. The base only lifts the floor; the accents do the work.
+    #
+    # GRID_Z: the grid used to hang at 430, SIXTY CENTIMETRES under a 0.90-albedo ceiling slab
+    # whose underside sits at 490. Inverse square does the rest: the ceiling caught I/0.6^2 while
+    # the floor 4.3m down caught I/4.3^2 — FIFTY-ONE TIMES less. So the single brightest surface
+    # in a "1970s machine room" was its ceiling, by a factor no exposure can accommodate, and it
+    # dragged the pale upper walls up with it. Dropping the grid to 330 puts it 1.6m under the
+    # ceiling and 3.3m over the floor: 4.3:1, which is what a room lit from above actually looks
+    # like. This costs nothing — the fittings that READ as sources are the emissive troffers at
+    # 492, and they are unchanged.
+    GRID_Z = 330
     for gx in (-100, 150, 400):
         for gy in (-320, 0, 320):
-            point((gx, gy, 430), (0.93, 0.96, 1.00), 3200, 2600.0)
+            point((gx, gy, GRID_Z), (0.93, 0.96, 1.00), 340, 1500.0)
     # Accents, re-graded to the Old IBM Datacenter reference. That room is lit by RANKS OF
     # FLUORESCENT TROFFERS -- cool, bright and even -- not by warm tungsten pools, and its only
     # strong colour is the orange back wall bouncing onto white cabinets and a white tile floor.
     # The previous warm-amber + CI-aqua scheme read as a moody exhibit; this reads as a working
     # machine room with the lights on.
-    point(( 50,  260, 240), (0.92, 0.95, 1.00), 16000, 1200.0)  # cool fluorescent, terminal row
-    point(( 450, -300, 300), (0.90, 0.94, 1.00), 14000, 1500.0) # cool fill, big iron
-    point(( 450,  300, 300), (0.90, 0.94, 1.00), 12000, 1300.0)
+    #
+    # ACCENT LEVELS AND RADII. Radii matter as much as intensities here. At r=1200..1500 every
+    # accent reached every surface of a 28m room, so twenty-odd "accents" summed into one
+    # omnidirectional wash and the set lost its falloff — that is the flat evenly-lit box, and it
+    # is a no-GI-specific trap: with bounce light you spend a few big sources and let the room
+    # distribute them, without it the temptation is to add sources until nothing is dark, which is
+    # the same thing as deleting the shading. Pulled in to r~900..1200 each light lights its own
+    # bay and the hall recedes.
+    point(( 50,  260, 240), (0.92, 0.95, 1.00), 5600, 1000.0)  # cool fluorescent, terminal row
+    point(( 450, -300, 300), (0.90, 0.94, 1.00), 4800, 1100.0) # cool fill, big iron
+    point(( 450,  300, 300), (0.90, 0.94, 1.00), 4200, 1000.0)
     # Warm orange BOUNCE off the back wall. With GI off nothing bounces on its own, so the
     # reference's signature orange cast has to be placed by hand or the wall reads as a flat
     # painted panel with no effect on the room.
-    point((1500, -200, 260), (1.00, 0.42, 0.18), 26000, 1500.0)
-    point((1500,  240, 260), (1.00, 0.42, 0.18), 26000, 1500.0)
-    point((-150, 0, 250), (0.95, 0.96, 1.00), 9000, 1300.0)     # camera-side fill on the resident
-    point(( 100, -320, 160), (0.95, 0.70, 0.35), 7000, 700.0)   # desk-lamp practical (kept warm)
+    point((1500, -200, 260), (1.00, 0.42, 0.18), 9000, 1200.0)
+    point((1500,  240, 260), (1.00, 0.42, 0.18), 9000, 1200.0)
+    point((-150, 0, 250), (0.95, 0.96, 1.00), 3000, 1000.0)     # camera-side fill on the resident
+    point(( 100, -320, 160), (0.95, 0.70, 0.35), 2400, 650.0)   # desk-lamp practical (kept warm)
     # Key on the resident, slightly cool to sit in the fluorescent room, plus a soft frontal fill
     # so a portrait crop is not lit only from above.
-    point(( 300, -60, 250), (0.96, 0.97, 1.00), 9000, 1100.0)
-    point(( 200,  20, 175), (1.00, 0.97, 0.92), 6000,  600.0)   # close portrait fill
+    point(( 300, -60, 250), (0.96, 0.97, 1.00), 3400, 900.0)
+    point(( 200,  20, 175), (1.00, 0.97, 0.92), 1600,  520.0)   # close portrait fill
 
-    # Auto exposure with WIDE bounds. The camera that ships is fixed at the PlayerStart, so
-    # adaptation settles once and stays put; narrow bounds only clamped adaptation below the
-    # scene's real luminance and blew the image out. Wide bounds let it find the right stop
-    # for whatever the light budget happens to be — a lighting tweak can't ship a black or
-    # white stream again.
+    # ---------- exposure: PINNED, and this is the fix for the white-haze room ----------
+    #
+    # THE BUG. Config/DefaultEngine.ini sets
+    #     r.DefaultFeature.AutoExposure.ExtendDefaultLuminanceRange=True
+    # which changes the UNITS of AutoExposureMinBrightness / MaxBrightness from average scene
+    # luminance to EV100. The values that used to be here, 0.03 and 8.0, are UE4's LUMINANCE-space
+    # defaults, pasted into a field this project reads as EV100. So "wide bounds" was in fact a
+    # hard ceiling of EV100 8.0 = an average scene luminance of 1.2 * 2^8 = 307 cd/m^2. Metered,
+    # this room sits near EV100 11.5 (~3500 cd/m^2). Auto exposure asked for 11.5, got clamped to
+    # 8.0, and every frame shipped 3.5 STOPS — 11x — overexposed.
+    #
+    # That is the whole "white haze": measured off the packaged build, mean luminance was 221/255
+    # with 90% of pixels above 200 and the 5th percentile at 191 — the entire image squeezed into
+    # the top fifth of the range. The orange back wall looked like the one surviving colour only
+    # because its albedo is (0.62, 0.20, 0.09): its RED channel was pinned at 255 like everything
+    # else, and green and blue were what was left. It was clipping too.
+    #
+    # WHY PIN IT RATHER THAN WIDEN IT. Three reasons, all specific to this build:
+    #  1. r.EyeAdaptation.* console vars do NOT rescue it. Verified: EV overrides of 11/12/13/14
+    #     passed via -ExecCmds changed the frame by less than 0.2/255. A volume that overrides
+    #     exposure wins, so the lever has to be the volume.
+    #  2. One camera, one fixed shot, one light rig. There is nothing for adaptation to adapt to,
+    #     so every stop it can move is a stop of unpredictability, not of robustness.
+    #  3. Auto exposure silently RE-GRADES a lighting change away. Docs/SCENE-AUTHORING.md records
+    #     halving the troffer emissive and measuring the frame come back BRIGHTER; that is the
+    #     histogram re-metering, not the lights. Pinned, luminance means something across builds.
+    # min == max is the supported way to say "fixed exposure" in a volume, and it converges on
+    # frame ZERO — which is why an offscreen single-frame render is now trustworthy.
+    #
+    # TUNING IT. +1 EV halves the image, -1 doubles it. This value is NOT independent of the
+    # lights above — it is solved for them, so changing either without re-measuring the other
+    # ships a wrong frame. Re-derive it by capturing a frame and landing the mean near 120/255
+    # with nothing above 240: that is a lit interior through the filmic tonemapper, with the
+    # highlights still on the curve. 9.4 was measured, not assumed (9.7 came back at mean 112 and
+    # lost the highlights; 8.0 was the bug, at 221). Judge it on a captured frame from the game,
+    # never in an editor viewport, which is neither GI-off nor governed by this volume.
+    EXPOSURE_EV100 = 9.4
     ppv = spawn(unreal.PostProcessVolume, (0,0,0))
     ppv.set_editor_property("unbound", True)
     s = ppv.get_editor_property("settings")
     s.set_editor_property("override_auto_exposure_method", True)
     s.set_editor_property("auto_exposure_method", unreal.AutoExposureMethod.AEM_HISTOGRAM)
     s.set_editor_property("override_auto_exposure_min_brightness", True)
-    s.set_editor_property("auto_exposure_min_brightness", 0.03)
+    s.set_editor_property("auto_exposure_min_brightness", EXPOSURE_EV100)
     s.set_editor_property("override_auto_exposure_max_brightness", True)
-    s.set_editor_property("auto_exposure_max_brightness", 8.0)
+    s.set_editor_property("auto_exposure_max_brightness", EXPOSURE_EV100)
     s.set_editor_property("override_auto_exposure_bias", True)
     s.set_editor_property("auto_exposure_bias", 0.0)
     ppv.set_editor_property("settings", s)
-    w("lights ok (no-GI: dir=8lux, 9-light ceiling grid + 5 accents, auto-exposure 0.03-8.0)")
+    w("lights ok (no-GI: dir=8lux, 9-light ceiling grid @z=%d + accents, "
+      "exposure PINNED at EV100 %.2f)" % (GRID_Z, EXPOSURE_EV100))
 
     # ---------- room shell ----------
     plane = unreal.load_asset('/Engine/BasicShapes/Plane')
@@ -388,15 +439,24 @@ try:
 
     # Warm eye-level wash. The ceiling troffers stay cool and overhead; these sit low and amber so
     # faces and cabinet fronts pick up Olivetti warmth rather than clinical white.
+    #
+    # At 5200cd/r=1500 these four were the largest single block of light in the front of the room
+    # AND the most saturated (1.00, 0.72, 0.42), and a 15m radius from z=205 put that amber on the
+    # CEILING and the white raised-floor tile as readily as on a face. Measured off the frame, the
+    # "white tile" floor came back (116, 80, 64) and the pale ceiling came back pink. That is the
+    # reference look inverted: it wants a cool fluorescent room WITH a warm eye-level note, not an
+    # amber room. Held to r=850 the wash stays at eye level, where the note belongs.
     for wx, wy in ((300, -260), (300, 300), (620, -120), (620, 160)):
-        point((wx, wy, 205), (1.00, 0.72, 0.42), 5200, 1500.0)
+        point((wx, wy, 205), (1.00, 0.72, 0.42), 1700, 850.0)
     w("warm eye-level wash placed")
 
     # CI-cool rim from deep in the hall. Warm at eye level, cool in the distance -- that split is
     # what gives the storefront reference its depth, and it lets the brand teal register as light
     # rather than only as paint.
+    # r=2200 from x=1500 reached back past the camera at x=170, which is the one thing this light
+    # must not do: a "distance" cue that also lands on the foreground is not a distance cue.
     for ry in (-300, 0, 300):
-        point((1500, ry, 300), CI_TEAL_L, 3000, 2200.0)
+        point((1500, ry, 300), CI_TEAL_L, 1400, 1400.0)
     w("CI-cool depth rim placed")
 
     # ---------- desk under the small artifacts ----------
@@ -529,10 +589,13 @@ try:
 
     # The hall needs its own light or it falls off into black past the hero row — the original
     # ceiling grid only covered the front of the set.
+    # Same two corrections as the front grid: off the ceiling (GRID_Z, not 430) so the slab stops
+    # being the brightest thing in the room, and off r=2400, which spanned the entire hall and
+    # made fifteen lights behave as one flat ambient with no depth cue in it.
     for hx in (450, 700, 950, 1200, 1500):
-        point((hx, 0, 430), (0.93, 0.96, 1.00), 3600, 2400.0)     # troffer run down the aisle
-        point((hx, -300, 300), (0.90, 0.94, 1.00), 7000, 1100.0)  # cool fill, left rank
-        point((hx,  340, 300), (0.90, 0.94, 1.00), 7000, 1100.0)  # cool fill, right rank
+        point((hx, 0, GRID_Z), (0.93, 0.96, 1.00), 400, 1500.0)   # troffer run down the aisle
+        point((hx, -300, 300), (0.90, 0.94, 1.00), 1900, 950.0)   # cool fill, left rank
+        point((hx,  340, 300), (0.90, 0.94, 1.00), 1900, 950.0)   # cool fill, right rank
 
 
     # ---------- IBM 729 tape units (authored in Blender, not scavenged) ----------
