@@ -7,6 +7,7 @@
 #include "Avatar/CompanionStageDirector.h"
 #include "Avatar/EmotionMapper.h"
 #include "Avatar/MetaHumanCompanionCharacter.h"
+#include "Voice/KokoroPhonemeAligner.h"
 #include "Voice/KokoroTextToSpeech.h"
 #include "Sound/AmbientSound.h"
 #include "Components/AudioComponent.h"
@@ -64,29 +65,68 @@ void UCompanionRuntimeSubsystem::OnWorldBeginPlay(UWorld& InWorld)
 
 	// Voice is opt-in on configuration alone: with no Kokoro URL the mouth still moves from planned
 	// text, so a missing speech service degrades to a silent talker rather than a dead face.
-	if (!CICompanionEnv::Get(TEXT("KOKORO_SERVER_URL"), FString()).IsEmpty())
+	//
+	// ADOPTED from the character, never constructed here. This subsystem used to build its own
+	// UKokoroTextToSpeech on the companion actor, and the note that used to sit below claimed it was
+	// "the same component" the character had. It was not -- there were two, "CompanionVoice" here
+	// and "RealTextToSpeech" on the character -- and both were driven from a single reply, because
+	// AMetaHumanCompanionCharacter broadcasts OnCompanionSpoke (reaching HandleCompanionSpoke, which
+	// spoke) and then calls Speak on its own component. Two syntheses, two SpawnSound2D calls, and
+	// the listener heard every line overlapping itself ~700ms later once the server had served the
+	// second request. It read in the log as a duplicate "Kokoro: N.NNs of speech" per reply.
+	//
+	// The character owns Speak. This subsystem only listens, so there is exactly one voice to hear
+	// and exactly one clip to time the mouth against.
+	Tts = Cast<UKokoroTextToSpeech>(Companion->GetTextToSpeech());
+	if (Tts)
 	{
-		Tts = NewObject<UKokoroTextToSpeech>(Companion, TEXT("CompanionVoice"));
-		Tts->RegisterComponent();
+		// Prefer MEASURED audio length over an estimated speaking rate when TTS is live. PlanFromText
+		// guesses at 165wpm; the E2E harness measured real replies between 131 and 184wpm, so on a
+		// long sentence the estimate drifts far enough to see. Binding here keeps the mouth locked to
+		// the clip that is actually playing.
 		Tts->OnSpeechAudioReady.AddDynamic(this, &UCompanionRuntimeSubsystem::HandleSpeechAudioReady);
-		UE_LOG(LogCompanionRuntime, Log, TEXT("Voice enabled (Kokoro)."));
+		UE_LOG(LogCompanionRuntime, Log,
+			TEXT("Voice enabled (Kokoro, shared with the companion); viseme timing bound to measured audio duration."));
+	}
+	else if (!CICompanionEnv::Get(TEXT("KOKORO_SERVER_URL"), FString()).IsEmpty())
+	{
+		// Configured for Kokoro and the character did not end up holding one. She will still be heard
+		// through whatever backend it did select, but nothing here can measure the clip, so the mouth
+		// silently drops to the spelling estimate. Logged loudly because that failure is otherwise
+		// invisible: a face timed to an estimate looks like a face, just slightly wrong.
+		const UTextToSpeechComponent* Actual = Companion->GetTextToSpeech();
+		UE_LOG(LogCompanionRuntime, Error,
+			TEXT("KOKORO_SERVER_URL is set but the companion's TTS is %s; lip-sync falls back to estimated timing."),
+			Actual ? *Actual->GetClass()->GetName() : TEXT("null"));
 	}
 	else
 	{
 		UE_LOG(LogCompanionRuntime, Log, TEXT("No KOKORO_SERVER_URL; speaking silently from planned text."));
 	}
 
-	// Prefer MEASURED audio length over an estimated speaking rate when TTS is live. PlanFromText
-	// guesses at 165wpm; the E2E harness measured real replies between 131 and 184wpm, so on a
-	// long sentence the estimate drifts far enough to see. Binding here keeps the mouth locked to
-	// the clip that is actually playing.
-	// NOTE: deliberately NOT re-binding here. Tts above is the same component this lookup finds,
-	// so binding twice drove the face twice per clip -- visible in the log as every "Re-timed to
-	// audio" line appearing in duplicate. Harmless-looking, but it means two viseme tracks racing
-	// on one mouth.
-	if (Tts)
+	// REAL per-phoneme timing, if the kokoro-align sidecar is configured. The measured length above
+	// only fixes the TOTAL: it rescales a spelling-based estimate, so "though" and "throw" still get
+	// identical time despite sounding nothing alike. The aligner returns the durations Kokoro's own
+	// duration predictor produced for the waveform, which is the difference between a mouth timed to
+	// what was said and one timed to how it was spelled.
+	//
+	// Read from settings rather than the environment directly so the editor and the container agree:
+	// FMetaHumanLLMEnvConfig has already folded KOKORO_ALIGNER_URL into settings by this point, and
+	// the client itself reads settings — gating on a different source could enable a client that
+	// then finds nothing to call.
+	const UMetaHumanLLMSettings* VoiceCfg = GetDefault<UMetaHumanLLMSettings>();
+	if (Tts && VoiceCfg && !VoiceCfg->KokoroAlignerUrl.IsEmpty())
 	{
-		UE_LOG(LogCompanionRuntime, Log, TEXT("Viseme timing bound to measured Kokoro audio duration."));
+		Aligner = NewObject<UKokoroPhonemeAligner>(this, TEXT("CompanionAligner"));
+		Aligner->OnAlignmentReady.AddUObject(this, &UCompanionRuntimeSubsystem::HandlePhonemeAlignmentReady);
+		UE_LOG(LogCompanionRuntime, Log,
+			TEXT("Phoneme alignment ENABLED (kokoro-align at %s): lip-sync will follow measured phonemes."),
+			*VoiceCfg->KokoroAlignerUrl);
+	}
+	else
+	{
+		UE_LOG(LogCompanionRuntime, Log,
+			TEXT("Phoneme alignment DISABLED (no KOKORO_ALIGNER_URL): lip-sync will use a spelling ESTIMATE."));
 	}
 
 	CreateHud();
@@ -381,6 +421,8 @@ bool UCompanionRuntimeSubsystem::SpeakLiteral(const FString& Text)
 	// looked equivalent -- it drives the same visemes -- but it skipped TextToSpeech->Speak
 	// entirely, so the scripted opening mouthed the brand line while the Pixel Streaming audio
 	// track carried digital silence. "Same handler" was true of the face and false of the voice.
+	// More so now: the character is the ONLY caller of Speak, so HandleCompanionSpoke is a
+	// face-timing path exclusively and cannot make a sound on its own.
 	if (Companion)
 	{
 		Companion->SpeakWithoutLLM(Text);
@@ -390,22 +432,132 @@ bool UCompanionRuntimeSubsystem::SpeakLiteral(const FString& Text)
 	return true;
 }
 
+void UCompanionRuntimeSubsystem::BeginUtterance(const FString& Text)
+{
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(AlignmentGraceHandle);
+	}
+	PendingUtteranceText = Text;
+	PendingAlignment.Reset();
+	PendingAlignedSeconds = 0.0f;
+	PendingAudioSeconds = 0.0f;
+	AudioStartRealTime = 0.0;
+	// With no aligner there is nothing to wait for, so the question is already settled and the
+	// mouth starts the instant audio does.
+	bAlignmentResolved = (Aligner == nullptr);
+	bAudioReady = false;
+	bMouthDriven = false;
+}
+
 void UCompanionRuntimeSubsystem::HandleSpeechAudioReady(const FString& Text, float DurationSeconds)
 {
-	UCompanionFaceComponent* Face = ResolveFace();
-	if (!Face || DurationSeconds <= 0.0f)
+	if (DurationSeconds <= 0.0f)
 	{
 		return;
 	}
-	// The mouth has been waiting for this: with a voice service configured, HandleCompanionSpoke
-	// deliberately queues NOTHING, because planning from text and then re-timing plays the same
-	// utterance twice at two different speeds. FVisemePlanner assumes ~165wpm while the E2E run
-	// measured Kokoro between 131 and 184wpm, so over a long reply the estimate drifts far enough
-	// for the lips to stop while the voice is still going.
-	const TArray<FVisemeSpan> Track = FVisemePlanner::PlanForDuration(Text, DurationSeconds);
-	Face->PlayVisemeTrack(Track);
-	UE_LOG(LogCompanionRuntime, Log, TEXT("Re-timed to audio: %d spans over %.2fs."),
-		Track.Num(), DurationSeconds);
+	// Trust the delegate's text over the stored one: the opening line is spoken through a path that
+	// does not go via HandleCompanionSpoke on every build, and planning against the wrong string
+	// would be worse than planning against no alignment at all.
+	if (!Text.Equals(PendingUtteranceText))
+	{
+		BeginUtterance(Text);
+	}
+	PendingAudioSeconds = DurationSeconds;
+	AudioStartRealTime = FPlatformTime::Seconds();
+	bAudioReady = true;
+
+	if (bAlignmentResolved)
+	{
+		DriveMouthFromBestSource();
+		return;
+	}
+
+	// The aligner is still working. Wait a beat rather than committing to the estimate — see
+	// AlignmentGraceSeconds for the measurements. The wait is bounded from both ends: this timer,
+	// and the client's own request timeout.
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().SetTimer(AlignmentGraceHandle,
+			FTimerDelegate::CreateUObject(this, &UCompanionRuntimeSubsystem::DriveMouthFromBestSource),
+			AlignmentGraceSeconds, false);
+	}
+	else
+	{
+		DriveMouthFromBestSource();
+	}
+}
+
+void UCompanionRuntimeSubsystem::HandlePhonemeAlignmentReady(const FString& Text, const TArray<FPhonemeSpan>& Spans, float AlignedSeconds)
+{
+	if (!Text.Equals(PendingUtteranceText))
+	{
+		return;	// belongs to a reply that has already been superseded
+	}
+	PendingAlignment = Spans;
+	PendingAlignedSeconds = AlignedSeconds;
+	bAlignmentResolved = true;
+
+	if (bAudioReady)
+	{
+		DriveMouthFromBestSource();
+	}
+}
+
+void UCompanionRuntimeSubsystem::DriveMouthFromBestSource()
+{
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(AlignmentGraceHandle);
+	}
+	// Three callers race to get here and only the first should win; a second track would restart
+	// the mouth mid-sentence, which reads as a stutter.
+	if (bMouthDriven || !bAudioReady)
+	{
+		return;
+	}
+	bMouthDriven = true;
+
+	UCompanionFaceComponent* Face = ResolveFace();
+	if (!Face)
+	{
+		return;
+	}
+
+	EVisemeTimingSource Source = EVisemeTimingSource::TextEstimate;
+	const TArray<FVisemeSpan> Track = FVisemePlanner::PlanBest(
+		PendingUtteranceText, PendingAlignment, PendingAudioSeconds, Source);
+	if (Track.Num() == 0)
+	{
+		return;
+	}
+
+	// The clip has been playing for however long the alignment took to arrive, so enter the track
+	// at that point instead of at zero — otherwise every phoneme runs late by exactly the time
+	// spent acquiring better timing, which would give back the drift this whole path removes.
+	const float Elapsed = AudioStartRealTime > 0.0
+		? FMath::Max(0.0f, static_cast<float>(FPlatformTime::Seconds() - AudioStartRealTime))
+		: 0.0f;
+	Face->PlayVisemeTrack(Track, Elapsed);
+
+	if (Source == EVisemeTimingSource::Alignment)
+	{
+		// The ratio is a live cross-check that the aligner and the voice service are running the
+		// SAME Kokoro: they should agree to within a few percent. A large gap means they are
+		// configured with different voices or models, and the timing — however precise — describes
+		// a waveform nobody is listening to.
+		const float Ratio = PendingAudioSeconds > 0.0f ? 100.0f * PendingAlignedSeconds / PendingAudioSeconds : 0.0f;
+		UE_LOG(LogCompanionRuntime, Log,
+			TEXT("Lip-sync source=%s: %d phonemes -> %d spans; aligned %.2fs vs measured %.2fs (%.0f%%), entered %.0fms in."),
+			FVisemePlanner::TimingSourceName(Source), PendingAlignment.Num(), Track.Num(),
+			PendingAlignedSeconds, PendingAudioSeconds, Ratio, Elapsed * 1000.0f);
+	}
+	else
+	{
+		UE_LOG(LogCompanionRuntime, Log,
+			TEXT("Lip-sync source=%s: %d spans over %.2fs, entered %.0fms in."),
+			FVisemePlanner::TimingSourceName(Source), Track.Num(), PendingAudioSeconds, Elapsed * 1000.0f);
+	}
 }
 
 void UCompanionRuntimeSubsystem::HandleCompanionSpoke(const FString& Text)
@@ -448,17 +600,33 @@ void UCompanionRuntimeSubsystem::HandleCompanionSpoke(const FString& Text)
 	{
 		// Defer the mouth until the audio exists. Planning now and again on arrival would play the
 		// utterance twice at two different speeds.
-		Tts->Speak(Text);
+		BeginUtterance(Text);
+		// Fired ALONGSIDE the voice, not before it. Sequencing them would add the aligner's whole
+		// inference (~0.95s on core-2 for a five-second reply) to time-to-first-audio, nearly
+		// doubling how long she takes to answer, to buy timing that arrives only a quarter second
+		// late if both are asked at once.
+		//
+		// "Alongside" is now literal rather than arranged, and there is deliberately no Speak call
+		// here. This handler runs from the OnCompanionSpoke broadcast the character fires
+		// immediately BEFORE it speaks, so the alignment request goes out microseconds ahead of the
+		// synthesis request without this code having to start either. Speaking here as well is what
+		// made every reply audible twice; the state above is set in time either way, because the
+		// broadcast is synchronous and the audio is a network round trip behind it.
+		if (Aligner)
+		{
+			Aligner->RequestAlignment(Text);
+		}
 		return;
 	}
 
 	// No voice service: fall back to timing estimated from a speaking rate. Visibly fine on its
 	// own, and only wrong once there is real audio to drift against.
-	const TArray<FVisemeSpan> Track = FVisemePlanner::PlanFromText(Text);
+	EVisemeTimingSource Source = EVisemeTimingSource::TextEstimate;
+	const TArray<FVisemeSpan> Track = FVisemePlanner::PlanBest(Text, {}, 0.0f, Source);
 	Face->PlayVisemeTrack(Track);
 
-	UE_LOG(LogCompanionRuntime, Log, TEXT("Speaking (planned): %d viseme spans over %.2fs."),
-		Track.Num(), FVisemePlanner::TrackDuration(Track));
+	UE_LOG(LogCompanionRuntime, Log, TEXT("Lip-sync source=%s (no voice service): %d spans over %.2fs."),
+		FVisemePlanner::TimingSourceName(Source), Track.Num(), FVisemePlanner::TrackDuration(Track));
 }
 
 void UCompanionRuntimeSubsystem::ApplySettings(const FCompanionSettingsModel& NewSettings)

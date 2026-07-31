@@ -89,7 +89,26 @@ services:
       KOKORO_SERVER_URL: "${KOKORO_SERVER_URL:-http://127.0.0.1:13305}"
       KOKORO_MODEL: "${KOKORO_MODEL:-kokoro-v1}"
       # af_sky measured cleanest of the voices tried; change freely, it is per-request.
+      # NOTE it is now used TWICE -- Lemonade synthesizes with it and the aligner below times
+      # against it -- so changing it changes both. That is deliberate: Kokoro's style vector is
+      # per-voice, so two voices give different durations for the same sentence, and an aligner
+      # pointed at a different voice would return confidently precise timing for the wrong audio.
       KOKORO_VOICE: "${KOKORO_VOICE:-af_sky}"
+
+      # --- Lip-sync alignment, via the kokoro-align sidecar on beta-1 (Deployment/kokoro-align).
+      # KOKORO_SERVER_URL above gives us the audio and its true LENGTH; that only fixes the total.
+      # The track underneath it is still estimated from spelling and then stretched to fit, so a
+      # long word and a short one are given time in proportion to their letters rather than to how
+      # long they were actually voiced. This service returns the per-phoneme durations Kokoro's own
+      # duration predictor computed for the waveform -- the same tensor the length regulator used to
+      # build it -- which the OpenAI /audio/speech schema discards at the HTTP boundary.
+      #
+      # :13400 is an SSH tunnel to beta-1, run as a --user systemd unit on core-2
+      # (Deployment/core2/kokoro-align-tunnel.service), exactly like the Ollama one above.
+      #
+      # Unset it and speech is unaffected: the mouth silently drops back to the rescaled estimate,
+      # and the log line says which of the two it used on every reply.
+      KOKORO_ALIGNER_URL: "${KOKORO_ALIGNER_URL:-http://127.0.0.1:13400}"
 
       # STT for the future input path. Lemonade serves the OpenAI shape, NOT whisper.cpp's
       # /inference, hence the explicit path override.

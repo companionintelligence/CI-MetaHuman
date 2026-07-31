@@ -55,7 +55,18 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "MetaHumanLLM|Voice")
 	bool IsListening() const;
- 
+
+	// The live TTS backend, so a collaborator can OBSERVE synthesis -- bind OnSpeechAudioReady for
+	// the measured clip length -- without standing up a second voice.
+	//
+	// This exists because the alternative shipped: UCompanionRuntimeSubsystem needed that callback,
+	// could not reach this component, and built its OWN UKokoroTextToSpeech on this actor. Both were
+	// then driven from the same reply (this class speaks, and broadcasts OnCompanionSpoke to a
+	// listener that spoke again), so every line was synthesized twice and played over itself a beat
+	// later. Handing the component out is what keeps this class the single owner of Speak.
+	UFUNCTION(BlueprintPure, Category = "MetaHumanLLM|Voice")
+	UTextToSpeechComponent* GetTextToSpeech() const { return TextToSpeech; }
+
 	UFUNCTION(BlueprintPure, Category = "MetaHumanLLM")
 	bool IsWaitingForResponse() const { return CurrentRequestHandle != InvalidOllamaRequestHandle; }
  

@@ -226,4 +226,71 @@ void FVisemePlannerSpec::Define()
 			TestEqual("last is silence", T.Last().Viseme, EViseme::Sil);
 		});
 	});
+
+	Describe("PlanBest", [this]()
+	{
+		auto Span = [](const TCHAR* Sym, float Start, float Dur)
+		{
+			FPhonemeSpan S; S.Symbol = Sym; S.StartSeconds = Start; S.DurationSeconds = Dur; return S;
+		};
+
+		It("prefers real alignment over the measured clip length", [this, Span]()
+		{
+			// Both are available. Alignment must win: the measured length only fixes the TOTAL,
+			// leaving each phoneme's share of it decided by spelling.
+			EVisemeTimingSource Source = EVisemeTimingSource::TextEstimate;
+			const TArray<FVisemeSpan> Track = FVisemePlanner::PlanBest(
+				TEXT("mass"), { Span(TEXT("m"), 0.0f, 0.40f), Span(TEXT("s"), 0.40f, 0.05f) }, 3.0f, Source);
+
+			TestEqual("chose alignment", Source, EVisemeTimingSource::Alignment);
+			TestTrue("has spans", Track.Num() > 0);
+			// Proof it is the aligner's track and not a rescale of the estimate: the aligned
+			// version runs 0.45s, nowhere near the 3.0s a rescale would have produced.
+			TestTrue("kept the aligner's clock", FVisemePlanner::TrackDuration(Track) < 1.0f);
+		});
+
+		It("falls back to the measured clip length when there is no alignment", [this]()
+		{
+			EVisemeTimingSource Source = EVisemeTimingSource::Alignment;
+			const TArray<FVisemeSpan> Track = FVisemePlanner::PlanBest(TEXT("Hello there, visitor."), {}, 3.0f, Source);
+
+			TestEqual("chose the measured total", Source, EVisemeTimingSource::MeasuredDuration);
+			TestTrue("matches the clip", FMath::IsNearlyEqual(FVisemePlanner::TrackDuration(Track), 3.0f, 0.01f));
+		});
+
+		It("falls back to the pure estimate when there is no audio either", [this]()
+		{
+			EVisemeTimingSource Source = EVisemeTimingSource::Alignment;
+			const TArray<FVisemeSpan> Track = FVisemePlanner::PlanBest(TEXT("Hello there"), {}, 0.0f, Source);
+
+			TestEqual("chose the text estimate", Source, EVisemeTimingSource::TextEstimate);
+			TestTrue("still speaks", Track.Num() > 0);
+		});
+
+		It("steps past an alignment that produced no usable track", [this, Span]()
+		{
+			// Spans arrived, but every one of them is zero-length, so PlanFromAlignment drops the
+			// lot. Reporting the accurate path here would hold the mouth shut for the whole reply
+			// while the log claimed real timing -- the exact shape of a silent failure.
+			EVisemeTimingSource Source = EVisemeTimingSource::Alignment;
+			const TArray<FVisemeSpan> Track = FVisemePlanner::PlanBest(
+				TEXT("Hello there"), { Span(TEXT("m"), 0.0f, 0.0f) }, 2.0f, Source);
+
+			TestEqual("degraded to the measured total", Source, EVisemeTimingSource::MeasuredDuration);
+			TestTrue("still speaks", Track.Num() > 0);
+			TestTrue("over the measured length", FMath::IsNearlyEqual(FVisemePlanner::TrackDuration(Track), 2.0f, 0.01f));
+		});
+
+		It("names each source distinctly, since the log line is the only way to tell them apart", [this]()
+		{
+			const FString Aligned = FVisemePlanner::TimingSourceName(EVisemeTimingSource::Alignment);
+			const FString Measured = FVisemePlanner::TimingSourceName(EVisemeTimingSource::MeasuredDuration);
+			const FString Estimated = FVisemePlanner::TimingSourceName(EVisemeTimingSource::TextEstimate);
+
+			TestFalse("alignment vs measured", Aligned.Equals(Measured));
+			TestFalse("measured vs estimate", Measured.Equals(Estimated));
+			TestTrue("the estimates say so", Measured.Contains(TEXT("ESTIMATE")) && Estimated.Contains(TEXT("ESTIMATE")));
+			TestFalse("and the real one does not", Aligned.Contains(TEXT("ESTIMATE")));
+		});
+	});
 }

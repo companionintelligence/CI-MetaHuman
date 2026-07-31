@@ -238,13 +238,15 @@ void UCompanionFaceComponent::TickComponent(float DeltaTime, ELevelTick TickType
 	}
 }
 
-void UCompanionFaceComponent::PlayVisemeTrack(const TArray<FVisemeSpan>& Track)
+void UCompanionFaceComponent::PlayVisemeTrack(const TArray<FVisemeSpan>& Track, float StartOffsetSeconds)
 {
 	// A new utterance replaces the old one outright. Blending two tracks would let a stale reply
 	// keep moving the mouth under a fresh one, which reads as a glitch rather than as speech.
 	SpeechTrack = Track;
-	SpeechElapsed = 0.0f;
-	bSpeaking = Track.Num() > 0;
+	SpeechElapsed = FMath::Max(0.0f, StartOffsetSeconds);
+	// An offset past the end means the utterance is already over — say nothing rather than replay
+	// the tail of it against silence.
+	bSpeaking = Track.Num() > 0 && SpeechElapsed < FVisemePlanner::TrackDuration(Track);
 	if (bSpeaking)
 	{
 		bSelfTesting = false;	// real speech supersedes the diagnostic loop

@@ -71,7 +71,12 @@ public:
 
 	// Speaks a planned viseme track (see FVisemePlanner). Replaces any track already playing, so a
 	// new reply interrupts the old one rather than the two summing into mush.
-	void PlayVisemeTrack(const TArray<struct FVisemeSpan>& Track);
+	//
+	// StartOffsetSeconds enters the track partway through, for the case where the AUDIO began
+	// before the track was ready — waiting on the phoneme aligner, typically. Without it the whole
+	// mouth would run late by exactly however long the wait was, which is the drift the alignment
+	// was fetched to remove.
+	void PlayVisemeTrack(const TArray<struct FVisemeSpan>& Track, float StartOffsetSeconds = 0.0f);
 
 	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM|Face")
 	void StopSpeaking();

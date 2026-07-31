@@ -94,6 +94,16 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Voice")
 	FString KokoroVoice = TEXT("af_sky");
 
+	// Base URL of the kokoro-align sidecar (Deployment/kokoro-align), e.g. http://127.0.0.1:13400.
+	// It returns the per-phoneme durations Kokoro's duration predictor already computed, which the
+	// OpenAI /audio/speech schema structurally discards — so this is the difference between a mouth
+	// following what was said and one following how it was spelled.
+	//
+	// Blank by default, like the other service URLs: an unset aligner is a precision loss, never a
+	// failure, and lip-sync falls back to rescaling the spelling estimate to the clip length.
+	UPROPERTY(Config, EditAnywhere, Category = "Voice")
+	FString KokoroAlignerUrl;
+
 	// Path appended to WhisperServerUrl. whisper.cpp's own server serves "/inference"; Lemonade
 	// serves the OpenAI shape at "/api/v1/audio/transcriptions". Both return {"text": ...}, so
 	// only the path differs and one setting covers both rather than needing a second client.

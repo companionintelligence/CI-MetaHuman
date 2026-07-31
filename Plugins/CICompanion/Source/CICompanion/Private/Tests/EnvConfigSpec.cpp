@@ -38,6 +38,23 @@ void FEnvConfigSpec::Define()
 		TestEqual("ollama url unchanged", Settings->OllamaBaseUrl, DefaultOllama);
 		TestTrue("whisper remains opt-in", Settings->WhisperServerUrl.IsEmpty());
 		TestTrue("piper remains opt-in", Settings->PiperServerUrl.IsEmpty());
+		TestTrue("the phoneme aligner remains opt-in", Settings->KokoroAlignerUrl.IsEmpty());
+	});
+
+	It("points lip-sync at the phoneme aligner", [this, MakeLookup]()
+	{
+		UMetaHumanLLMSettings* Settings = NewObject<UMetaHumanLLMSettings>(GetTransientPackage());
+
+		TMap<FString, FString> Env;
+		Env.Add(TEXT("KOKORO_SERVER_URL"), TEXT("http://127.0.0.1:13305"));
+		Env.Add(TEXT("KOKORO_ALIGNER_URL"), TEXT("http://127.0.0.1:13400"));
+
+		const int32 Applied = FMetaHumanLLMEnvConfig::Apply(*Settings, MakeLookup(Env));
+		TestEqual("two applied", Applied, 2);
+		TestEqual("aligner", Settings->KokoroAlignerUrl, TEXT("http://127.0.0.1:13400"));
+		// Separate variables on purpose: the audio and its timing come from two different services
+		// on two different ports, and losing one must not silently disable the other.
+		TestEqual("voice service untouched", Settings->KokoroServerUrl, TEXT("http://127.0.0.1:13305"));
 	});
 
 	It("points the agent at CI-hub and flips to the OpenAI-compatible backend", [this, MakeLookup]()

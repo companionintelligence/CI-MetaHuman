@@ -128,6 +128,47 @@ TArray<FVisemeSpan> FVisemePlanner::PlanForDuration(const FString& Text, float T
 	return Track;
 }
 
+TArray<FVisemeSpan> FVisemePlanner::PlanBest(const FString& Text, const TArray<FPhonemeSpan>& Alignment,
+	float MeasuredSeconds, EVisemeTimingSource& OutSource)
+{
+	// Alignment is preferred whenever it produced anything usable. Note the emptiness check is on
+	// the RESULT, not the input: a response can carry spans that are all zero-duration, and
+	// PlanFromAlignment correctly drops those — so trusting the input count alone would hand the
+	// face an empty track and a shut mouth while reporting the accurate path.
+	if (Alignment.Num() > 0)
+	{
+		TArray<FVisemeSpan> Track = PlanFromAlignment(Alignment);
+		if (Track.Num() > 0)
+		{
+			OutSource = EVisemeTimingSource::Alignment;
+			return Track;
+		}
+	}
+
+	if (MeasuredSeconds > 0.0f)
+	{
+		TArray<FVisemeSpan> Track = PlanForDuration(Text, MeasuredSeconds);
+		if (Track.Num() > 0)
+		{
+			OutSource = EVisemeTimingSource::MeasuredDuration;
+			return Track;
+		}
+	}
+
+	OutSource = EVisemeTimingSource::TextEstimate;
+	return PlanFromText(Text);
+}
+
+const TCHAR* FVisemePlanner::TimingSourceName(EVisemeTimingSource Source)
+{
+	switch (Source)
+	{
+		case EVisemeTimingSource::Alignment:        return TEXT("ALIGNMENT (measured phonemes)");
+		case EVisemeTimingSource::MeasuredDuration: return TEXT("ESTIMATE rescaled to measured audio length");
+		default:                                    return TEXT("ESTIMATE from text alone");
+	}
+}
+
 float FVisemePlanner::TrackDuration(const TArray<FVisemeSpan>& Track)
 {
 	return Track.Num() > 0 ? Track.Last().EndSeconds() : 0.0f;

@@ -2,10 +2,12 @@
 
 #include "CoreMinimal.h"
 #include "Subsystems/WorldSubsystem.h"
+#include "Voice/VisemePlanner.h"
 #include "CompanionRuntimeSubsystem.generated.h"
 
 class AMetaHumanCompanionCharacter;
 class UCompanionFaceComponent;
+class UKokoroPhonemeAligner;
 class UKokoroTextToSpeech;
 
 // Instantiates the companion and connects its replies to the face.
@@ -103,14 +105,49 @@ private:
 	UFUNCTION()
 	void HandleCompanionSpoke(const FString& Text);
 
-	// Receives synthesized speech and drives the mouth from the clip's MEASURED length rather than
-	// an assumed speaking rate. Without this the two clocks diverge over a long reply and the lips
-	// finish before the voice does.
+	// Receives synthesized speech: the text that is now playing and the clip's true length. Starts
+	// the mouth, or — if the phoneme aligner has not answered yet — starts the short wait for it.
 	UFUNCTION()
 	void HandleSpeechAudioReady(const FString& Text, float DurationSeconds);
 
+	// Resets the per-utterance timing state. Called at the moment a reply is handed to the voice,
+	// so a barge-in cannot leave the previous reply's alignment attached to the new one.
+	void BeginUtterance(const FString& Text);
+
+	// Receives the aligner's answer, successful or not (empty Spans == not available).
+	void HandlePhonemeAlignmentReady(const FString& Text, const TArray<FPhonemeSpan>& Spans, float AlignedSeconds);
+
+	// Builds and plays the viseme track from the best timing that has arrived, exactly once per
+	// utterance. Reached from three directions — audio ready, alignment ready, grace expired —
+	// whichever gets there first, which is why it is idempotent.
+	void DriveMouthFromBestSource();
+
+	// How long the mouth will wait for real alignment after the audio has already started.
+	//
+	// Measured on core-2 for the opening line: Lemonade returns audio in ~0.70s and the aligner
+	// answers in ~0.95s, so alignment lands roughly a quarter second after playback begins, and
+	// both scale together with utterance length. Kokoro also pads ~0.48s of leading silence, so
+	// that wait is spent where the mouth would be shut anyway. A second is comfortably past the
+	// measured gap and still short enough that a dead aligner is a beat, not a stall.
+	static constexpr float AlignmentGraceSeconds = 1.0f;
+
 	UPROPERTY(Transient)
 	TObjectPtr<UKokoroTextToSpeech> Tts;
+
+	// Real per-phoneme timing from the kokoro-align sidecar. Null when no aligner URL is
+	// configured, which is a precision loss and not a failure.
+	UPROPERTY(Transient)
+	TObjectPtr<UKokoroPhonemeAligner> Aligner;
+
+	FString PendingUtteranceText;
+	TArray<FPhonemeSpan> PendingAlignment;
+	float PendingAlignedSeconds = 0.0f;
+	float PendingAudioSeconds = 0.0f;
+	double AudioStartRealTime = 0.0;
+	bool bAlignmentResolved = true;
+	bool bAudioReady = false;
+	bool bMouthDriven = false;
+	FTimerHandle AlignmentGraceHandle;
 
 	UPROPERTY(Transient)
 	TObjectPtr<AMetaHumanCompanionCharacter> Companion;

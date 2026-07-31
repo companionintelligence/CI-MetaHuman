@@ -101,6 +101,7 @@ int32 FMetaHumanLLMEnvConfig::Apply(UMetaHumanLLMSettings& Settings, FEnvLookup 
 	TryString(TEXT("KOKORO_SERVER_URL"), Settings.KokoroServerUrl);
 	TryString(TEXT("KOKORO_MODEL"), Settings.KokoroModel);
 	TryString(TEXT("KOKORO_VOICE"), Settings.KokoroVoice);
+	TryString(TEXT("KOKORO_ALIGNER_URL"), Settings.KokoroAlignerUrl);
 	TryString(TEXT("WHISPER_ENDPOINT_PATH"), Settings.WhisperEndpointPath);
 	TryString(TEXT("WHISPER_SERVER_URL"), Settings.WhisperServerUrl);
 	TryString(TEXT("PIPER_SERVER_URL"), Settings.PiperServerUrl);

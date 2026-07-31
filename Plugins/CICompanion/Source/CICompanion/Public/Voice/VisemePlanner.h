@@ -57,9 +57,33 @@ struct CICOMPANION_API FPhonemeSpan
 	float DurationSeconds = 0.0f;
 };
 
+// Which clock a viseme track was actually built from, worst to best kept explicit so a deployed
+// build can say plainly which one it used rather than leaving an operator to infer it from how
+// the mouth looks.
+enum class EVisemeTimingSource : uint8
+{
+	// Per-phoneme spans from the TTS model's own duration predictor. A measurement.
+	Alignment,
+	// Spelling estimate, uniformly rescaled to the clip's true length. Total is right; the
+	// distribution is still a guess, so a long word and a short one share time by letter count.
+	MeasuredDuration,
+	// Spelling estimate at an assumed speaking rate. No audio was involved at all.
+	TextEstimate
+};
+
 class CICOMPANION_API FVisemePlanner
 {
 public:
+	// Picks the best timing available and says which one it picked. The ORDER is the whole point:
+	// real alignment beats a measured total beats a pure guess, and each step down is a step
+	// further from what the voice is actually doing. Falls through rather than failing, so an
+	// unreachable aligner costs precision and never costs speech.
+	static TArray<FVisemeSpan> PlanBest(const FString& Text, const TArray<FPhonemeSpan>& Alignment,
+		float MeasuredSeconds, EVisemeTimingSource& OutSource);
+
+	// Log-friendly name for a source. Deliberately shouty about the estimates.
+	static const TCHAR* TimingSourceName(EVisemeTimingSource Source);
+
 	// Builds a track from REAL alignment. This is the accurate path and should be preferred
 	// whenever the aligner is reachable: PlanFromText can only distribute time by spelling,
 	// so "though" and "throw" get identical timing despite sounding nothing alike.

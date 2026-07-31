@@ -49,7 +49,14 @@ check_symbol "Plugins/CICompanion/Source/CICompanion/Private/Avatar/CompanionRun
 check_file "Plugins/CICompanion/Source/CICompanion/Private/Avatar/CompanionEmotionState.cpp" "emotion state"
 check_symbol "Plugins/CICompanion/Source/CICompanion/Private/Avatar/CompanionRuntimeSubsystem.cpp" "DetectEmotionFromText" "runtime: emotion driven from reply text"
 check_symbol "Plugins/CICompanion/Source/CICompanion/Private/Avatar/CompanionFaceComponent.cpp" "Emotion.AccumulateInto" "face: emotion composited over speech"
+check_file "Plugins/CICompanion/Source/CICompanion/Private/Voice/KokoroPhonemeAligner.cpp" "kokoro aligner client"
+check_symbol "Plugins/CICompanion/Source/CICompanion/Private/Avatar/CompanionRuntimeSubsystem.cpp" "DriveMouthFromBestSource" "runtime: alignment-first lip sync"
+# The subsystem must ADOPT the character's voice, not build a second one. Two components on the one
+# actor meant every reply was synthesized twice and played over itself ~700ms later. A stale cook of
+# this file is inaudible in a screenshot and obvious in the ears, so it is checked here.
+check_symbol "Plugins/CICompanion/Source/CICompanion/Private/Avatar/CompanionRuntimeSubsystem.cpp" "GetTextToSpeech" "runtime: one voice, adopted from the companion"
 check_grep "docker-compose.face.yml" "MHLLM_OPENING_LINE" "compose: opening line"
+check_grep "docker-compose.face.yml" "KOKORO_ALIGNER_URL" "compose: aligner url"
 check_grep "stage-out/author_diorama.py" "CAM_DIST = 160" "author: solved framing"
 [ "$FAIL" -eq 0 ] || { echo "STAGE_FAILED — refusing to cook a stale tree"; exit 1; }
 echo "STAGE_OK"
