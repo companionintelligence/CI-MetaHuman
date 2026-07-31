@@ -15,7 +15,8 @@
 # Generated score: a real waveform, not a text asset. Without this, git mangles CRLF in it.
 Deployment/audio/*.wav binary
 
-# Shell scripts run on Linux (core-2, and inside the dev-5.5 container). A CRLF checkout on
-# Windows makes bash fail with "$'': command not found" and "set: pipefail: invalid option
-# name" -- errors that name the shell, not the line endings that caused them.
+# Shell scripts run on Linux (core-2, and inside the dev-5.5 container). Checked out with CRLF
+# on Windows and then shipped there, bash chokes on the carriage returns with errors that name
+# the shell rather than the line endings that caused them: a stray-CR "command not found" on
+# every line, and "set: pipefail: invalid option name" off the very first one. Pin them to LF.
 *.sh    text eol=lf
