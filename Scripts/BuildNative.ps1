@@ -111,7 +111,29 @@ $uatArgs = @(
     "-clientconfig=$Config",
     '-cook', '-build', '-stage', '-pak', '-archive',
     "-archivedirectory=$Archive",
-    '-utf8output', '-nodebuginfo', '-noP4'
+    '-utf8output', '-nodebuginfo', '-noP4',
+    # Live Coding's guard mutex is named after the EXECUTABLE, and every project's editor target
+    # produces the same one: <engine>\Engine\Binaries\Win64\UnrealEditor.exe. So an editor open on
+    # a COMPLETELY DIFFERENT project (CharacterCreatorNia here) holds
+    # "Global\LiveCoding_C+\Program Files\...\UnrealEditor.exe" and UBT refuses this project's
+    # build with "Unable to build while Live Coding is active. Exit the editor and game" --
+    # a message that reads as if THIS project were open, which it is not.
+    # (UnrealBuildTool/System/HotReload.cs:273 CheckForLiveCodingSessionActive, mutex built at :293.)
+    # Bypassing is safe for packaging: an installed engine's own binaries are never relinked, and
+    # the only DLLs this build writes -- UnrealEditor-MetaHumanLocalLLM.dll and
+    # UnrealEditor-CICompanion.dll -- live under THIS project and are not loaded by that editor.
+    '-ubtargs=-NoHotReloadFromIDE',
+    # Config/DefaultEditorPerProjectUserSettings.ini turns the Model Context Protocol server on
+    # (bAutoStartServer=True) at the FIXED port 8000, so it starts in every process that loads
+    # this project -- including the headless UnrealEditor-Cmd the cook runs in. If any other UE
+    # 5.8 editor is open (a different project is enough; the port is per-machine, not
+    # per-project) the bind fails, logs "LogHttpListener: Error: HttpListener unable to bind to
+    # 127.0.0.1:8000", and the cook commandlet exits 1 on the error count alone -- surfacing as
+    # Error_UnknownCookFailure, which points nowhere near a port conflict.
+    #
+    # Overridden on the COOK COMMAND LINE rather than in the .ini, so the developer's editor keeps
+    # its MCP server exactly as configured. A packaged game has no use for one.
+    '-additionalcookeroptions=-ini:EditorPerProjectUserSettings:[/Script/ModelContextProtocolEngine.ModelContextProtocolSettings]:bAutoStartServer=False'
 )
 try {
     & $RunUAT @uatArgs
