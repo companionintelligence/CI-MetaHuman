@@ -1,4 +1,5 @@
 #include "Avatar/CompanionFaceSubsystem.h"
+#include "CICompanionEnv.h"
 #include "CICompanionLog.h"
 
 #include "Avatar/CompanionFaceComponent.h"
@@ -12,22 +13,6 @@
 
 const FName UCompanionFaceSubsystem::ResidentTag(TEXT("CompanionFace"));
 
-namespace
-{
-	// Env vars follow the FMetaHumanLLMEnvConfig convention already used for the LLM/voice
-	// endpoints, so the container can configure this the same way as everything else.
-	FString GetEnv(const TCHAR* Name, const FString& Default)
-	{
-		const FString Value = FPlatformMisc::GetEnvironmentVariable(Name);
-		return Value.IsEmpty() ? Default : Value;
-	}
-
-	bool EnvEnabled(const TCHAR* Name)
-	{
-		const FString Value = FPlatformMisc::GetEnvironmentVariable(Name);
-		return Value == TEXT("1") || Value.Equals(TEXT("true"), ESearchCase::IgnoreCase);
-	}
-}
 
 bool UCompanionFaceSubsystem::ShouldCreateSubsystem(UObject* Outer) const
 {
@@ -103,7 +88,7 @@ void UCompanionFaceSubsystem::OnWorldBeginPlay(UWorld& InWorld)
 
 	Face = NewObject<UCompanionFaceComponent>(Resident, TEXT("CompanionFace"));
 	Face->RegisterComponent();
-	Face->SetProfile(FFaceProfile::ByName(GetEnv(TEXT("MHLLM_FACE_PROFILE"), TEXT("CC"))));
+	Face->SetProfile(FFaceProfile::ByName(CICompanionEnv::Get(TEXT("MHLLM_FACE_PROFILE"), TEXT("CC"))));
 	Face->SetTargetMesh(Mesh);
 
 	UE_LOG(LogCompanionFace, Log, TEXT("Face driver bound to '%s': %d/%d profile curves resolved."),
@@ -111,7 +96,7 @@ void UCompanionFaceSubsystem::OnWorldBeginPlay(UWorld& InWorld)
 
 	// Opt-in, because it visibly overrides the face: MHLLM_FACE_SELFTEST=1 (or -FaceSelfTest)
 	// cycles every viseme so a captured frame proves the path works in the cooked build.
-	if (EnvEnabled(TEXT("MHLLM_FACE_SELFTEST")) || FParse::Param(FCommandLine::Get(), TEXT("FaceSelfTest")))
+	if (CICompanionEnv::IsEnabled(TEXT("MHLLM_FACE_SELFTEST")) || FParse::Param(FCommandLine::Get(), TEXT("FaceSelfTest")))
 	{
 		Face->StartSelfTest();
 		UE_LOG(LogCompanionFace, Log, TEXT("Face self-test running."));

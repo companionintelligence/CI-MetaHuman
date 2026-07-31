@@ -1,4 +1,5 @@
 #include "Avatar/CompanionRuntimeSubsystem.h"
+#include "CICompanionEnv.h"
 #include "CICompanionLog.h"
 
 #include "Avatar/CompanionFaceComponent.h"
@@ -15,20 +16,6 @@
 #include "Widgets/SWeakWidget.h"
 
 
-namespace
-{
-	FString GetEnv(const TCHAR* Name, const FString& Default)
-	{
-		const FString Value = FPlatformMisc::GetEnvironmentVariable(Name);
-		return Value.IsEmpty() ? Default : Value;
-	}
-
-	bool EnvDisabled(const TCHAR* Name)
-	{
-		const FString Value = FPlatformMisc::GetEnvironmentVariable(Name);
-		return Value == TEXT("0") || Value.Equals(TEXT("false"), ESearchCase::IgnoreCase);
-	}
-}
 
 bool UCompanionRuntimeSubsystem::ShouldCreateSubsystem(UObject* Outer) const
 {
@@ -43,7 +30,7 @@ void UCompanionRuntimeSubsystem::OnWorldBeginPlay(UWorld& InWorld)
 {
 	Super::OnWorldBeginPlay(InWorld);
 
-	if (EnvDisabled(TEXT("MHLLM_COMPANION")))
+	if (CICompanionEnv::IsDisabled(TEXT("MHLLM_COMPANION")))
 	{
 		UE_LOG(LogCompanionRuntime, Log, TEXT("Companion disabled by MHLLM_COMPANION=0."));
 		return;
@@ -68,7 +55,7 @@ void UCompanionRuntimeSubsystem::OnWorldBeginPlay(UWorld& InWorld)
 
 	// Voice is opt-in on configuration alone: with no Kokoro URL the mouth still moves from planned
 	// text, so a missing speech service degrades to a silent talker rather than a dead face.
-	if (!GetEnv(TEXT("KOKORO_SERVER_URL"), FString()).IsEmpty())
+	if (!CICompanionEnv::Get(TEXT("KOKORO_SERVER_URL"), FString()).IsEmpty())
 	{
 		Tts = NewObject<UKokoroTextToSpeech>(Companion, TEXT("CompanionVoice"));
 		Tts->RegisterComponent();
@@ -93,7 +80,7 @@ void UCompanionRuntimeSubsystem::OnWorldBeginPlay(UWorld& InWorld)
 	CreateHud();
 
 	UE_LOG(LogCompanionRuntime, Log, TEXT("Companion spawned and bound (backend=%s model=%s)."),
-		*GetEnv(TEXT("MHLLM_BACKEND"), TEXT("<unset>")), *GetEnv(TEXT("OLLAMA_MODEL"), TEXT("<unset>")));
+		*CICompanionEnv::Get(TEXT("MHLLM_BACKEND"), TEXT("<unset>")), *CICompanionEnv::Get(TEXT("OLLAMA_MODEL"), TEXT("<unset>")));
 
 	// An opening line, because there is still no input path: without it a correct build is
 	// indistinguishable from a broken one. Deferred rather than sent inline, since the LLM call is
@@ -101,7 +88,7 @@ void UCompanionRuntimeSubsystem::OnWorldBeginPlay(UWorld& InWorld)
 	// Default is now "none": the opening line is scripted and delivered by
 	// UCompanionStageDirector at the end of the camera move. Two greetings would collide -- the
 	// LLM one would fire on a 5s timer while the camera was still flying.
-	const FString Greeting = GetEnv(TEXT("MHLLM_GREETING"), TEXT("none"));
+	const FString Greeting = CICompanionEnv::Get(TEXT("MHLLM_GREETING"), TEXT("none"));
 	if (!Greeting.IsEmpty() && !Greeting.Equals(TEXT("none"), ESearchCase::IgnoreCase))
 	{
 		FTimerHandle Handle;
@@ -115,7 +102,7 @@ void UCompanionRuntimeSubsystem::OnWorldBeginPlay(UWorld& InWorld)
 
 void UCompanionRuntimeSubsystem::CreateHud()
 {
-	if (EnvDisabled(TEXT("MHLLM_HUD")))
+	if (CICompanionEnv::IsDisabled(TEXT("MHLLM_HUD")))
 	{
 		UE_LOG(LogCompanionRuntime, Log, TEXT("HUD disabled by MHLLM_HUD=0."));
 		return;

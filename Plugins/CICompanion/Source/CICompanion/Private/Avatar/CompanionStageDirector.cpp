@@ -1,4 +1,5 @@
 #include "Avatar/CompanionStageDirector.h"
+#include "CICompanionEnv.h"
 #include "CICompanionLog.h"
 
 #include "Avatar/CompanionFaceSubsystem.h"
@@ -12,23 +13,14 @@
 #include "GameFramework/PlayerController.h"
 
 
+
 namespace
 {
-	FString GetEnv(const TCHAR* Name, const FString& Default)
-	{
-		const FString Value = FPlatformMisc::GetEnvironmentVariable(Name);
-		return Value.IsEmpty() ? Default : Value;
-	}
-
-	bool EnvDisabled(const TCHAR* Name)
-	{
-		const FString V = FPlatformMisc::GetEnvironmentVariable(Name);
-		return V == TEXT("0") || V.Equals(TEXT("false"), ESearchCase::IgnoreCase);
-	}
-
 	// Smoothstep. Linear interpolation between keys makes the camera start and stop abruptly at
-	// every waypoint, which reads as a machine executing moves rather than a shot.
-	float Ease(float T)
+	// every waypoint, which reads as a machine executing moves rather than as a shot.
+	// Named uniquely because Unreal's unity build merges anonymous namespaces across the .cpp
+	// files it concatenates, so a bare "Ease" here can collide with one in a neighbouring file.
+	float StageEase(float T)
 	{
 		T = FMath::Clamp(T, 0.0f, 1.0f);
 		return T * T * (3.0f - 2.0f * T);
@@ -48,7 +40,7 @@ void UCompanionStageDirector::OnWorldBeginPlay(UWorld& InWorld)
 {
 	Super::OnWorldBeginPlay(InWorld);
 
-	if (EnvDisabled(TEXT("MHLLM_OPENING_SHOT")))
+	if (CICompanionEnv::IsDisabled(TEXT("MHLLM_OPENING_SHOT")))
 	{
 		UE_LOG(LogCompanionStage, Log, TEXT("Opening shot disabled; going straight to live."));
 		Beat = EStageBeat::Live;
@@ -110,9 +102,9 @@ void UCompanionStageDirector::OnWorldBeginPlay(UWorld& InWorld)
 		PC->SetViewTarget(Camera);
 	}
 
-	FlyDuration = FCString::Atof(*GetEnv(TEXT("MHLLM_FLY_SECONDS"), TEXT("11.0")));
-	StartDelay  = FCString::Atof(*GetEnv(TEXT("MHLLM_OPENING_DELAY"), TEXT("3.0")));
-	ReplayEvery = FCString::Atof(*GetEnv(TEXT("MHLLM_OPENING_REPLAY"), TEXT("0")));
+	FlyDuration = FCString::Atof(*CICompanionEnv::Get(TEXT("MHLLM_FLY_SECONDS"), TEXT("11.0")));
+	StartDelay  = FCString::Atof(*CICompanionEnv::Get(TEXT("MHLLM_OPENING_DELAY"), TEXT("3.0")));
+	ReplayEvery = FCString::Atof(*CICompanionEnv::Get(TEXT("MHLLM_OPENING_REPLAY"), TEXT("0")));
 	bActive = true;
 	Beat = EStageBeat::Flythrough;
 	ApplyCameraAt(0.0f);
@@ -156,7 +148,7 @@ FVector UCompanionStageDirector::SampleSpline(const TArray<FStageCameraKey>& Key
 		if (T <= Keys[i].Time)
 		{
 			const float Span = FMath::Max(Keys[i].Time - Keys[i - 1].Time, KINDA_SMALL_NUMBER);
-			const float Alpha = Ease((T - Keys[i - 1].Time) / Span);
+			const float Alpha = StageEase((T - Keys[i - 1].Time) / Span);
 			const FVector A = bLookAt ? Keys[i - 1].LookAt : Keys[i - 1].Position;
 			const FVector B = bLookAt ? Keys[i].LookAt : Keys[i].Position;
 			return FMath::Lerp(A, B, Alpha);
@@ -207,7 +199,7 @@ void UCompanionStageDirector::Tick(float DeltaTime)
 
 	if (Beat == EStageBeat::Turn)
 	{
-		const float T = Ease(FMath::Clamp((Elapsed - StartDelay - FlyDuration) / TurnDuration, 0.0f, 1.0f));
+		const float T = StageEase(FMath::Clamp((Elapsed - StartDelay - FlyDuration) / TurnDuration, 0.0f, 1.0f));
 		if (Resident)
 		{
 			// Interpolate the SHORT way round, so she never spins the long way to arrive.
@@ -239,7 +231,7 @@ void UCompanionStageDirector::Tick(float DeltaTime)
 		if (!bSpoken)
 		{
 			bSpoken = true;
-			const FString Line = GetEnv(TEXT("MHLLM_OPENING_LINE"),
+			const FString Line = CICompanionEnv::Get(TEXT("MHLLM_OPENING_LINE"),
 				TEXT("Welcome to Companion Intelligence, I'm Eliza. How can I help you?"));
 			if (UWorld* World = GetWorld())
 			{
