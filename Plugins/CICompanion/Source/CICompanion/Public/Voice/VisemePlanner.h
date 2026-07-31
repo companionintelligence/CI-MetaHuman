@@ -78,6 +78,11 @@ public:
 	// real alignment beats a measured total beats a pure guess, and each step down is a step
 	// further from what the voice is actually doing. Falls through rather than failing, so an
 	// unreachable aligner costs precision and never costs speech.
+	//
+	// The top two are COMBINED rather than ranked when both are present: alignment decides each
+	// phoneme's share of the utterance, and the measured clip decides how long the utterance is.
+	// See the implementation for why that is not redundant -- the aligner and the voice service
+	// are two different Kokoros and measurably do not speak at the same rate.
 	static TArray<FVisemeSpan> PlanBest(const FString& Text, const TArray<FPhonemeSpan>& Alignment,
 		float MeasuredSeconds, EVisemeTimingSource& OutSource);
 

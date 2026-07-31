@@ -110,6 +110,15 @@ private:
 	UFUNCTION()
 	void HandleSpeechAudioReady(const FString& Text, float DurationSeconds);
 
+	// Adopts the character's own TTS component and binds the audio-ready callback to it. Idempotent
+	// and called from two places, because the component is not there yet when this subsystem starts:
+	// the character swaps its default UNullTextToSpeech for the real one in its own BeginPlay, which
+	// runs a frame after the SpawnActor that created it.
+	void ResolveVoice();
+
+	// The voice-resolution outcome is stated once, not once per reply.
+	bool bVoiceResolutionReported = false;
+
 	// Resets the per-utterance timing state. Called at the moment a reply is handed to the voice,
 	// so a barge-in cannot leave the previous reply's alignment attached to the new one.
 	void BeginUtterance(const FString& Text);

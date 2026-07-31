@@ -140,6 +140,34 @@ TArray<FVisemeSpan> FVisemePlanner::PlanBest(const FString& Text, const TArray<F
 		TArray<FVisemeSpan> Track = PlanFromAlignment(Alignment);
 		if (Track.Num() > 0)
 		{
+			// Alignment gives the right SHAPE; the measured clip gives the right LENGTH. Take both.
+			//
+			// They are two different Kokoros -- the sidecar runs the ONNX build, the audio comes
+			// from whatever the voice service loaded -- and they do not speak at quite the same
+			// rate. Measured on core-2 for the opening line, same voice, same text:
+			//
+			//                    total    voiced        trailing silence
+			//   voice service    5.025s   0.419-4.508s  0.517s
+			//   aligner          4.750s   0.418-4.240s  0.510s
+			//
+			// The leading pad agrees to a millisecond and the trailing silence to seven, so the
+			// 275ms is not padding: it is spread through the SPEECH, the aligner's copy running
+			// about 7% quick. Left alone that walks the mouth a quarter second ahead of the voice
+			// by the end of a five-second sentence -- and the old estimate-rescaled-to-duration
+			// path, for all its faults, at least ended on time. Scaling uniformly keeps every
+			// phoneme's share of the utterance, which is the part alignment actually knows, and
+			// puts the end back where the audio ends: the same measurement leaves both the pad and
+			// the final consonant within ~25ms of where they really are.
+			const float Aligned = TrackDuration(Track);
+			if (MeasuredSeconds > 0.0f && Aligned > KINDA_SMALL_NUMBER)
+			{
+				const float Scale = MeasuredSeconds / Aligned;
+				for (FVisemeSpan& Span : Track)
+				{
+					Span.StartSeconds *= Scale;
+					Span.DurationSeconds *= Scale;
+				}
+			}
 			OutSource = EVisemeTimingSource::Alignment;
 			return Track;
 		}

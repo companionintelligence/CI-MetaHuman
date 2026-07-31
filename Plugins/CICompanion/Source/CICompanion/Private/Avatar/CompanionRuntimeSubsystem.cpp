@@ -77,32 +77,17 @@ void UCompanionRuntimeSubsystem::OnWorldBeginPlay(UWorld& InWorld)
 	//
 	// The character owns Speak. This subsystem only listens, so there is exactly one voice to hear
 	// and exactly one clip to time the mouth against.
-	Tts = Cast<UKokoroTextToSpeech>(Companion->GetTextToSpeech());
-	if (Tts)
-	{
-		// Prefer MEASURED audio length over an estimated speaking rate when TTS is live. PlanFromText
-		// guesses at 165wpm; the E2E harness measured real replies between 131 and 184wpm, so on a
-		// long sentence the estimate drifts far enough to see. Binding here keeps the mouth locked to
-		// the clip that is actually playing.
-		Tts->OnSpeechAudioReady.AddDynamic(this, &UCompanionRuntimeSubsystem::HandleSpeechAudioReady);
-		UE_LOG(LogCompanionRuntime, Log,
-			TEXT("Voice enabled (Kokoro, shared with the companion); viseme timing bound to measured audio duration."));
-	}
-	else if (!CICompanionEnv::Get(TEXT("KOKORO_SERVER_URL"), FString()).IsEmpty())
-	{
-		// Configured for Kokoro and the character did not end up holding one. She will still be heard
-		// through whatever backend it did select, but nothing here can measure the clip, so the mouth
-		// silently drops to the spelling estimate. Logged loudly because that failure is otherwise
-		// invisible: a face timed to an estimate looks like a face, just slightly wrong.
-		const UTextToSpeechComponent* Actual = Companion->GetTextToSpeech();
-		UE_LOG(LogCompanionRuntime, Error,
-			TEXT("KOKORO_SERVER_URL is set but the companion's TTS is %s; lip-sync falls back to estimated timing."),
-			Actual ? *Actual->GetClass()->GetName() : TEXT("null"));
-	}
-	else
-	{
-		UE_LOG(LogCompanionRuntime, Log, TEXT("No KOKORO_SERVER_URL; speaking silently from planned text."));
-	}
+	//
+	// Resolved on the NEXT TICK, not on this line. The component to adopt does not exist yet: the
+	// character starts with its default UNullTextToSpeech and only swaps in the real Kokoro one in
+	// its own BeginPlay, which UE runs AFTER this function returns even though SpawnActor is called
+	// inside it. Reading it here got exactly what that ordering implies, and shipped it:
+	//   19.57.40:903  Error: KOKORO_SERVER_URL is set but the companion's TTS is NullTextToSpeech
+	//   19.57.40:905  TTS backend: KokoroTextToSpeech
+	// Two milliseconds and one frame apart. Nothing was broken except the order of two lines, and
+	// the visible symptom was a mouth silently timed to spelling while she spoke perfectly.
+	InWorld.GetTimerManager().SetTimerForNextTick(
+		FTimerDelegate::CreateUObject(this, &UCompanionRuntimeSubsystem::ResolveVoice));
 
 	// REAL per-phoneme timing, if the kokoro-align sidecar is configured. The measured length above
 	// only fixes the TOTAL: it rescales a spelling-based estimate, so "though" and "throw" still get
@@ -114,8 +99,13 @@ void UCompanionRuntimeSubsystem::OnWorldBeginPlay(UWorld& InWorld)
 	// FMetaHumanLLMEnvConfig has already folded KOKORO_ALIGNER_URL into settings by this point, and
 	// the client itself reads settings — gating on a different source could enable a client that
 	// then finds nothing to call.
+	//
+	// Gated on the URL ALONE, and deliberately not also on Tts: the voice resolves a frame later
+	// than this, so an `&& Tts` here would have reported "no KOKORO_ALIGNER_URL" for a variable
+	// that was plainly set — a log line that sends whoever reads it to the wrong file. Whether the
+	// aligner is ever ASKED anything is decided at speaking time, where Tts is known.
 	const UMetaHumanLLMSettings* VoiceCfg = GetDefault<UMetaHumanLLMSettings>();
-	if (Tts && VoiceCfg && !VoiceCfg->KokoroAlignerUrl.IsEmpty())
+	if (VoiceCfg && !VoiceCfg->KokoroAlignerUrl.IsEmpty())
 	{
 		Aligner = NewObject<UKokoroPhonemeAligner>(this, TEXT("CompanionAligner"));
 		Aligner->OnAlignmentReady.AddUObject(this, &UCompanionRuntimeSubsystem::HandlePhonemeAlignmentReady);
@@ -432,6 +422,50 @@ bool UCompanionRuntimeSubsystem::SpeakLiteral(const FString& Text)
 	return true;
 }
 
+void UCompanionRuntimeSubsystem::ResolveVoice()
+{
+	if (Tts || !Companion)
+	{
+		return;	// idempotent: called from a next-tick timer AND from every reply, whichever lands first
+	}
+
+	Tts = Cast<UKokoroTextToSpeech>(Companion->GetTextToSpeech());
+	if (Tts)
+	{
+		// Prefer MEASURED audio length over an estimated speaking rate when TTS is live. PlanFromText
+		// guesses at 165wpm; the E2E harness measured real replies between 131 and 184wpm, so on a
+		// long sentence the estimate drifts far enough to see. Binding here keeps the mouth locked to
+		// the clip that is actually playing.
+		Tts->OnSpeechAudioReady.AddDynamic(this, &UCompanionRuntimeSubsystem::HandleSpeechAudioReady);
+		UE_LOG(LogCompanionRuntime, Log,
+			TEXT("Voice enabled (Kokoro, shared with the companion); viseme timing bound to measured audio duration."));
+		bVoiceResolutionReported = true;
+		return;
+	}
+
+	if (bVoiceResolutionReported)
+	{
+		return;	// said once; this runs per reply and a repeated line would bury a kiosk log
+	}
+	bVoiceResolutionReported = true;
+
+	if (!CICompanionEnv::Get(TEXT("KOKORO_SERVER_URL"), FString()).IsEmpty())
+	{
+		// Configured for Kokoro and the character did not end up holding one. She will still be heard
+		// through whatever backend it did select, but nothing here can measure the clip, so the mouth
+		// silently drops to the spelling estimate. Logged loudly because that failure is otherwise
+		// invisible: a face timed to an estimate looks like a face, just slightly wrong.
+		const UTextToSpeechComponent* Actual = Companion->GetTextToSpeech();
+		UE_LOG(LogCompanionRuntime, Error,
+			TEXT("KOKORO_SERVER_URL is set but the companion's TTS is %s; lip-sync falls back to estimated timing."),
+			Actual ? *Actual->GetClass()->GetName() : TEXT("null"));
+	}
+	else
+	{
+		UE_LOG(LogCompanionRuntime, Log, TEXT("No KOKORO_SERVER_URL; speaking silently from planned text."));
+	}
+}
+
 void UCompanionRuntimeSubsystem::BeginUtterance(const FString& Text)
 {
 	if (UWorld* World = GetWorld())
@@ -542,13 +576,14 @@ void UCompanionRuntimeSubsystem::DriveMouthFromBestSource()
 
 	if (Source == EVisemeTimingSource::Alignment)
 	{
-		// The ratio is a live cross-check that the aligner and the voice service are running the
-		// SAME Kokoro: they should agree to within a few percent. A large gap means they are
-		// configured with different voices or models, and the timing — however precise — describes
-		// a waveform nobody is listening to.
+		// The ratio is the size of the correction PlanBest just applied, and a live check on the
+		// two services: the sidecar's Kokoro and the voice service's Kokoro run about 7% apart on
+		// this deployment, and anything much wider than that means they are configured with
+		// different voices or models -- at which point the phoneme ORDER is still right but its
+		// proportions describe a waveform nobody is listening to, and no amount of rescaling helps.
 		const float Ratio = PendingAudioSeconds > 0.0f ? 100.0f * PendingAlignedSeconds / PendingAudioSeconds : 0.0f;
 		UE_LOG(LogCompanionRuntime, Log,
-			TEXT("Lip-sync source=%s: %d phonemes -> %d spans; aligned %.2fs vs measured %.2fs (%.0f%%), entered %.0fms in."),
+			TEXT("Lip-sync source=%s: %d phonemes -> %d spans; aligned %.2fs stretched onto measured %.2fs (%.0f%%), entered %.0fms in."),
 			FVisemePlanner::TimingSourceName(Source), PendingAlignment.Num(), Track.Num(),
 			PendingAlignedSeconds, PendingAudioSeconds, Ratio, Elapsed * 1000.0f);
 	}
@@ -569,6 +604,11 @@ void UCompanionRuntimeSubsystem::HandleCompanionSpoke(const FString& Text)
 		Hud->AppendChatEntry(TEXT("Eliza"), Text);
 		Hud->SetStatusText(TEXT("Type to Eliza and press Enter"));
 	}
+
+	// Safety net for the adoption above: this handler runs from the broadcast the character fires
+	// immediately BEFORE it speaks, so binding here is still in time for the very first reply even
+	// if the next-tick resolve never ran.
+	ResolveVoice();
 
 	UCompanionFaceComponent* Face = ResolveFace();
 	if (!Face)

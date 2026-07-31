@@ -236,17 +236,45 @@ void FVisemePlannerSpec::Define()
 
 		It("prefers real alignment over the measured clip length", [this, Span]()
 		{
-			// Both are available. Alignment must win: the measured length only fixes the TOTAL,
-			// leaving each phoneme's share of it decided by spelling.
+			// Both are available. Alignment must win on SHAPE: the measured length only fixes the
+			// total, leaving each phoneme's share of it decided by spelling.
 			EVisemeTimingSource Source = EVisemeTimingSource::TextEstimate;
 			const TArray<FVisemeSpan> Track = FVisemePlanner::PlanBest(
 				TEXT("mass"), { Span(TEXT("m"), 0.0f, 0.40f), Span(TEXT("s"), 0.40f, 0.05f) }, 3.0f, Source);
 
 			TestEqual("chose alignment", Source, EVisemeTimingSource::Alignment);
-			TestTrue("has spans", Track.Num() > 0);
-			// Proof it is the aligner's track and not a rescale of the estimate: the aligned
-			// version runs 0.45s, nowhere near the 3.0s a rescale would have produced.
-			TestTrue("kept the aligner's clock", FVisemePlanner::TrackDuration(Track) < 1.0f);
+			TestTrue("has at least the two shapes", Track.Num() >= 2);
+			// Proof it is the aligner's distribution and not the estimate's: these are one letter
+			// each, so any spelling-based plan gives them near-equal time. The aligner said the
+			// first was eight times the second, and that ratio has to survive the rescale.
+			TestTrue("held the long phoneme long", Track[0].DurationSeconds > Track[1].DurationSeconds * 4.0f);
+		});
+
+		It("puts the aligned track on the measured clip's clock", [this, Span]()
+		{
+			// The sidecar's Kokoro and the voice service's Kokoro do not run at quite the same
+			// rate -- measured 4.750s against 5.025s for the same line and voice, with the
+			// difference spread through the speech rather than sitting in the padding. Keeping the
+			// aligner's proportions but the clip's length is what stops the mouth finishing a
+			// quarter of a second before the voice does.
+			EVisemeTimingSource Source = EVisemeTimingSource::TextEstimate;
+			const TArray<FVisemeSpan> Track = FVisemePlanner::PlanBest(
+				TEXT("mass"), { Span(TEXT("m"), 0.0f, 0.40f), Span(TEXT("s"), 0.40f, 0.05f) }, 3.0f, Source);
+
+			TestEqual("still alignment", Source, EVisemeTimingSource::Alignment);
+			TestTrue("ends when the audio ends",
+				FMath::IsNearlyEqual(FVisemePlanner::TrackDuration(Track), 3.0f, 0.01f));
+		});
+
+		It("leaves the aligned track alone when there is no clip to measure against", [this, Span]()
+		{
+			// Nothing to correct towards, so inventing a scale factor would be worse than none.
+			EVisemeTimingSource Source = EVisemeTimingSource::TextEstimate;
+			const TArray<FVisemeSpan> Track = FVisemePlanner::PlanBest(
+				TEXT("mass"), { Span(TEXT("m"), 0.0f, 0.40f), Span(TEXT("s"), 0.40f, 0.05f) }, 0.0f, Source);
+
+			TestEqual("still alignment", Source, EVisemeTimingSource::Alignment);
+			TestTrue("kept the aligner's own clock", FVisemePlanner::TrackDuration(Track) < 1.0f);
 		});
 
 		It("falls back to the measured clip length when there is no alignment", [this]()
