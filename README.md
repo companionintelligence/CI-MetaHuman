@@ -1,5 +1,15 @@
 # CI MetaHermit
 
+> 📖 **Start with [`Docs/ARCHITECTURE.md`](Docs/ARCHITECTURE.md)**, indexed from
+> [`Docs/README.md`](Docs/README.md).
+>
+> ⚠️ **The rest of this file is out of date** (audited 2026-07-31) and is kept only until it is
+> rewritten. It describes an earlier design: the shipped cook is **UE 5.5**, not 5.8; the resident
+> is a **Reallusion Character Creator** avatar, not the MetaHuman `DefaultCompanion`; the code lives
+> in `Plugins/CICompanion/`, not `Source/MetaHumanLocalLLM/`; lip-sync is **phoneme-timed**, not
+> amplitude-driven; the suite is ~209 specs, not 62; and the deployment target is an **AMD/ROCm**
+> host — it does **not** require an NVIDIA GPU. See [`Docs/ROADMAP.md`](Docs/ROADMAP.md) §5.
+
 A locally-embodied AI companion: an Unreal Engine 5.8 **MetaHuman** avatar driven by a
 local LLM, delivered to the browser via **Pixel Streaming (WebRTC)**, gated by **CI-portal
 OIDC**, and talking to **CI-hub Ollama**. The Unreal-engine sibling of the org's other 3D
