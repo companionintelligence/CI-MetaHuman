@@ -39,3 +39,7 @@ Deployment/.env
 /Content/Audio/
 Content/Maps/CompanionStage.umap.orig
 MetaHumanLocalLLM.uproject.orig
+
+# Python bytecode from running the authoring scripts locally
+__pycache__/
+*.pyc
