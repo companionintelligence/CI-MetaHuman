@@ -7,12 +7,19 @@
 #include "Avatar/CompanionStageDirector.h"
 #include "Avatar/MetaHumanCompanionCharacter.h"
 #include "Voice/KokoroTextToSpeech.h"
+#include "Sound/AmbientSound.h"
+#include "Components/AudioComponent.h"
+#include "Engine/TextRenderActor.h"
+#include "EngineUtils.h"
+#include "Settings/MetaHumanLLMSettings.h"
+#include "Avatar/FaceProfile.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
-#include "Voice/KokoroTextToSpeech.h"
 #include "Voice/VisemePlanner.h"
 #include "UI/SCompanionHUD.h"
+#include "UI/SCompanionSettingsPanel.h"
 #include "Engine/GameViewportClient.h"
+#include "GameFramework/PlayerController.h"
 #include "Widgets/SWeakWidget.h"
 
 
@@ -127,15 +134,129 @@ void UCompanionRuntimeSubsystem::CreateHud()
 	GEngine->GameViewport->AddViewportWidgetContent(
 		SNew(SWeakWidget).PossiblyNullContent(Hud.ToSharedRef()), 10000);
 
+	// The console rides in the SAME viewport layer as the chat box, for the same reason: it is
+	// captured into the streamed frame, so one implementation serves the browser and a native
+	// window, and clicks come back over the input channel that already exists.
+	FCompanionSettingsModel Initial;
+	Initial.TtsVoice = CICompanionEnv::Get(TEXT("KOKORO_VOICE"), Initial.TtsVoice);
+	Initial.TtsModel = CICompanionEnv::Get(TEXT("KOKORO_MODEL"), Initial.TtsModel);
+	Initial.LlmModel = CICompanionEnv::Get(TEXT("OLLAMA_MODEL"), Initial.LlmModel);
+	Initial.FaceProfile = CICompanionEnv::Get(TEXT("MHLLM_FACE_PROFILE"), Initial.FaceProfile);
+	Initial.bVoiceEnabled = !CICompanionEnv::Get(TEXT("KOKORO_SERVER_URL"), FString()).IsEmpty();
+	Initial.Validate();
+
+	SettingsPanel = SNew(SCompanionSettingsPanel)
+		.InitialSettings(Initial)
+		.OnSettingsChanged(FOnCompanionSettingsChanged::CreateUObject(
+			this, &UCompanionRuntimeSubsystem::ApplySettings));
+
+	GEngine->GameViewport->AddViewportWidgetContent(
+		SNew(SWeakWidget).PossiblyNullContent(SettingsPanel.ToSharedRef()), 10001);
+
 	Hud->SetStatusText(TEXT("Type to Eliza and press Enter"));
-	UE_LOG(LogCompanionRuntime, Log, TEXT("Chat box attached to viewport."));
+	UE_LOG(LogCompanionRuntime, Log, TEXT("Chat box + console attached to viewport. Settings: %s"),
+		*Initial.ToCompactString());
+
+	// Rendering the box is not the same as being able to USE it. See ApplyChatInputMode.
+	ApplyChatInputMode();
+}
+
+void UCompanionRuntimeSubsystem::ApplyChatInputMode()
+{
+	UWorld* World = GetWorld();
+	if (!World || !Hud.IsValid())
+	{
+		return;
+	}
+
+	APlayerController* PC = World->GetFirstPlayerController();
+	if (!PC)
+	{
+		if (ChatInputModeAttempts++ < MaxChatInputModeAttempts)
+		{
+			FTimerHandle Handle;
+			World->GetTimerManager().SetTimer(Handle,
+				FTimerDelegate::CreateUObject(this, &UCompanionRuntimeSubsystem::ApplyChatInputMode), 0.25f, false);
+		}
+		else
+		{
+			UE_LOG(LogCompanionRuntime, Warning, TEXT("No player controller; chat box will not receive input."));
+		}
+		return;
+	}
+
+	// A cursor is not cosmetic here: without one there is nothing to aim at the text box with, in a
+	// native window OR in a browser watching the stream (Pixel Streaming renders the SOFTWARE
+	// cursor into the frame -- with bShowMouseCursor false the remote viewer's pointer is invisible
+	// and clicking is guesswork).
+	PC->bShowMouseCursor = true;
+	PC->bEnableClickEvents = true;
+	PC->bEnableMouseOverEvents = true;
+
+	const TSharedPtr<SWidget> FocusTarget = Hud->GetInputWidget();
+
+	if (UCompanionStageDirector::ShouldAllowFreeLook())
+	{
+		// Opt-in: the pawn keeps its input, and the UI shares it. Typing still works because the
+		// text box holds keyboard focus, but a mouse drag on the scene will move the camera.
+		FInputModeGameAndUI Mode;
+		Mode.SetWidgetToFocus(FocusTarget);
+		Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		Mode.SetHideCursorDuringCapture(false);
+		PC->SetInputMode(Mode);
+	}
+	else
+	{
+		// DEFAULT. UI-only is what makes the keyboard belong to Slate: in the default
+		// FInputModeGameOnly the viewport captures input and the pawn consumes every key, which is
+		// precisely why the box could be seen but never typed into. It also removes the second half
+		// of the camera-drift problem for free -- input the pawn never receives cannot move it.
+		FInputModeUIOnly Mode;
+		Mode.SetWidgetToFocus(FocusTarget);
+		Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		PC->SetInputMode(Mode);
+	}
+
+	// SetInputMode focuses the widget for the CURRENT slate user; this covers the rest (Pixel
+	// Streaming's keyboard rides its own).
+	Hud->FocusInputBox();
+
+	// ...and again once the viewport has actually laid the HUD out. SetInputMode's focus is a
+	// DEFERRED Slate operation -- it rides the local player's FReply and is only flushed when input
+	// next arrives -- and FocusInputBox above can find no widget path at all on the frame the HUD is
+	// added. Either way the box would sit unfocused until the user clicked it, which is
+	// indistinguishable from the bug being fixed. Half a second is after the first frame and long
+	// before anyone has typed.
+	FTimerHandle FocusHandle;
+	World->GetTimerManager().SetTimer(FocusHandle,
+		FTimerDelegate::CreateUObject(this, &UCompanionRuntimeSubsystem::FocusChatInput), 0.5f, false);
+
+	UE_LOG(LogCompanionRuntime, Log, TEXT("Chat input armed: cursor shown, keyboard focus on the text box (free-look %s)."),
+		UCompanionStageDirector::ShouldAllowFreeLook() ? TEXT("ON") : TEXT("locked"));
+}
+
+void UCompanionRuntimeSubsystem::FocusChatInput()
+{
+	if (Hud.IsValid())
+	{
+		Hud->FocusInputBox();
+	}
 }
 
 void UCompanionRuntimeSubsystem::SetHudVisible(bool bVisible)
 {
-	if (Hud.IsValid())
+	if (!Hud.IsValid())
 	{
-		Hud->SetVisibility(bVisible ? EVisibility::SelfHitTestInvisible : EVisibility::Collapsed);
+		return;
+	}
+	// SelfHitTestInvisible on the ROOT only: it is a full-screen overlay, so a hit-testable root
+	// would eat every click in the game. The controls inside it are explicitly Visible.
+	Hud->SetVisibility(bVisible ? EVisibility::SelfHitTestInvisible : EVisibility::Collapsed);
+	if (bVisible)
+	{
+		// Hiding the HUD drops keyboard focus; showing it again has to take it back or the box
+		// looks live and is not.
+		Hud->FocusInputBox();
 	}
 }
 
@@ -145,6 +266,9 @@ void UCompanionRuntimeSubsystem::HandleHudTextSubmitted(const FString& Text)
 	{
 		return;
 	}
+	// Logged at the boundary: this line is the proof that a real keystroke crossed from Slate into
+	// the conversation stack, which is the exact link that was broken.
+	UE_LOG(LogCompanionRuntime, Log, TEXT("Chat box submitted (%d chars): %s"), Text.Len(), *Text.Left(160));
 	if (Hud.IsValid())
 	{
 		Hud->AppendChatEntry(TEXT("You"), Text);
@@ -166,8 +290,11 @@ bool UCompanionRuntimeSubsystem::SubmitUserText(const FString& Text)
 {
 	if (!Companion || Text.IsEmpty())
 	{
+		UE_LOG(LogCompanionRuntime, Warning, TEXT("SubmitUserText dropped (%s)."),
+			Companion ? TEXT("empty text") : TEXT("no companion spawned"));
 		return false;
 	}
+	UE_LOG(LogCompanionRuntime, Log, TEXT("SubmitUserText -> companion: %s"), *Text.Left(160));
 	Companion->SubmitUserText(Text);
 	return true;
 }
@@ -252,4 +379,55 @@ void UCompanionRuntimeSubsystem::HandleCompanionSpoke(const FString& Text)
 
 	UE_LOG(LogCompanionRuntime, Log, TEXT("Speaking (planned): %d viseme spans over %.2fs."),
 		Track.Num(), FVisemePlanner::TrackDuration(Track));
+}
+
+void UCompanionRuntimeSubsystem::ApplySettings(const FCompanionSettingsModel& NewSettings)
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	// VOICE. Cheapest of the lot: Kokoro takes the voice per request, so a change costs nothing
+	// and lands on the next utterance rather than needing a reconnect.
+	if (UMetaHumanLLMSettings* Cfg = GetMutableDefault<UMetaHumanLLMSettings>())
+	{
+		Cfg->KokoroVoice = NewSettings.TtsVoice;
+		Cfg->KokoroModel = NewSettings.TtsModel;
+		Cfg->OllamaModel = NewSettings.LlmModel;
+	}
+
+	// FACE. Swapping the profile re-resolves every curve against the mesh, and the resolved count
+	// is logged because an unknown rig silently no-ops -- SetMorphTarget on a missing name does
+	// nothing at all, so a wrong profile looks exactly like a frozen face.
+	if (UCompanionFaceComponent* Face = ResolveFace())
+	{
+		Face->SetProfile(FFaceProfile::ByName(NewSettings.FaceProfile));
+		UE_LOG(LogCompanionRuntime, Log, TEXT("Face profile '%s': %d/%d curves resolved."),
+			*NewSettings.FaceProfile, Face->GetResolvedCurveCount(), Face->GetProfileCurveCount());
+
+		if (NewSettings.bFaceSelfTest && !Face->IsSelfTesting())      { Face->StartSelfTest(); }
+		else if (!NewSettings.bFaceSelfTest && Face->IsSelfTesting()) { Face->StopSelfTest(); }
+	}
+
+	// MUSIC. The ambience is an authored AmbientSound actor, found by label rather than held as a
+	// pointer, because the map is authored headlessly and the subsystem never spawned it.
+	for (TActorIterator<AAmbientSound> It(World); It; ++It)
+	{
+		if (UAudioComponent* AC = It->GetAudioComponent())
+		{
+			AC->SetVolumeMultiplier(NewSettings.bMusicEnabled ? NewSettings.MusicVolume : 0.0f);
+		}
+	}
+
+	// BRANDING. Same story: an authored TextRenderActor, toggled rather than destroyed so it can
+	// come back without re-authoring the level.
+	for (TActorIterator<ATextRenderActor> It(World); It; ++It)
+	{
+		It->SetActorHiddenInGame(!NewSettings.bBrandingVisible);
+	}
+
+	// CHAT.
+	SetHudVisible(NewSettings.bChatVisible);
 }

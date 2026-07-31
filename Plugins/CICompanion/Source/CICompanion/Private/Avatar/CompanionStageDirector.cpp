@@ -10,12 +10,26 @@
 #include "Engine/SkeletalMesh.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
+#include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
+#include "TimerManager.h"
 
 
 
 namespace
 {
+	// Shared by both opt-in switches. Only an affirmative value counts: unset, empty, "0" and
+	// anything unrecognised all mean "no", so the safe/static behaviour is what you get by default
+	// and by typo.
+	bool StageOptedIn(const FString& RawValue)
+	{
+		const FString V = RawValue.TrimStartAndEnd();
+		return V == TEXT("1")
+			|| V.Equals(TEXT("true"), ESearchCase::IgnoreCase)
+			|| V.Equals(TEXT("yes"), ESearchCase::IgnoreCase)
+			|| V.Equals(TEXT("on"), ESearchCase::IgnoreCase);
+	}
+
 	// Smoothstep. Linear interpolation between keys makes the camera start and stop abruptly at
 	// every waypoint, which reads as a machine executing moves rather than as a shot.
 	// Named uniquely because Unreal's unity build merges anonymous namespaces across the .cpp
@@ -36,19 +50,38 @@ bool UCompanionStageDirector::ShouldCreateSubsystem(UObject* Outer) const
 	return false;
 }
 
+bool UCompanionStageDirector::ShouldPlayOpeningShot(TFunctionRef<FString(const TCHAR*)> Lookup)
+{
+	return StageOptedIn(Lookup(TEXT("MHLLM_OPENING_SHOT")));
+}
+
+bool UCompanionStageDirector::ShouldAllowFreeLook(TFunctionRef<FString(const TCHAR*)> Lookup)
+{
+	return StageOptedIn(Lookup(TEXT("MHLLM_FREE_LOOK")));
+}
+
+bool UCompanionStageDirector::ShouldPlayOpeningShot()
+{
+	auto Env = [](const TCHAR* Name) { return FPlatformMisc::GetEnvironmentVariable(Name); };
+	return ShouldPlayOpeningShot(Env);
+}
+
+bool UCompanionStageDirector::ShouldAllowFreeLook()
+{
+	auto Env = [](const TCHAR* Name) { return FPlatformMisc::GetEnvironmentVariable(Name); };
+	return ShouldAllowFreeLook(Env);
+}
+
 void UCompanionStageDirector::OnWorldBeginPlay(UWorld& InWorld)
 {
 	Super::OnWorldBeginPlay(InWorld);
 
-	if (CICompanionEnv::IsDisabled(TEXT("MHLLM_OPENING_SHOT")))
-	{
-		UE_LOG(LogCompanionStage, Log, TEXT("Opening shot disabled; going straight to live."));
-		Beat = EStageBeat::Live;
-		return;
-	}
+	bOpeningShot = ShouldPlayOpeningShot();
+	bFreeLook = ShouldAllowFreeLook();
 
 	// The resident is located the same way the face driver locates it -- by tag, because actor
-	// labels are editor-only and do not survive a cook.
+	// labels are editor-only and do not survive a cook. Needed in BOTH modes now: the static shot
+	// is framed on her, so it cannot be built without knowing where she is.
 	for (TActorIterator<AActor> It(&InWorld); It; ++It)
 	{
 		if (It->ActorHasTag(UCompanionFaceSubsystem::ResidentTag))
@@ -59,15 +92,25 @@ void UCompanionStageDirector::OnWorldBeginPlay(UWorld& InWorld)
 	}
 	if (!Resident)
 	{
-		UE_LOG(LogCompanionStage, Warning, TEXT("No tagged resident; opening shot skipped."));
+		// No subject means no framing to solve, so whatever the map auto-activates is the view.
+		// Still lock the pawn's input: a map with no resident is exactly the case where the view
+		// falls back to the DefaultPawn, which is the thing that drifts.
+		UE_LOG(LogCompanionStage, Warning, TEXT("No tagged resident; stage camera not built."));
 		Beat = EStageBeat::Live;
+		LockPlayerView();
 		return;
 	}
 
-	// She begins with her back to where the camera will settle, and turns through 180 to meet it.
 	ResidentFinalYaw = Resident->GetActorRotation().Yaw;
-	ResidentStartYaw = ResidentFinalYaw + 180.0f;
-	Resident->SetActorRotation(FRotator(0.0f, ResidentStartYaw, 0.0f));
+	ResidentStartYaw = ResidentFinalYaw;
+	if (bOpeningShot)
+	{
+		// She begins with her back to where the camera will settle, and turns through 180 to meet
+		// it. Only in the opening shot: turning her round and then NOT playing the move would leave
+		// a static shot of the back of her head.
+		ResidentStartYaw = ResidentFinalYaw + 180.0f;
+		Resident->SetActorRotation(FRotator(0.0f, ResidentStartYaw, 0.0f));
+	}
 
 	float EyeZ = 180.0f;
 	if (const USkeletalMeshComponent* Mesh = Resident->FindComponentByClass<USkeletalMeshComponent>())
@@ -82,11 +125,13 @@ void UCompanionStageDirector::OnWorldBeginPlay(UWorld& InWorld)
 
 	FActorSpawnParameters Params;
 	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-	Camera = InWorld.SpawnActor<ACameraActor>(ACameraActor::StaticClass(), Path[0].Position, FRotator::ZeroRotator, Params);
+	const FVector SpawnAt = bOpeningShot ? Path[0].Position : Path.Last().Position;
+	Camera = InWorld.SpawnActor<ACameraActor>(ACameraActor::StaticClass(), SpawnAt, FRotator::ZeroRotator, Params);
 	if (!Camera)
 	{
-		UE_LOG(LogCompanionStage, Error, TEXT("Failed to spawn stage camera; opening shot skipped."));
+		UE_LOG(LogCompanionStage, Error, TEXT("Failed to spawn stage camera; falling back to the map's view."));
 		Beat = EStageBeat::Live;
+		LockPlayerView();
 		return;
 	}
 	if (UCameraComponent* Cam = Camera->GetCameraComponent())
@@ -97,20 +142,111 @@ void UCompanionStageDirector::OnWorldBeginPlay(UWorld& InWorld)
 		Cam->SetConstraintAspectRatio(false);
 	}
 
-	if (APlayerController* PC = InWorld.GetFirstPlayerController())
+	StartDelay  = FCString::Atof(*CICompanionEnv::Get(TEXT("MHLLM_OPENING_DELAY"), TEXT("3.0")));
+
+	if (!bOpeningShot)
 	{
-		PC->SetViewTarget(Camera);
+		// DEFAULT PATH. The camera is planted on the solved call framing and never touched again.
+		//
+		// It still owns the view target rather than deferring to the map's auto-activating
+		// StageCamera, because that camera only exists in the authored diorama: a map without it
+		// (the synthesized fallback stage, or any test map) falls through to the DefaultPawn and
+		// the shot becomes whatever the pawn happens to be looking at.
+		ApplyFinalFraming();
+		// Zeroed so the Speak beat below is timed purely by StartDelay -- there is no move and no
+		// turn to wait out.
+		FlyDuration = 0.0f;
+		TurnDuration = 0.0f;
+		ReplayEvery = 0.0f;
+		// The scripted opening line is not part of the camera move; it is the thing that proves the
+		// build is alive. It still plays, just without a flythrough in front of it.
+		Beat = EStageBeat::Speak;
+		bActive = true;
+		LockPlayerView();
+
+		UE_LOG(LogCompanionStage, Log,
+			TEXT("Static shot: camera pinned to the call framing (free-look %s). Set MHLLM_OPENING_SHOT=1 for the opening move."),
+			bFreeLook ? TEXT("ON") : TEXT("locked"));
+		return;
 	}
 
 	FlyDuration = FCString::Atof(*CICompanionEnv::Get(TEXT("MHLLM_FLY_SECONDS"), TEXT("11.0")));
-	StartDelay  = FCString::Atof(*CICompanionEnv::Get(TEXT("MHLLM_OPENING_DELAY"), TEXT("3.0")));
 	ReplayEvery = FCString::Atof(*CICompanionEnv::Get(TEXT("MHLLM_OPENING_REPLAY"), TEXT("0")));
 	bActive = true;
 	Beat = EStageBeat::Flythrough;
 	ApplyCameraAt(0.0f);
+	LockPlayerView();
 
 	UE_LOG(LogCompanionStage, Log, TEXT("Opening shot: %.1fs flythrough, then turn %.0f -> %.0f."),
 		FlyDuration, ResidentStartYaw, ResidentFinalYaw);
+}
+
+void UCompanionStageDirector::LockPlayerView()
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	APlayerController* PC = World->GetFirstPlayerController();
+	// Free look additionally needs the PAWN, which arrives after the controller does. Waiting for
+	// both here is what makes the handover below reliable; without it the first attempt finds a
+	// controller with no pawn, falls through to the fixed camera, and never comes back.
+	if (!PC || (bFreeLook && !PC->GetPawn()))
+	{
+		// A world subsystem's BeginPlay is not guaranteed to run after the local player exists, and
+		// a missed view target here is the difference between the solved shot and a pawn's-eye view
+		// of the floor. Retry briefly rather than assume.
+		if (ViewLockAttempts++ < MaxViewLockAttempts)
+		{
+			FTimerHandle Handle;
+			World->GetTimerManager().SetTimer(Handle,
+				FTimerDelegate::CreateUObject(this, &UCompanionStageDirector::LockPlayerView), 0.25f, false);
+		}
+		else
+		{
+			UE_LOG(LogCompanionStage, Warning, TEXT("No player controller; camera and look input left as the map set them."));
+		}
+		return;
+	}
+
+	if (bFreeLook)
+	{
+		// FREE LOOK HAS TO MOVE THE VIEW TARGET, not just stop ignoring input. Un-ignoring input
+		// while the view stays pointed at a camera actor that never moves is why this switch read
+		// as inert: the input was live the whole time and the pawn really was walking around the
+		// set, but every streamed frame still came from the camera bolted to the call framing.
+		//
+		// The pawn is also started ON that framing rather than left where GameModeBase spawned it.
+		// That spawn is the world origin -- inside the floor plane -- so anyone who turned free
+		// look on got a grazing view of the tiles, which looks exactly like a switch that did
+		// nothing. Beginning at the solved shot makes the handover invisible: the picture does not
+		// change until the viewer moves.
+		APawn* Pawn = PC->GetPawn();
+		if (Camera)
+		{
+			Pawn->SetActorLocation(Camera->GetActorLocation(), false, nullptr, ETeleportType::TeleportPhysics);
+			PC->SetControlRotation(Camera->GetActorRotation());
+		}
+		PC->SetViewTarget(Pawn);
+		UE_LOG(LogCompanionStage, Log,
+			TEXT("Free look ON: view handed to the pawn, started on the call framing."));
+		return;
+	}
+
+	if (Camera)
+	{
+		PC->SetViewTarget(Camera);
+	}
+
+	// The actual anti-drift. GameModeBase's DefaultPawn installs its own movement bindings, so
+	// mouse X/Y become AddYawInput/AddPitchInput on the control rotation -- which moves the view
+	// the moment the view target is a pawn, and quietly walks the pawn out of the set even when
+	// it is not. Both are ignored at the controller, which is one place rather than one per
+	// binding.
+	PC->SetIgnoreLookInput(true);
+	PC->SetIgnoreMoveInput(true);
 }
 
 void UCompanionStageDirector::BuildPath(const FVector& Subject, float EyeZ)
@@ -169,6 +305,20 @@ void UCompanionStageDirector::ApplyCameraAt(float TimeSeconds)
 	const FVector Look = SampleSpline(Path, T, true);
 	Camera->SetActorLocation(Pos);
 	Camera->SetActorRotation((Look - Pos).Rotation());
+}
+
+void UCompanionStageDirector::ApplyFinalFraming()
+{
+	if (!Camera || Path.Num() == 0)
+	{
+		return;
+	}
+	// Deliberately NOT ApplyCameraAt(FlyDuration): that divides by max(FlyDuration, epsilon), so
+	// with the static path's FlyDuration of 0 it would sample T=0 and park the camera on the wide
+	// establishing key at the far end of the hall.
+	const FStageCameraKey& Last = Path.Last();
+	Camera->SetActorLocation(Last.Position);
+	Camera->SetActorRotation((Last.LookAt - Last.Position).Rotation());
 }
 
 void UCompanionStageDirector::Tick(float DeltaTime)
@@ -279,8 +429,8 @@ void UCompanionStageDirector::SkipToLive()
 	{
 		Resident->SetActorRotation(FRotator(0.0f, ResidentFinalYaw, 0.0f));
 	}
-	ApplyCameraAt(FlyDuration);
+	ApplyFinalFraming();
 	Beat = EStageBeat::Live;
 	bActive = false;
-	UE_LOG(LogCompanionStage, Log, TEXT("Opening shot skipped; live."));
+	UE_LOG(LogCompanionStage, Log, TEXT("Cut to live conversation framing."));
 }

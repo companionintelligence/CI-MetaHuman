@@ -53,9 +53,16 @@ services:
       # has no other way to show its opening to someone who connects late.
       MHLLM_OPENING_REPLAY: "${MHLLM_OPENING_REPLAY:-0}"
 
-      # Set MHLLM_OPENING_SHOT=0 to land straight in the live call framing (useful when iterating
-      # on conversation rather than on the shot).
-      MHLLM_OPENING_SHOT: "${MHLLM_OPENING_SHOT:-1}"
+      # The camera is STATIC unless the opening move is explicitly asked for. It used to be the
+      # other way round, which meant the flythrough was what every run got whether or not anyone
+      # wanted a moving camera, and the solved call framing needed an undocumented env var. Set
+      # MHLLM_OPENING_SHOT=1 here to restore the eleven-second flythrough for a launch stream.
+      MHLLM_OPENING_SHOT: "${MHLLM_OPENING_SHOT:-0}"
+
+      # Free-look is opt-in for the same reason: with it on, the GameModeBase DefaultPawn turns
+      # every mouse move into camera yaw/pitch, so any viewer of the stream can drag the shot off
+      # the subject. Locked by default; MHLLM_FREE_LOOK=1 hands input back to the pawn.
+      MHLLM_FREE_LOOK: "${MHLLM_FREE_LOOK:-0}"
 
       # She is Eliza -- named for the 1966 program, which is the right joke for a machine room of
       # this vintage. The persona has to agree with the scripted line or her first two sentences
