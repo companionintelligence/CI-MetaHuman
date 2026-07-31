@@ -27,15 +27,39 @@
     Engine root. Defaults to UE_5.5 because that is the version the deployment cooks against;
     5.8 also works since Target.cs uses BuildSettingsVersion.Latest.
 
+.PARAMETER SkipAuthoring
+    Cook whatever Content/Maps/CompanionStage.umap happens to be on disk instead of authoring a
+    fresh one. Fast, and almost always wrong: the committed .umap is a 23 KB STUB (sky + ground,
+    no resident, no set), so a build made this way opens onto an empty stage and logs
+    "No resident found; face driver inactive".
+
+.PARAMETER KeepAuthoredMap
+    Leave the freshly authored .umap in Content/Maps instead of restoring the committed stub
+    after the cook. Use it to open the real set in the editor; do NOT commit the result (see
+    Author-Stage below for why an authored map is engine-version-specific).
+
+.PARAMETER GlbDir
+    Directory holding the prop GLBs. Defaults to $env:MHLLM_GLB_DIR, then to
+    C:\devel\llm-metahuman\scene\glb.
+
+.PARAMETER NiaContent
+    The Reallusion Character Creator "Nia" content root (the folder named CC_ControlRig_Nia).
+    Defaults to $env:MHLLM_NIA_CONTENT, then to a CharacterCreatorNia project sitting beside
+    this one.
+
 .EXAMPLE
-    ./Scripts/BuildNative.ps1 -Platform Win64
+    ./Scripts/BuildNative.ps1 -Platform Win64 -Engine "C:\Program Files\Epic Games\UE_5.8"
 #>
 param(
     [ValidateSet('Win64', 'Linux', 'Mac')]
     [string]$Platform = 'Win64',
     [string]$Engine = 'C:\Program Files\Epic Games\UE_5.5',
     [string]$Config = 'Development',
-    [string]$Archive = ''
+    [string]$Archive = '',
+    [switch]$SkipAuthoring,
+    [switch]$KeepAuthoredMap,
+    [string]$GlbDir = '',
+    [string]$NiaContent = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -43,6 +67,7 @@ $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $UProject = Join-Path $ProjectRoot 'MetaHumanLocalLLM.uproject'
 if (-not (Test-Path $UProject)) { throw "Project not found: $UProject" }
 if ($Archive -eq '') { $Archive = Join-Path $ProjectRoot "dist/$Platform" }
+$StageMap = Join-Path $ProjectRoot 'Content\Maps\CompanionStage.umap'
 
 if ($Platform -eq 'Mac') {
     Write-Host 'Mac cannot be built from Windows. Apple provides no cross-compiler.' -ForegroundColor Yellow
@@ -60,6 +85,104 @@ if ($Platform -eq 'Linux' -and -not (Test-Path 'C:\UnrealToolchains')) {
 
 $RunUAT = Join-Path $Engine 'Engine\Build\BatchFiles\RunUAT.bat'
 if (-not (Test-Path $RunUAT)) { throw "RunUAT not found: $RunUAT. Pass -Engine <root>." }
+
+# ---------------------------------------------------------------------------------------------
+# Author-Stage: build the diorama with the SAME script the server cook uses.
+#
+# ROOT CAUSE THIS EXISTS TO FIX. Content/Maps/CompanionStage.umap in the repo is a 23 KB stub —
+# sky and ground, nothing else. The real set (the 1970s machine hall, the props, the lighting,
+# and Nia herself) has only ever existed as the OUTPUT of Deployment/author_diorama.py, which
+# ran exclusively on core-2 inside a Linux container. Nothing on this path ever invoked it, so a
+# native build cooked the stub, and the shipped game logged "No resident found; face driver
+# inactive" / "Tape reels spinning: 0" and opened onto an empty stage.
+#
+# WHY AUTHOR RATHER THAN COMMIT THE MAP. The set is DEFINED by ~960 lines of layout, lighting and
+# material logic. Committing the .umap would freeze a build artifact as source and guarantee it
+# drifts from the script the moment anyone edits the set — the exact drift trap HANDOFF.md
+# Lesson 2 describes. It is also ~900 MB of Nia content behind it, and a .umap is
+# ENGINE-VERSION-SPECIFIC: one authored by 5.8 here cannot be loaded by the 5.5 cook on core-2.
+# So the map stays generated, and this function makes the native build generate it the same way
+# the container does — one source of truth, two consumers.
+function Invoke-StageAuthoring {
+    $editorCmd = Join-Path $Engine 'Engine\Binaries\Win64\UnrealEditor-Cmd.exe'
+    if (-not (Test-Path $editorCmd)) { throw "UnrealEditor-Cmd not found: $editorCmd" }
+
+    $script = Join-Path $ProjectRoot 'Deployment\author_diorama.py'
+    if (-not (Test-Path $script)) { throw "Authoring script missing: $script" }
+
+    # Inputs. author_diorama.py reads these through MHLLM_* env vars; its defaults are the
+    # container mount points (/glb, /mh, /audio), so the server pipeline is untouched.
+    $glb = if ($GlbDir) { $GlbDir } elseif ($env:MHLLM_GLB_DIR) { $env:MHLLM_GLB_DIR }
+           else { 'C:\devel\llm-metahuman\scene\glb' }
+    $nia = if ($NiaContent) { $NiaContent } elseif ($env:MHLLM_NIA_CONTENT) { $env:MHLLM_NIA_CONTENT }
+           else { Join-Path (Split-Path -Parent $ProjectRoot) 'CharacterCreatorNia\Content\CC_ControlRig_Nia' }
+
+    if (-not (Test-Path $glb)) {
+        throw "Prop GLBs not found: $glb. Pass -GlbDir <path> or set MHLLM_GLB_DIR."
+    }
+    if (-not (Test-Path (Join-Path $nia 'RLContent\Nia\SK_Nia.uasset'))) {
+        throw ("Nia content not found: $nia (expected RLContent\Nia\SK_Nia.uasset). " +
+               'Pass -NiaContent <path> or set MHLLM_NIA_CONTENT.')
+    }
+
+    # Nia has to live under THIS project's Content/ because UE assets reference each other by
+    # package path and the script loads her from /Game/CC_ControlRig_Nia/RLContent/Nia/SK_Nia.
+    # Copied, not junctioned: the authoring run re-saves what it loads, and a junction would
+    # quietly rewrite the CharacterCreatorNia project's own assets into this engine's version.
+    # robocopy is incremental, so only the first build pays the ~900 MB.
+    $niaDest = Join-Path $ProjectRoot 'Content\CC_ControlRig_Nia'
+    Write-Host "Staging Nia content -> Content\CC_ControlRig_Nia (incremental)" -ForegroundColor Cyan
+    foreach ($sub in @('RLContent', 'CC_Shaders', 'CC_Rigs')) {
+        $from = Join-Path $nia $sub
+        if (-not (Test-Path $from)) { continue }
+        robocopy $from (Join-Path $niaDest $sub) /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null
+        # robocopy's exit code is a BIT FIELD, not a status: 0-7 are success (1 = files copied,
+        # 2 = extras, 4 = mismatches). Only >= 8 is a real failure. Testing it like a normal
+        # exit code fails every build that actually copies something.
+        if ($LASTEXITCODE -ge 8) { throw "robocopy failed ($LASTEXITCODE) staging $from" }
+    }
+
+    # Purge what the last authoring run produced. The container gets this for free by wiping
+    # Content/ before it starts; here, leftovers make the re-import collide with itself and UE
+    # silently renames the new assets (T_ibm_3178 -> T_ibm_31781), so the map ends up pointing at
+    # one generation of textures and the tree accumulates another.
+    foreach ($gen in @('Content\Diorama', 'Content\Seo', 'Content\Audio')) {
+        $p = Join-Path $ProjectRoot $gen
+        if (Test-Path $p) { Remove-Item $p -Recurse -Force }
+    }
+    if (Test-Path $StageMap) { Remove-Item $StageMap -Force }
+
+    $result = Join-Path $ProjectRoot 'Saved\AUTHOR_RESULT.txt'
+    New-Item -ItemType Directory -Force (Split-Path -Parent $result) | Out-Null
+    if (Test-Path $result) { Remove-Item $result -Force }
+
+    $env:MHLLM_GLB_DIR = $glb
+    $env:MHLLM_MH_DIR = Join-Path $ProjectRoot 'Deployment\metahuman'
+    $env:MHLLM_AUDIO_DIR = Join-Path $ProjectRoot 'Deployment\audio'
+    $env:MHLLM_AUTHOR_RESULT = $result
+
+    Write-Host "Authoring the diorama with $script (headless editor, this takes a few minutes)" -ForegroundColor Cyan
+    $log = Join-Path $ProjectRoot 'Saved\author_diorama.log'
+    & $editorCmd $UProject -run=pythonscript "-script=$script" `
+        -unattended -nullrhi -nosplash -noP4 -stdout -utf8output -NoLogTimes `
+        '-ini:EditorPerProjectUserSettings:[/Script/ModelContextProtocolEngine.ModelContextProtocolSettings]:bAutoStartServer=False' `
+        > $log 2>&1
+    # The commandlet exits non-zero on its ERROR COUNT alone, and this run logs benign ones (a
+    # missing optional CRT texture, an OpenXR loader complaint). AUTHOR_RESULT.txt is the real
+    # verdict, so gate on that rather than on $LASTEXITCODE.
+
+    if (-not (Test-Path $result)) { throw "Authoring produced no result file. See $log" }
+    $lines = Get-Content $result
+    $lines | Where-Object { $_ -match 'resident:|Nia:|729|placed|SUCCESS|FAIL' } | ForEach-Object { "  $_" }
+
+    # FAIL FAST, loudly, on every condition that has previously shipped an empty stage.
+    if (-not ($lines -match '^SUCCESS')) { throw "Authoring did not report SUCCESS. See $log and $result" }
+    if (-not ($lines -match 'resident: NIA placed')) { throw "Authoring placed no resident. See $result" }
+    if (-not (Test-Path $StageMap)) { throw "Authoring reported SUCCESS but wrote no $StageMap" }
+    $size = (Get-Item $StageMap).Length
+    if ($size -lt 200KB) { throw "Authored map is only $size bytes — that is the empty stub, not the set." }
+    Write-Host "Authored CompanionStage.umap ($([math]::Round($size/1MB,2)) MB)" -ForegroundColor Green
+}
 
 # The 5.8 editor ADDS plugins to the .uproject on its own and marks them REQUIRED, which hard
 # fails a 5.5 build with "Unable to find plugin" (this is how AIAssistant appeared). Strip the
@@ -135,7 +258,23 @@ $uatArgs = @(
     # its MCP server exactly as configured. A packaged game has no use for one.
     '-additionalcookeroptions=-ini:EditorPerProjectUserSettings:[/Script/ModelContextProtocolEngine.ModelContextProtocolSettings]:bAutoStartServer=False'
 )
+# The committed stub is put back after the cook (see the finally block). An authored .umap is a
+# build artifact of ONE engine version, and this tree is cooked by two: leaving a 5.8-authored map
+# in Content/Maps would make `git status` offer it for commit, and Dockerfile.amd's
+# "Using the SUPPLIED CompanionStage.umap" branch would then hand a 5.8 asset to the 5.5 cook.
+$StageMapBackup = $null
+if (-not $SkipAuthoring -and (Test-Path $StageMap)) {
+    $StageMapBackup = "$StageMap.orig"
+    Copy-Item $StageMap $StageMapBackup -Force
+}
 try {
+    if ($SkipAuthoring) {
+        Write-Host 'Skipping stage authoring: cooking whatever .umap is on disk.' -ForegroundColor Yellow
+        Write-Host 'If that is the committed stub, the build will open onto an EMPTY STAGE.' -ForegroundColor Yellow
+    }
+    else {
+        Invoke-StageAuthoring
+    }
     & $RunUAT @uatArgs
     $uatExit = $LASTEXITCODE
 }
@@ -145,6 +284,16 @@ finally {
     if ($UProjectBackup -and (Test-Path $UProjectBackup)) {
         Move-Item $UProjectBackup $UProject -Force
         Write-Host 'Restored the original .uproject.' -ForegroundColor Cyan
+    }
+    if ($StageMapBackup -and (Test-Path $StageMapBackup)) {
+        if ($KeepAuthoredMap) {
+            Remove-Item $StageMapBackup -Force
+            Write-Host 'Kept the authored CompanionStage.umap (-KeepAuthoredMap). Do not commit it.' -ForegroundColor Yellow
+        }
+        else {
+            Move-Item $StageMapBackup $StageMap -Force
+            Write-Host 'Restored the committed CompanionStage.umap stub (the cook already has the real one).' -ForegroundColor Cyan
+        }
     }
 }
 if ($uatExit -ne 0) { throw "BuildCookRun failed ($uatExit)" }

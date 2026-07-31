@@ -15,6 +15,29 @@ lookup works in the editor and silently finds nothing in the shipped build.
 Subsystems in play: `UCompanionFaceSubsystem` (face), `UCompanionRuntimeSubsystem` (brain, voice,
 HUD), `UCompanionStageDirector` (opening shot), `UTapeReelSpinner` (reels).
 
+## Who runs the authoring
+
+`Deployment/author_diorama.py` is the **only** definition of the set. Two things run it, and both
+must, or you ship an empty room:
+
+| consumer | how | inputs |
+|---|---|---|
+| the Linux cook on core-2 | `Deployment/core2/run_author_m2.sh` -> `dev-5.5` container, `-nullrhi` | mounted at `/glb`, `/mh`, `/audio`, `/nia` |
+| the native Windows build | `Scripts/BuildNative.ps1` -> installed `UnrealEditor-Cmd.exe`, `-nullrhi` | `MHLLM_GLB_DIR` / `MHLLM_MH_DIR` / `MHLLM_AUDIO_DIR`, Nia staged into `Content/CC_ControlRig_Nia` |
+
+The script reads every external path through `MHLLM_*` environment variables whose **defaults are
+the container mount points**, so the server pipeline is unchanged and the local build simply
+points them at Windows paths. Never hard-code a new input path — add it to that block, or the
+native build silently diverges from the cook.
+
+`Content/Maps/CompanionStage.umap` in the repo is a **23 KB stub** (sky + ground). It exists only
+so `Dockerfile.amd` has something to find; it is not the set. A build that does not author will
+load it, log `No resident found; face driver inactive`, and open onto nothing — which is exactly
+what the native build did until `BuildNative.ps1` learned to author. `BuildNative.ps1` therefore
+fails loudly if the authoring did not report `SUCCESS`, did not place a resident, or produced a
+map under 200 KB, and it puts the stub back afterwards: an authored `.umap` is a build artifact of
+ONE engine version, and a 5.8-authored map cannot be loaded by the 5.5 cook.
+
 ## Assets: scavenged vs authored
 
 Twelve hero props are Sketchfab GLBs. They are imported as **GLB, never FBX** — Blender's FBX
@@ -63,6 +86,17 @@ so the brand accent and the era cue are the same colour with no compromise.
 
 ## Traps already paid for
 
+- `les.new_level()` **refuses to overwrite**. It returns `False` with
+  "Failed to validate the destination. There's already an asset at the destination", and the run
+  then authors 60-odd actors into the UNTITLED transient level, which `save_current_level` cannot
+  write. The container never saw this because it authors into a project whose `Content/` was just
+  `rm -rf`'d. Anywhere the stub already exists, the whole run produced no map — and still printed
+  `SUCCESS`, because that line was unconditional. Both are fixed; the map path is deleted first
+  and `SUCCESS` now means a `.umap` reached disk.
+- `import_prop()` returns `(mesh, texture_count)`. Binding the **whole tuple** is what left the
+  hall with no tape machines: `if t_body:` is true for a tuple, so it read as working, and
+  `set_static_mesh` then raised a nativize `TypeError` that the outer `except` swallowed into a
+  one-line warning — before a single reel actor was spawned. That was `Tape reels spinning: 0`.
 - `paint()` derived material names from colour, so two identically-coloured walls asked
   `create_asset` for the same package path twice. The second call trips a **fatal C++ assertion
   that Python's try/except cannot catch** — the commandlet dies with `appError` despite the error
@@ -75,6 +109,13 @@ so the brand accent and the era cue are the same colour with no compromise.
 
 ## Next
 
-- Cook and verify the 729 hall; confirm `Tape reels spinning: N` in the log.
-- Pull troffer emissive down — the ceiling is blowing out.
+- **Check the exposure on a captured frame.** The first native build showed the hall washed to
+  near white — walls, cabinets and floor all clipping, only the orange back wall holding colour.
+  The grade was tuned against the stream's no-GI render, so it has to be re-checked against a
+  captured frame on each target rather than by eye in the editor.
+- `T_CRT_Vector.png` and `S_RoomTone.wav` are read from the GLB directory but exist only on
+  core-2, so the native build skips the CRT scan-line screens and the room tone entirely. They
+  should be generated into the repo like `machine_room.wav` is (`Scripts/MakeAmbience.py`).
+- `Deployment/blender/make_ibm729.py` is referenced above but the directory holds only `.keep` —
+  the 729 GLB cannot currently be rebuilt from this repo.
 - Author scan-line art on the CRTs (currently flat emissive colour).

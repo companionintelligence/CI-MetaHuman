@@ -4,9 +4,22 @@
 # z_ue=100*y_w; yaw_ue=-deg(rotY_w)), era lighting per the GDD ("diegetic warm, chrome
 # cool"), desks under the desk-height artifacts, blockout resident, PlayerStart framing.
 # Writes /out/AUTHOR_RESULT.txt with progress + SUCCESS/FAIL.
-import unreal, traceback, math
+import unreal, traceback, math, os
 
-RESULT = "/out/AUTHOR_RESULT.txt"
+# INPUT LOCATIONS. The container mounts these at fixed absolute paths (see
+# Deployment/core2/run_author_m2.sh), and every default below is that container path, so the
+# server pipeline behaves exactly as before. Scripts/BuildNative.ps1 runs this SAME script
+# against the locally-installed editor by overriding them with Windows paths — which is the
+# whole point: the set has ONE definition, and a native build authors it rather than shipping
+# a stale copy of it. Any new external input must be read through here, never hard-coded, or
+# the local build silently diverges from the cook again.
+def _dir(var, default):
+    return os.environ.get(var, default).replace("\\", "/").rstrip("/")
+
+GLB_DIR   = _dir("MHLLM_GLB_DIR",   "/glb")      # prop GLBs + T_CRT_Vector.png + S_RoomTone.wav
+MH_DIR    = _dir("MHLLM_MH_DIR",    "/mh")       # MetaHuman "Seo" FBX/TGA (fallback resident only)
+AUDIO_DIR = _dir("MHLLM_AUDIO_DIR", "/audio")    # Deployment/audio — the machine-room score
+RESULT    = os.environ.get("MHLLM_AUTHOR_RESULT", "/out/AUTHOR_RESULT.txt")
 def w(s):
     try:
         with open(RESULT, "a") as f: f.write(str(s) + "\n")
@@ -53,7 +66,7 @@ try:
     # ---------- import all 12 props (GLB via Interchange; materials+textures come with) ----------
     def import_prop(name, glb):
         task = unreal.AssetImportTask()
-        task.filename = "/glb/" + glb
+        task.filename = GLB_DIR + "/" + glb
         task.destination_path = "/Game/Diorama/" + name
         task.automated = True
         task.save = True
@@ -77,7 +90,20 @@ try:
         w("import %-11s -> %s (%d tex)" % (name, "OK" if sm else "NO_STATICMESH", tex))
 
     # ---------- fresh level ----------
-    les.new_level("/Game/Maps/CompanionStage")
+    # THE empty-stage root cause. new_level REFUSES to overwrite ("Failed to validate the
+    # destination. An asset already exists at this location") and returns False, and everything
+    # after it then authors into the UNTITLED transient level -- which save_current_level cannot
+    # write ("Can't save the level because it doesn't have a filename"). The container never hit
+    # this because it authors into a project whose Content/ was just rm -rf'd, so there was
+    # nothing to collide with; anywhere the repo's own committed CompanionStage.umap exists, the
+    # whole run silently produced no map at all. Delete first, and refuse to continue if the
+    # fresh level did not actually take.
+    MAP_PATH = "/Game/Maps/CompanionStage"
+    if unreal.EditorAssetLibrary.does_asset_exist(MAP_PATH):
+        unreal.EditorAssetLibrary.delete_asset(MAP_PATH)
+        w("removed the pre-existing %s so new_level can claim the path" % MAP_PATH)
+    if not les.new_level(MAP_PATH):
+        raise RuntimeError("new_level(%s) failed; refusing to author into an untitled level" % MAP_PATH)
     w("new_level ok")
 
     # The streamed pawn spawns at the WORLD ORIGIN, not at our PlayerStart: GameModeBase does
@@ -270,13 +296,22 @@ try:
 
     # Troffer bays, slightly BELOW the ceiling slab so they are visible as fittings rather than
     # co-planar z-fighting with it. Cool white, matching the reference's fluorescent tubes.
+    #
+    # TROFFER_EMISSIVE: 7.0 clipped. An emissive that far above the scene's exposed range does
+    # not read as "a bright light" — it reads as a hole, because every troffer pixel pins at 255
+    # and the fitting loses its own edges and the pale ceiling around it goes with them under
+    # bloom. The reference photographs have troffers that are clearly the brightest thing in
+    # frame while STILL showing their tube divisions. 3.8 keeps them the brightest surface in the
+    # room without saturating, so the fittings read as fittings. Tune this by looking at a frame,
+    # never in an editor preview: the stream runs with GI off and its own auto-exposure curve.
+    TROFFER_EMISSIVE = 3.8
     troffers = 0
     for tx in range(0, 6):
         for ty in (-1, 0, 1):
             t = spawn(unreal.StaticMeshActor, (60 + tx * 300, ty * 380, 492))
             t.static_mesh_component.set_static_mesh(cube)
             t.set_actor_scale3d(unreal.Vector(2.2, 0.55, 0.06))
-            emissive(t, "M_Troffer_%d_%d" % (tx, ty + 1), (0.95, 0.97, 1.00), 7.0)
+            emissive(t, "M_Troffer_%d_%d" % (tx, ty + 1), (0.95, 0.97, 1.00), TROFFER_EMISSIVE)
             troffers += 1
     w("troffers placed: %d" % troffers)
 
@@ -493,7 +528,12 @@ try:
     # reel baked into the shell looks identical in a still and can never turn. Spinning tape is the
     # single most recognisable motion in a machine room of this era.
     try:
-        t_body = import_prop("ibm729", "ibm-729-tape.glb")
+        # import_prop returns (mesh, texture_count). Binding the whole TUPLE here is what left
+        # the hall with no tape machines at all: `if t_body:` is true for a tuple, so the code
+        # read as working, and set_static_mesh then raised a nativize TypeError that the outer
+        # except swallowed into a one-line warning -- before a single reel actor was spawned.
+        # That is the "Tape reels spinning: 0" in the runtime log.
+        t_body, _t_body_tex = import_prop("ibm729", "ibm-729-tape.glb")
         reel_meshes = []
         for a in unreal.AssetRegistryHelpers.get_asset_registry().get_assets_by_path(
                 "/Game/Diorama/ibm729", recursive=True):
@@ -635,7 +675,7 @@ try:
     try:
         def imp_tex(name):
             t = unreal.AssetImportTask()
-            t.set_editor_property("filename", "/mh/tex/%s.tga" % name)
+            t.set_editor_property("filename", MH_DIR + "/tex/%s.tga" % name)
             t.set_editor_property("destination_path", "/Game/Seo/Tex")
             t.set_editor_property("automated", True); t.set_editor_property("save", True)
             t.set_editor_property("replace_existing", True)
@@ -718,9 +758,9 @@ try:
     def OUTFIT_SLOTS(idx, slot_name):
         return "cloth_leg" if "short" in str(slot_name).lower() else "cloth_top"
 
-    seo_parts = [("/mh/fbx/SKM_MHC_Seo_BodyMesh.fbx", "/Game/Seo/Body", BODY_SLOTS),
-                 ("/mh/fbx/SKM_MHC_Seo_FaceMesh.fbx", "/Game/Seo/Face", FACE_SLOTS),
-                 ("/mh/fbx/MHC_Seo_Outfits.fbx",      "/Game/Seo/Outfit", OUTFIT_SLOTS)]
+    seo_parts = [(MH_DIR + "/fbx/SKM_MHC_Seo_BodyMesh.fbx", "/Game/Seo/Body", BODY_SLOTS),
+                 (MH_DIR + "/fbx/SKM_MHC_Seo_FaceMesh.fbx", "/Game/Seo/Face", FACE_SLOTS),
+                 (MH_DIR + "/fbx/MHC_Seo_Outfits.fbx",      "/Game/Seo/Outfit", OUTFIT_SLOTS)]
     if nia_placed:
         seo_parts = []   # Nia is the resident; skip the Seo import entirely (saves ~2 min too)
     placed_seo = 0
@@ -775,7 +815,7 @@ try:
         # -27dBFS so it sits UNDER Kokoro's speech; a bed loud enough to need ducking is a bed
         # mixed wrong, and ducking would mean C++ that has to know when she is talking.
         snd_task = unreal.AssetImportTask()
-        snd_task.filename = "/audio/machine_room.wav"
+        snd_task.filename = AUDIO_DIR + "/machine_room.wav"
         snd_task.destination_path = "/Game/Audio"
         snd_task.automated = True; snd_task.save = True; snd_task.replace_existing = True
         unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([snd_task])
@@ -818,7 +858,7 @@ try:
     # by explicit lights, so a screen that is merely bright-coloured would look dead beside them.
     try:
         t = unreal.AssetImportTask()
-        t.set_editor_property("filename", "/glb/T_CRT_Vector.png")
+        t.set_editor_property("filename", GLB_DIR + "/T_CRT_Vector.png")
         t.set_editor_property("destination_path", "/Game/Diorama/Tex")
         t.set_editor_property("automated", True); t.set_editor_property("save", True)
         t.set_editor_property("replace_existing", True)
@@ -859,7 +899,7 @@ try:
     # no resample. Looping, attenuated, centred in the hall.
     try:
         ta = unreal.AssetImportTask()
-        ta.set_editor_property("filename", "/glb/S_RoomTone.wav")
+        ta.set_editor_property("filename", GLB_DIR + "/S_RoomTone.wav")
         ta.set_editor_property("destination_path", "/Game/Diorama/Audio")
         ta.set_editor_property("automated", True); ta.set_editor_property("save", True)
         ta.set_editor_property("replace_existing", True)
@@ -953,6 +993,11 @@ try:
     ok = les.save_current_level()
     w("save_current_level=%s" % ok)
     unreal.EditorLoadingAndSavingUtils.save_dirty_packages(True, True)
+    # SUCCESS has to MEAN a map was written. It previously printed unconditionally, so a run that
+    # authored 60 actors into an unsaved level and wrote nothing to disk still reported SUCCESS --
+    # and every downstream gate (m2_clean.sh's `grep -q SUCCESS`) believed it.
+    if not ok:
+        raise RuntimeError("save_current_level returned False; no .umap was written")
     w("SUCCESS")
 except Exception as e:
     w("FAIL " + str(e))
