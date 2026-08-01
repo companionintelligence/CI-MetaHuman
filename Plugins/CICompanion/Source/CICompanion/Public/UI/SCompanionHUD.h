@@ -16,7 +16,7 @@ DECLARE_DELEGATE_OneParam(FOnCompanionMicToggled, bool /*bListening*/);
 
 // Native (code-only, no Widget Blueprint asset needed) HUD: chat log, text input, mic
 // toggle, connection status. Bound to a controller (typically
-// AMetaHumanCompanionCharacter, via UCompanionHUDWidget) purely through
+// AMetaHumanCompanionCharacter) purely through
 // delegates/setters, so it can be constructed and driven in isolation by tests with no
 // Actor/World required.
 class CICOMPANION_API SCompanionHUD : public SCompoundWidget

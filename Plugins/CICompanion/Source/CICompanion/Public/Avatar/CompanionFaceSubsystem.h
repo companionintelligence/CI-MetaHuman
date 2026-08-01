@@ -32,10 +32,15 @@ public:
 	UFUNCTION(BlueprintPure, Category = "MetaHumanLLM|Face")
 	UCompanionFaceComponent* GetFace() const { return Face; }
 
-private:
+	// Public because this is the seam the project's worst shipped bug lived in: for weeks nothing
+	// bound to the resident and the only symptom was a face that never moved. A const query with
+	// no side effects, so exposing it costs nothing and lets the selection logic be tested.
+	//
 	// Tagged actor first; failing that, the skeletal-mesh actor with the most morph targets,
 	// which in this scene is unambiguously the character rather than a prop.
 	AActor* FindResident(UWorld& InWorld) const;
+
+private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UCompanionFaceComponent> Face;

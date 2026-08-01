@@ -12,7 +12,7 @@ class USpeechToTextComponent;
 class UTextToSpeechComponent;
  
 // Separate from the BlueprintImplementableEvents below: this is a bindable multicast
-// delegate so plain-C++ listeners (e.g. UCompanionHUDWidget) can subscribe too, not
+// delegate so plain-C++ listeners (e.g. the Slate HUD) can subscribe too, not
 // just a Blueprint subclass overriding an event.
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnCompanionSpoke, const FString&, Text);
  
