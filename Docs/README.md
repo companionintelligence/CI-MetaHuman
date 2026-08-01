@@ -60,5 +60,6 @@ Ollama for cognition, Kokoro for speech, Whisper for hearing, on AMD ROCm hardwa
 | **`IN FLIGHT`** | Uncommitted in the working tree on 2026-07-31 — specifically `UKokoroPhonemeAligner` and `FVisemePlanner::PlanBest`. Check `git log` before assuming it is still pending |
 | **UNVERIFIED** | Stated because it was reported or inferred, but not confirmed against source, a measurement, or the commit history |
 | A commit hash | The claim is traceable — `git show <hash>` for the full post-mortem. Many commit messages in this repo are the primary source |
+| [VOICE-PIPELINE.md](VOICE-PIPELINE.md) | TTS, phoneme alignment, measured latency, the timing fallback ladder, and the remaining backlog |
 
 Every document dated 2026-07-31 was written against `main` at commit `dea0437`.
