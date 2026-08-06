@@ -24,6 +24,30 @@
   it in the URL before player.js is parsed. history.replaceState (not a redirect) keeps it to one
   load with no flicker, and an explicit ?HoveringMouse=false in the address bar still wins.
 
+  SECOND FIX -- THE AUDIO WAS NEVER ATTACHED, WHICH IS WHY NOBODY EVER HEARD HER.
+
+  "Has audio ever reached a browser?" was the oldest open question in this project, and the answer
+  turned out to be no -- for a reason that is not in the UE app at all. UE transmits audio
+  correctly: measured on the wire at totalAudioEnergy 0.0739 against exactly 0 when silent. But the
+  stock frontend builds the <video> element's MediaStream from the VIDEO track only. The audio
+  transceiver is negotiated, the receiver is live, the packets arrive -- and the element they are
+  meant to play through was never given the track.
+
+  That failure is invisible from every direction anyone had looked from. The signalling logs show a
+  negotiated audio track. UE logs FStreamer::OnAudioTrackUpdate. WebRTC internals show bytes
+  received. The only place it shows up is video.srcObject.getAudioTracks(), which is empty, and
+  measuring THAT is what settled it: a headless probe reported "stream carries NO audio track"
+  while the container was demonstrably sending one.
+
+  So: wrap RTCPeerConnection before player.js constructs one, then fold every inbound audio track
+  into the same MediaStream the video element is already playing. This has to run before player.js
+  parses, which is exactly where the HoveringMouse fix above already sits.
+
+  This previously existed as /home/ci/attach_audio.sh on core-2, which appended the same script to
+  the RUNNING container's player.html. That is lost on every docker compose up, so the fix was
+  re-applied by hand or silently absent -- and "silently absent" is indistinguishable from "audio
+  does not work". It belongs in the mounted page, under version control, which is here.
+
   KEEPING IT IN SYNC: this file references player.js and the hashed favicon by the names the :5.5
   image ships. If SIGNALLING_IMAGE is ever bumped, re-copy the stock player.html out of the new
   image and re-apply the script block -- a stale copy here would serve a page whose script tags no
@@ -37,6 +61,44 @@
       url.searchParams.set('HoveringMouse', 'true');
       window.history.replaceState(null, '', url.toString());
     }
+  } catch (e) { /* never let this stop the player from loading */ }
+})();
+(function () {
+  // Fold inbound audio into the video element's stream. See the SECOND FIX note above.
+  try {
+    var Orig = window.RTCPeerConnection;
+    if (!Orig) { return; }
+    var conns = [];
+    window.RTCPeerConnection = function () {
+      var pc = new (Function.prototype.bind.apply(Orig, [null].concat([].slice.call(arguments))))();
+      conns.push(pc);
+      return pc;
+    };
+    window.RTCPeerConnection.prototype = Orig.prototype;
+
+    // Polling rather than ontrack: player.js owns the connection and assigns srcObject on its own
+    // schedule, so there is no event we can bind to that is guaranteed to fire AFTER the element
+    // has a stream. One second is imperceptible against a WebRTC negotiation.
+    setInterval(function () {
+      var v = document.querySelector('video');
+      if (!v || !v.srcObject) { return; }
+      conns.forEach(function (pc) {
+        pc.getReceivers().forEach(function (r) {
+          if (r.track && r.track.kind === 'audio' &&
+              v.srcObject.getAudioTracks().indexOf(r.track) === -1) {
+            v.srcObject.addTrack(r.track);
+            // The stock page mutes the element to satisfy autoplay policy. Attaching a track to a
+            // muted element reproduces the exact bug this fixes, so unmute as well -- and unmuting
+            // can require a gesture, which is why the play() rejection is swallowed rather than
+            // reported: the track is attached either way and a click will start it.
+            v.muted = false;
+            var p = v.play();
+            if (p && p.catch) { p.catch(function () {}); }
+            console.log('[audio-fix] attached inbound audio track');
+          }
+        });
+      });
+    }, 1000);
   } catch (e) { /* never let this stop the player from loading */ }
 })();
 </script><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Michroma&family=Montserrat:wght@600&display=swap" rel="stylesheet"><link rel="shortcut icon" href="43ef81525e6853dc.ico" type="image/x-icon"><link rel="icon" type="image/png" sizes="96x96" href="images/favicon-96x96.png"><link rel="icon" type="image/png" sizes="32x32" href="images/favicon-32x32.png"><link rel="icon" type="image/png" sizes="16x16" href="images/favicon-16x16.png"><title>Pixel Streaming</title><script defer="defer" src="player.js"></script></head><body style="width:100vw;height:100vh;min-height:-webkit-fill-available;font-family:Montserrat;margin:0"></body></html>
