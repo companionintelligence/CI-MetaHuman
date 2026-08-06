@@ -149,9 +149,19 @@ the model before measuring, or listen longer than the cold-load time.
 1. **⏳ The Hana acquisition deadline — 2026-11-05, 97 days.** The only item here with an external
    clock. Unactioned, and it needs an Epic sign-in inside a 5.5 editor (see §9).
 2. **Audio unproven** (above). Several later features assume it.
-3. **`docker system prune --all` keeps destroying core-2's images** — five occurrences in shell
-   history. Each costs an 85 GB engine re-pull. `Deployment/core2/README.md` documents the archive
-   workaround; the prune itself is outside our control.
+3. ~~**`docker system prune --all` keeps destroying core-2's images**~~ — **mitigated 2026-08-06.**
+   It struck again mid-session, taking the engine image, the cooked app image and the signalling
+   image, and costing an 85 GB re-pull in the middle of a verification run. The archive workaround
+   the old note pointed at had itself been deleted, because nothing kept *it* alive either.
+
+   `Deployment/core2/pin-engine-image.sh` is a hard interlock instead of a remedy: `prune --all`
+   removes images "not used by at least one container" and never removes a RUNNING container, so
+   one idle `--restart=always` container built from the engine image makes that image unprunable by
+   any invocation short of an explicit `docker rmi -f`. Costs a sleeping process; needs no operator
+   to remember anything, which is the part every previous mitigation got wrong.
+
+   The prune itself is still outside our control — it comes from unrelated CI housekeeping on that
+   box, and unrelated images (traefik, rabbitmq, cloudflared) now appear alongside ours.
 4. **`fs.inotify.max_user_watches` reverts on reboot.** A cook exhausts the 65 536 default. Needs one
    line in `/etc/sysctl.d/`, which needs the owner's approval — that box runs other services.
 5. ~~Two stale branches~~ — deleted.

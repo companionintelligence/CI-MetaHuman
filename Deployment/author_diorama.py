@@ -330,7 +330,14 @@ try:
     ceil = spawn(unreal.StaticMeshActor, (450,0,500))
     ceil.static_mesh_component.set_static_mesh(cube)
     ceil.set_actor_scale3d(unreal.Vector(28,15,0.2))
-    paint(ceil, "M_SetCeiling", (0.90, 0.90, 0.88), 0.8)                  # pale troffer ceiling
+    # Albedo 0.35, not the 0.90 this shipped with. At 0.90 the slab was the BRIGHTEST SURFACE IN
+    # FRAME: lit from below by the troffer grid, it clipped to white across the top of every
+    # portrait capture, which is what made the crop look unfinished. That directly contradicts the
+    # design note twenty lines down -- the ceiling is supposed to read as a GRID OF LIT TROFFERS,
+    # "bright rectangles reading as light SOURCES, not a pale surface". A 0.90 plenum outshines its
+    # own fittings and destroys exactly the contrast the reference photographs are built on.
+    # 0.35 is a grey acoustic tile: still clearly a ceiling, no longer competing with the lamps.
+    paint(ceil, "M_SetCeiling", (0.35, 0.35, 0.34), 0.8)                  # grey tile, troffers win
     w("shell ok (walls + ceiling)")
 
     # ---------- reference match: fluorescent troffers + operator desk ----------

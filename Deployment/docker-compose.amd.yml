@@ -40,25 +40,33 @@ services:
       # neither, and this keeps the GPU stable.
       - "-noraytracing"
       - "-ExecCmds=r.RayTracing 0; r.Lumen.HardwareRayTracing 0; r.DynamicGlobalIlluminationMethod 0; r.ReflectionMethod 0; r.SkyLight.RealTimeReflectionCapture 0; r.SkyAtmosphere 0; r.ReflectionCaptureResolution 0; r.Vulkan.WaitForIdleOnSubmit 2; r.GenerateMeshDistanceFields 0; r.Nanite 0"
-      # -ForceRes is deliberately ABSENT: it pins the backbuffer, which stops the frontend's
-      # MatchViewportRes from resizing the render to the browser window. The values below are the
-      # STARTING size only; with MatchViewportRes=true the player resizes UE to the actual window.
+      # -ForceRes IS REQUIRED, and its previous absence meant the composed shot never shipped.
       #
-      # PORTRAIT 9:16 start — the shot is a video call framed on the resident. Framing itself is
-      # protected by AspectRatioAxisConstraint=AspectRatio_MaintainYFOV in DefaultEngine.ini, so a
-      # window of any shape keeps the same crop of HER and simply reveals more or less machine
-      # hall at the sides. Without that constraint a wide window crops her head off.
-      # Portrait 9:16 by default: the product is a video CALL, and the shot is composed for it
-      # (see author_diorama.py). Override for a landscape display:
+      # The old comment here said "portrait 9:16 by default" and left -ForceRes off so the
+      # frontend's MatchViewportRes could resize the render. Measured on the live stream
+      # 2026-08-06, that is not what happened: WITHOUT -ForceRes the -ResX/-ResY values are only a
+      # hint, and UE under -RenderOffscreen falls back to its own 1280x720. Every viewer who has
+      # ever opened :8090 got a LANDSCAPE crop of a shot composed for 9:16 -- the subject small and
+      # centred, the cabinet tops cutting a hard horizontal band across her waist. Nobody chose
+      # that framing; it was a default nobody knew was winning.
+      #
+      # Pinning it costs the MatchViewportRes resize, and that is the right trade for this product.
+      # The thing being served is a video CALL. A call app does not stretch the call to fill a 21:9
+      # monitor -- it letterboxes a portrait frame, which is exactly what a pinned backbuffer gives
+      # in a wide window. Adaptivity was buying a worse picture on every window shape but one.
+      #
+      # AspectRatioAxisConstraint=AspectRatio_MaintainYFOV in DefaultEngine.ini still governs the
+      # crop, and its consequence is worth stating because it has cost several framing attempts:
+      # vertical coverage is held, so HORIZONTAL coverage is always aspect x vertical. At 9:16 that
+      # is 0.5625x. Measured against the authored set (Nia stature 193cm, eyeline 180cm, camera at
+      # 160cm) the frame covers ~85cm vertically, hence only ~48cm horizontally -- narrower than
+      # her shoulders. "Head to hips WITH the aisle past both shoulders" is therefore not a framing
+      # that exists at any distance in 9:16: ~120cm of horizontal needs ~213cm of vertical, which
+      # is head-to-knees. Pick one before touching CAM_DIST in author_diorama.py.
+      #
+      # For a genuinely landscape display, override both together:
       #   STREAM_RES_X=1280 STREAM_RES_Y=720 docker compose ... up -d project
-      #
-      # To make the stream track the VIEWER's window instead of a fixed size, no rebuild is
-      # needed -- it is a client-side frontend setting:
-      #   http://core-2:8090/?MatchViewportRes=true
-      # UE then re-renders at the browser viewport, and because the camera's aspect constraint is
-      # released the framing adapts with it. Note the trade: in a LANDSCAPE window that turns a
-      # portrait call into a wide shot with a smaller subject, so the composed framing only holds
-      # if the window is roughly portrait.
+      - "-ForceRes"
       - "-ResX=${STREAM_RES_X:-720}"
       - "-ResY=${STREAM_RES_Y:-1280}"
       # Lets the browser send the resize command that MatchViewportRes relies on.
