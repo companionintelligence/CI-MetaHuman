@@ -15,6 +15,16 @@ class UTextToSpeechComponent;
 // delegate so plain-C++ listeners (e.g. the Slate HUD) can subscribe too, not
 // just a Blueprint subclass overriding an event.
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnCompanionSpoke, const FString&, Text);
+
+// The failure counterpart, and it exists for the same reason FOnCompanionSpoke does.
+//
+// OnConversationError below is a BlueprintImplementableEvent, and this project has no Blueprints at
+// all (ARCHITECTURE.md section 3) -- so every backend failure was announced into a void. The user-
+// visible consequence was severe out of proportion to the cause: the HUD sets "thinking..." when a
+// turn is submitted and only ever clears it on a reply, so ANY error -- Ollama down, model not
+// pulled, a typo in the base URL -- left the companion sitting on "thinking..." for the remainder of
+// the session, looking like a hang rather than a failure anyone could act on.
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnCompanionError, const FString&, Message);
  
 // Orchestrates one conversational turn: user text/speech -> Ollama -> emotion mapping
 // -> TTS. Deliberately does NOT touch the MetaHuman skeletal mesh/AnimBP directly —
@@ -69,10 +79,21 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "MetaHumanLLM")
 	bool IsWaitingForResponse() const { return CurrentRequestHandle != InvalidOllamaRequestHandle; }
+
+	// Absolute path of the persisted transcript: the configured override, or the default under
+	// Saved/. Static because it depends only on settings, and public so an operator tool or a test
+	// can find the file without instantiating a companion.
+	UFUNCTION(BlueprintPure, Category = "MetaHumanLLM")
+	static FString ResolveMemoryPath();
  
 	// Fired alongside OnSpeak, for plain-C++ listeners (e.g. the HUD widget's chat log).
 	UPROPERTY(BlueprintAssignable, Category = "MetaHumanLLM")
 	FOnCompanionSpoke OnCompanionSpoke;
+
+	// Fired alongside the OnConversationError Blueprint event, for the C++ listeners that actually
+	// exist in this build.
+	UPROPERTY(BlueprintAssignable, Category = "MetaHumanLLM")
+	FOnCompanionError OnCompanionError;
  
 	virtual void Tick(float DeltaTime) override;
  

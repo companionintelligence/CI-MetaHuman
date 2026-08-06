@@ -34,6 +34,16 @@ public:
 	virtual bool ShouldCreateSubsystem(UObject* Outer) const override;
 	virtual void OnWorldBeginPlay(UWorld& InWorld) override;
 
+	// Tears down everything OnWorldBeginPlay attached to something that OUTLIVES this subsystem.
+	//
+	// There was no Deinitialize at all, and two things leaked across a world teardown. The chat
+	// focus guard is a 4 Hz LOOPING timer bound to this object, and the two Slate widgets were added
+	// to GEngine->GameViewport -- which is owned by the engine, not the world, and therefore keeps
+	// holding them after the world that made them is gone. In the editor that means every PIE
+	// session leaves another HUD stacked on the viewport; in a packaged build it matters on any
+	// level transition.
+	virtual void Deinitialize() override;
+
 	UFUNCTION(BlueprintPure, Category = "MetaHumanLLM")
 	AMetaHumanCompanionCharacter* GetCompanion() const { return Companion; }
 
@@ -41,6 +51,16 @@ public:
 	// Streaming data channel, HUD, STT) should call, so none of them need to find the actor.
 	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM")
 	bool SubmitUserText(const FString& Text);
+
+	// A turn that arrived as SPEECH rather than as keystrokes.
+	//
+	// Distinct from SubmitUserText only in that it does the things the chat box does for itself:
+	// echo the words into the log so the viewer can see what was heard, put the HUD into
+	// "thinking...", and cut the scripted opening short. Without this the STT path reached the model
+	// but left the UI showing nothing at all — and a transcription the user cannot see is a
+	// transcription they cannot tell was WRONG, which is the first thing anyone needs from a mic.
+	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM")
+	bool SubmitTranscribedText(const FString& Text);
 
 	// Speaks an exact line WITHOUT consulting the LLM. The opening line is a brand statement: it
 	// must be word-for-word identical every run, and must not wait on a model round trip while the
@@ -61,6 +81,26 @@ public:
 private:
 	void CreateHud();
 	void HandleHudTextSubmitted(const FString& Text);
+
+	// The presentation half of "a user turn arrived", shared by every input path so typed and spoken
+	// turns cannot drift into looking different to the viewer.
+	void AnnounceUserTurn(const FString& Text);
+
+	// Connects the HUD's mic button to the STT backend.
+	//
+	// Everything either side of this handler already existed and was tested: SCompanionHUD has
+	// published OnMicToggled since it was written, AMetaHumanCompanionCharacter has StartListening /
+	// StopListening, UWhisperSpeechToText captures the host device and POSTs the WAV, and the
+	// character binds OnTranscribed straight into SubmitUserText. NOTHING BOUND THE TWO ENDS — the
+	// delegate was published to no subscriber, so the button toggled its own colour and did
+	// literally nothing else. That is why the gap survived a 200-spec suite: every piece passed its
+	// own test and the wire between them was never a piece.
+	//
+	// It is also why this rolls the button back on failure rather than trusting it. The mic toggle is
+	// optimistic — SCompanionHUD flips bMicListening before anyone has checked whether a capture
+	// device exists — so a UI that is not corrected claims she is listening while the null backend
+	// quietly discards the turn.
+	void HandleMicToggled(bool bListening);
 
 	// Switches the player controller into a mode where Slate sees the keyboard and mouse, shows a
 	// cursor, and focuses the text box. Without it a packaged game starts in
@@ -95,6 +135,15 @@ private:
 	TSharedPtr<class SCompanionHUD> Hud;
 	TSharedPtr<class SCompanionSettingsPanel> SettingsPanel;
 
+	// The SWeakWidget wrappers actually handed to the viewport.
+	//
+	// Kept because RemoveViewportWidgetContent matches by IDENTITY: the viewport holds the wrapper,
+	// not the widget inside it, so removing Hud directly matches nothing and silently succeeds.
+	// Resetting the inner pointers alone does blank the widgets (that is the point of SWeakWidget),
+	// but it leaves an empty placeholder slot in the viewport for every world that ever ran.
+	TSharedPtr<class SWidget> HudSlot;
+	TSharedPtr<class SWidget> SettingsPanelSlot;
+
 	// Pushes changed settings to the systems that own them. Only the subsystems the diff marks
 	// dirty are touched: rebinding the face or restarting audio on every edit would hitch a live
 	// stream, and re-resolving morph curves is not free.
@@ -104,6 +153,11 @@ private:
 	// is dynamic, so a lambda or raw member cannot bind to it.
 	UFUNCTION()
 	void HandleCompanionSpoke(const FString& Text);
+
+	// The failure path out of the same actor. Must be a UFUNCTION for the same reason its sibling
+	// is: the delegate is dynamic, so a lambda or raw member cannot bind to it.
+	UFUNCTION()
+	void HandleCompanionError(const FString& Message);
 
 	// Receives synthesized speech: the text that is now playing and the clip's true length. Starts
 	// the mouth, or — if the phoneme aligner has not answered yet — starts the short wait for it.
@@ -122,6 +176,20 @@ private:
 	// Resets the per-utterance timing state. Called at the moment a reply is handed to the voice,
 	// so a barge-in cannot leave the previous reply's alignment attached to the new one.
 	void BeginUtterance(const FString& Text);
+
+	// Tears down an utterance that is being INTERRUPTED, across all three things that outlive it.
+	//
+	// Barge-in was previously only half-implemented, and the half that was missing is the half a
+	// viewer sees. The character cancels the LLM request and stops the audio — so she goes quiet —
+	// but nothing ever called UCompanionFaceComponent::StopSpeaking, which had zero callers in the
+	// whole repo. The viseme track is on its own clock and does not care that the audio stopped, so
+	// she carried on MOUTHING the abandoned reply in silence until the track ran out.
+	//
+	// The alignment grace timer is the third piece and the least obvious: it can still be armed when
+	// the interrupt lands, and it fires into DriveMouthFromBestSource, which would start a fresh
+	// viseme track for the DEAD utterance — a mouth moving to a sentence that was cancelled a second
+	// earlier and whose audio was never played.
+	void CancelUtterance();
 
 	// Receives the aligner's answer, successful or not (empty Spans == not available).
 	void HandlePhonemeAlignmentReady(const FString& Text, const TArray<FPhonemeSpan>& Spans, float AlignedSeconds);

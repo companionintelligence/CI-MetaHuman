@@ -36,14 +36,14 @@ mostly in §3.
 | Speech out | ✅ | Kokoro, 1166 ms median, **audible in the browser — measured by energy** |
 | Text input from a browser | ✅ | Measured through five phases including stray-click recovery |
 | Emotion → face | ✅ | Landed `dea0437`. Reply text → `UEmotionMapper` → a sustained bias blended over 0.4 s, held 1.2 s past the utterance, with a 12 s backstop |
-| **Speech in** | ❌ | `UWhisperSpeechToText` works, the service works (66 ms), **nothing binds the HUD's mic toggle to it** |
-| **Long-term memory** | ❌ | Every session starts blank. `ci-memory` runs on the same host, unused |
-| **Gaze / eye contact** | ❌ | `GazeCurves` are declared in both profiles and driven by nothing. In a video-call framing this is the most visible absence — *a person who never looks at you reads as absent* |
-| **Head motion** | ❌ | She does not nod, tilt, or orient toward the speaker |
+| **Speech in** | ✅ | **Wired 2026-08-02.** `SCompanionHUD::OnMicToggled` → `UCompanionRuntimeSubsystem::HandleMicToggled` → `AMetaHumanCompanionCharacter::StartListening`. The button rolls back when the backend reports it is not actually listening, and a transcript now enters at `SubmitTranscribedText` so a spoken turn gets the same barge-in, chat echo and opening-skip a typed one does |
+| **Long-term memory** | ✅ | **Added 2026-08-02**, opt-in via `MHLLM_MEMORY=1`. `UOllamaConversation::SaveToJson` / `LoadFromJson` under `Saved/Companion/`. The persona is never persisted, so it stays configurable; off by default because it writes visitor transcripts to disk |
+| **Gaze / eye contact** | ✅ | **Added 2026-08-02.** `FCompanionGazeState`: ballistic saccades, dyadic contact/speaking/thinking asymmetry, upward planning aversion while the model is answering, and a 30 s backstop so a dead backend cannot leave her staring into the middle distance |
+| **Head motion** | ❌ | She does not nod, tilt, or orient toward the speaker. The rig has `Head_Turn_*`, `Head_Tilt_*` and `Neck_*` morphs (`Docs/reference/nia-morph-targets.txt`) that nothing references |
 | **Gesture / body language** | ❌ | `EAnimationCategory` is an enum with no animation set behind it |
 | **Breathing / micro-motion** | ❌ | `ANIMATION-PLAN` §3, unstarted |
 | **World actions** | ❌ | No tool-calling. She cannot look at, walk to, or touch anything. **No sibling agent in the org has this either** — and this puppet is the one with a body to act with |
-| **Barge-in (audio)** | ⚠️ | `SubmitUserText` cancels the LLM and calls `StopSpeaking`, but a visitor who interrupts mid-clip is still talked over until that lands |
+| **Barge-in (audio)** | ✅ | **Completed 2026-08-02.** The audio half already worked; the FACE half did not — `UCompanionFaceComponent::StopSpeaking` had **zero callers in the repo**, so an interrupted reply kept being silently mouthed to the end of its track. `CancelUtterance()` now stops the mouth, cancels the pending phoneme alignment and clears the grace timer that could otherwise start a fresh silent utterance for the dead turn |
 | **Multi-viewer** | ❌ | One UE process, one streamer, one conversation. Not a tuning exercise — a second UE instance per viewer, or a redesign |
 | **Auth** | ❌ | The OIDC gate has never worked; `:8090` is open on the tailnet |
 | **Observability** | ❌ | Turn latency, failure rate and audio underruns are visible only by reading container logs over SSH |
@@ -68,17 +68,41 @@ mostly in §3.
 
 ## 3. Ranked, by product value per unit of effort
 
-1. **Gaze.** The rig already has the eight look curves; nothing drives them. Cheapest perceived
-   aliveness per hour of any item on this list, and it needs no service.
-2. **Wire the mic.** `OnMicToggled` → `UWhisperSpeechToText` → the existing `SubmitUserText` seam.
-   The service is measured at 66 ms and the component is tested. This is a binding, not a feature.
-3. **Land the in-flight alignment work.** `UKokoroPhonemeAligner` + `PlanBest` promote lip-sync from tier 2 to tier 1; the sidecar is already running and tunnelled.
-4. **Long-term memory.** `ci-memory` is running on the same host, unused. *A companion that cannot
-   remember you is a chatbot with a face* — and it would be the org's first.
-5. **Observability.** You cannot operate what you cannot see, and today that means SSH and `grep`.
-6. **Prop materials and wardrobe.** The cabinets still import pale against a dark-charcoal
+> **Items 1–4 of the previous ranking landed on 2026-08-02** (gaze, mic wiring, phoneme alignment,
+> long-term memory) along with a set of defects found by auditing the source rather than the docs —
+> see §3.1. What follows is what is left.
+
+1. **Observability.** You cannot operate what you cannot see, and today that means SSH and `grep`.
+   Now the largest remaining gap: with speech in, memory and gaze all live, there are more ways for
+   a turn to fail than there are ways to notice one did.
+2. **Head motion and gesture.** Gaze made the eyes alive and left the head frozen, which is a
+   sharper contrast than it sounds — the rig carries `Head_Turn_*`, `Head_Tilt_*` and `Neck_*`
+   morphs that nothing drives, so this is wiring rather than assets, exactly as gaze was.
+3. **Tool calling / world actions.** No sibling agent in the org has it, and this is the one with a
+   body to act with. Genuinely large: it needs a `tools` array on the request, `tool_calls` parsing
+   in both stream parsers, a `Tool` role, and a dispatch loop.
+4. **Prop materials and wardrobe.** The cabinets still import pale against a dark-charcoal
    reference; a white cocktail dress in a machine room undercuts the premise.
-7. **Auth and multi-session.** Required before anyone outside the tailnet sees it.
+5. **Auth and multi-session.** Required before anyone outside the tailnet sees it.
+
+### 3.1 Defects fixed in the same pass
+
+Each was found by reading the source against the docs, and none was visible to the 209-spec suite —
+which is the point worth keeping.
+
+| Defect | Why no test saw it |
+|---|---|
+| **Streaming corrupted every non-ASCII reply.** Both clients diffed `GetContentAsString()` by TCHAR count; a character split across a chunk boundary changed length once completed, so the cursor pointed into a string that had shifted underneath it. Now byte-diffed, holding back partial sequences | Both client specs feed the parser whole, well-formed strings — they exercise the parser and never the cursor in front of it |
+| **Conversation history was uncapped.** The whole transcript is re-sent every turn, so context grew until the server truncated from the front and silently discarded the persona | Nothing asserted on history LENGTH over many turns |
+| **No HTTP timeout on either chat client.** A backend that accepted the connection and went quiet hung "thinking..." forever | Requires a live, misbehaving server |
+| **An LLM error reached nobody.** `OnConversationError` is a `BlueprintImplementableEvent` in a project with no Blueprints | The event fires; nothing asserts anyone hears it |
+| **Emotion drained mid-sentence on long replies.** The 12 s sustain is a backstop sized for "nothing reports the end of speech", and was never re-armed against the real utterance length — ~30 words at Kokoro's rate | `CompanionEmotionSpec` tests the policy, which was correct; the caller never told it how long the utterance was |
+| **Blink was overwriting, not additive**, and **Fear/Alert held the eyes wide against a blink** with no arbitration, so she appeared to stop blinking during those expressions | Both profiles happen to keep the curves disjoint, so the contract and the behaviour agreed by luck |
+| **A cancelled Kokoro request's callback dropped the live request's handle**, leaving the new utterance uncancellable | Needs two overlapping requests |
+| **No `Deinitialize`:** a 4 Hz looping timer and two viewport widgets leaked across every world teardown | Nothing tears a world down in a spec |
+| **The console's model box never reached the OpenAI backend** — it wrote only `OllamaModel` | The panel spec asserts the model, not which setting it lands in |
+| **Whisper omitted the `model` field** the OpenAI shape requires, and logged the resulting 4xx at `Verbose` | The multipart spec pinned the body that existed, not the one Lemonade needs |
+| **`RunBackendTests.ps1` never compiled anything** — it tested whatever DLL was last built | This is the one that could hide all of the above |
 
 ### What NOT to do next
 

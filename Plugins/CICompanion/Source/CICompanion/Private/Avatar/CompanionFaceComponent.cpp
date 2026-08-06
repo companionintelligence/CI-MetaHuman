@@ -10,9 +10,11 @@ UCompanionFaceComponent::UCompanionFaceComponent()
 	PrimaryComponentTick.bCanEverTick = true;
 	PrimaryComponentTick.bStartWithTickEnabled = true;
 	Profile = FFaceProfile::CharacterCreator();
+	CachedAllCurves = Profile.AllCurves();
 	// Resolved here rather than at BeginPlay so the switch is observable on a component that was
 	// never registered into a world — which is how the tests reach it.
 	bEmotionEnabled = FCompanionEmotionState::IsEnabled();
+	bGazeEnabled = FCompanionGazeState::IsEnabled();
 }
 
 void UCompanionFaceComponent::BeginPlay()
@@ -31,6 +33,20 @@ void UCompanionFaceComponent::BeginPlay()
 		// Logged, because a still brow is not obviously a CHOICE when you are looking at a frame.
 		UE_LOG(LogCompanionFace, Log, TEXT("Facial emotion disabled by MHLLM_EMOTION=0."));
 	}
+
+	if (!bGazeEnabled)
+	{
+		// Same reasoning: a dead stare is indistinguishable from a broken gaze driver in a frame
+		// grab, and this project has already lost time to a back-to-camera pose that survived weeks
+		// of "verified" (TESTING.md §5.2).
+		UE_LOG(LogCompanionFace, Log, TEXT("Gaze disabled by MHLLM_GAZE=0."));
+	}
+	else if (Profile.GazeCurves.Num() < 8)
+	{
+		UE_LOG(LogCompanionFace, Warning,
+			TEXT("Face profile '%s' declares %d gaze curves; 8 are required, so the eyes will not move."),
+			*Profile.ProfileName.ToString(), Profile.GazeCurves.Num());
+	}
 }
 
 void UCompanionFaceComponent::SetTargetMesh(USkeletalMeshComponent* InMesh)
@@ -42,6 +58,8 @@ void UCompanionFaceComponent::SetTargetMesh(USkeletalMeshComponent* InMesh)
 void UCompanionFaceComponent::SetProfile(const FFaceProfile& InProfile)
 {
 	Profile = InProfile;
+	// The one place the zeroing set can change, so the one place it is rebuilt.
+	CachedAllCurves = Profile.AllCurves();
 	ResolveCurvesAgainstMesh();
 }
 
@@ -60,7 +78,7 @@ void UCompanionFaceComponent::ResolveCurvesAgainstMesh()
 	}
 
 	TArray<FName> Missing;
-	for (const FName& Curve : Profile.AllCurves())
+	for (const FName& Curve : CachedAllCurves)
 	{
 		if (Asset->FindMorphTarget(Curve))
 		{
@@ -80,7 +98,7 @@ void UCompanionFaceComponent::ResolveCurvesAgainstMesh()
 		Algo::Transform(Missing, Names, [](const FName& N) { return N.ToString(); });
 		UE_LOG(LogCompanionFace, Warning,
 			TEXT("Face profile '%s': %d/%d curves missing on '%s' -> %s"),
-			*Profile.ProfileName.ToString(), Missing.Num(), Profile.AllCurves().Num(),
+			*Profile.ProfileName.ToString(), Missing.Num(), CachedAllCurves.Num(),
 			*Asset->GetName(), *FString::Join(Names, TEXT(", ")));
 	}
 	else
@@ -113,7 +131,7 @@ void UCompanionFaceComponent::ApplyCurves(const TMap<FName, float>& Curves)
 
 	// Zero the profile's whole curve set first. Cheaper and far more robust than tracking which
 	// curves were touched last frame, and it guarantees a shape cannot stick on.
-	for (const FName& Curve : Profile.AllCurves())
+	for (const FName& Curve : CachedAllCurves)
 	{
 		TargetMesh->SetMorphTarget(Curve, 0.0f);
 	}
@@ -198,15 +216,33 @@ TMap<FName, float> UCompanionFaceComponent::ComposeFrame(float DeltaTime)
 	}
 
 	// LAYER 2: the eyelids, over whatever the mouth is doing.
+	//
+	// ADDITIVE, like every other layer. This was an overwriting Add() and happened to be correct
+	// only because no viseme in either shipped profile touches a lid curve — so the contract and the
+	// behaviour agreed by luck rather than by construction, and the first profile to disagree would
+	// have silently discarded the other contribution.
 	if (Blink > 0.0f)
 	{
 		for (const FName& BlinkCurve : Profile.BlinkCurves)
 		{
-			Curves.Add(BlinkCurve, Blink);
+			Curves.FindOrAdd(BlinkCurve, 0.0f) += Blink;
 		}
 	}
 
-	// LAYER 3: the expression, ON TOP and LAST.
+	// LAYER 3: the eyes. Advanced unconditionally and BEFORE the enabled check, for the same reason
+	// emotion is: the gaze clock belongs to the character, not to any one utterance, and a channel
+	// that only ticks while it is being rendered would jump the moment it was switched back on.
+	//
+	// Ordering against the other layers is not load-bearing here — the profile keeps the eight look
+	// curves disjoint from every viseme, blink and emotion curve, so nothing can clobber anything.
+	// It sits with blink because both are involuntary and neither is chosen by the sentence.
+	Gaze.Advance(DeltaTime);
+	if (bGazeEnabled)
+	{
+		Gaze.AccumulateInto(Profile, Curves);
+	}
+
+	// LAYER 4: the expression, ON TOP and LAST.
 	//
 	// Order is load-bearing in both directions. It must come after the visemes because
 	// FFaceProfile::Accumulate clamps as it sums, so an emotion accumulated first could be clipped
@@ -217,6 +253,26 @@ TMap<FName, float> UCompanionFaceComponent::ComposeFrame(float DeltaTime)
 	if (bEmotionEnabled)
 	{
 		Emotion.AccumulateInto(Profile, Curves);
+
+		// ...and then the one place two layers genuinely contradict each other, resolved in favour
+		// of the blink. Fear and Alert hold the eyes WIDE; a blink shuts them. Both were being
+		// written, so during those expressions the lid closed against a widener holding it open and
+		// she read as though she had stopped blinking — the precise "corpse" tell that the blink
+		// clock exists to avoid, reintroduced by the expression system.
+		//
+		// Damped rather than dropped: a blink is a 120ms transient, so scaling by (1 - Blink) lets
+		// the expression return to full strength the instant the lid reopens. Zeroing it outright
+		// would make the brow visibly flinch on every blink.
+		if (Blink > 0.0f)
+		{
+			for (const FName& WidenCurve : Profile.EyeWidenCurves)
+			{
+				if (float* Value = Curves.Find(WidenCurve))
+				{
+					*Value *= (1.0f - Blink);
+				}
+			}
+		}
 	}
 
 	return Curves;
@@ -250,6 +306,20 @@ void UCompanionFaceComponent::PlayVisemeTrack(const TArray<FVisemeSpan>& Track, 
 	if (bSpeaking)
 	{
 		bSelfTesting = false;	// real speech supersedes the diagnostic loop
+
+		// Speakers break eye contact markedly more than listeners do. This component is the only
+		// thing that knows when an utterance actually STARTS and ENDS — the runtime subsystem hands
+		// off a track and never hears about it again — so the speaking/listening half of the gaze
+		// policy is owned here rather than pushed in from outside and inevitably left stale.
+		Gaze.SetMode(FCompanionGazeState::EGazeMode::Speaking);
+
+		// Now that the utterance's real length is known, extend the expression's lease to cover it.
+		// The emotion is set once per reply against a 12s backstop sized for the case where the end
+		// of speech is never reported at all; a reply longer than that drained to neutral partway
+		// through the sentence it belonged to. EndSpeech's Release() still shortens the lease at the
+		// true end, so this only ever moves the failure case, never the normal one.
+		Emotion.Sustain((FVisemePlanner::TrackDuration(Track) - SpeechElapsed)
+			+ FCompanionEmotionState::DefaultHoldSeconds);
 	}
 }
 
@@ -273,6 +343,11 @@ void UCompanionFaceComponent::EndSpeech()
 	// beat first, then blended out. This is what stops an expression sticking on for the session:
 	// nothing else ever tells the face the reply is finished.
 	Emotion.Release();
+
+	// And she goes back to looking at whoever she was talking to. Note this is the LISTENING mode,
+	// not merely "not speaking": having just finished a turn, attending to the other party is the
+	// correct behaviour, and it is what makes the hand-back of the conversational floor legible.
+	Gaze.SetMode(FCompanionGazeState::EGazeMode::Contact);
 }
 
 void UCompanionFaceComponent::SetEmotion(EEmotionType InEmotion, float Intensity)
@@ -303,6 +378,24 @@ void UCompanionFaceComponent::SetEmotionEnabled(bool bEnabled)
 		// keep animating for another half second, and whatever it last wrote must not stay latched
 		// on the mesh. The next tick's zeroing pass finishes the job.
 		Emotion.Reset();
+	}
+}
+
+void UCompanionFaceComponent::SetGazeMode(FCompanionGazeState::EGazeMode InMode)
+{
+	// Passed through even while gaze is disabled, so the state stays truthful and re-enabling does
+	// not resume in whatever mode was current when it was switched off.
+	Gaze.SetMode(InMode);
+}
+
+void UCompanionFaceComponent::SetGazeEnabled(bool bEnabled)
+{
+	bGazeEnabled = bEnabled;
+	if (!bEnabled)
+	{
+		// Recentred rather than frozen: a disabled gaze driver that leaves the eyes deflected mid-
+		// saccade looks exactly like a broken one. The next tick's zeroing pass finishes the job.
+		Gaze.Reset();
 	}
 }
 

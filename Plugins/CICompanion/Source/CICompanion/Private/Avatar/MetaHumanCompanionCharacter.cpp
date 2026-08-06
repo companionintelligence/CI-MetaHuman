@@ -1,4 +1,6 @@
 #include "Avatar/MetaHumanCompanionCharacter.h"
+#include "Avatar/CompanionRuntimeSubsystem.h"
+#include "Engine/World.h"
 #include "LLM/OllamaConversation.h"
 #include "LLM/OllamaClient.h"
 #include "LLM/OpenAIChatClient.h"
@@ -28,6 +30,16 @@ void AMetaHumanCompanionCharacter::BeginPlay()
 
 	const UMetaHumanLLMSettings* Settings = GetDefault<UMetaHumanLLMSettings>();
 	Conversation->Initialize(Settings->SystemPrompt);
+	Conversation->SetMaxRetainedTurns(Settings->MaxRetainedTurns);
+
+	// Recall. Initialize() has just seeded the CURRENT system prompt, and LoadFromJson preserves it
+	// while replacing everything else -- so the persona always comes from configuration and only the
+	// conversation comes from disk. A missing file is the ordinary first-run case and returns false
+	// without complaint.
+	if (Settings->bPersistConversation)
+	{
+		Conversation->LoadFromJson(ResolveMemoryPath());
+	}
 
 	// Dynamically instantiate real voice components if server URLs are configured
 	if (!Settings->WhisperServerUrl.IsEmpty())
@@ -194,6 +206,24 @@ bool AMetaHumanCompanionCharacter::IsListening() const
 
 void AMetaHumanCompanionCharacter::HandleTranscribed(const FString& Text)
 {
+	// Routed back UP through the runtime subsystem rather than straight into our own SubmitUserText.
+	//
+	// Calling ourselves directly is the shorter line and it silently skips everything the subsystem
+	// does around a turn: the barge-in teardown that stops the face and cancels a pending phoneme
+	// alignment, the chat-log echo, the "thinking..." status, and cutting the opening camera move
+	// short. A typed turn got all of that and a spoken one got none of it — the two input paths
+	// would have behaved differently for no reason a user could understand.
+	if (const UWorld* World = GetWorld())
+	{
+		if (UCompanionRuntimeSubsystem* Runtime = World->GetSubsystem<UCompanionRuntimeSubsystem>())
+		{
+			Runtime->SubmitTranscribedText(Text);
+			return;
+		}
+	}
+
+	// No subsystem (a bare actor in a test world, or a host that spawned this class itself): still
+	// answer, because dropping the turn would be worse than answering without the UI trimmings.
 	SubmitUserText(Text);
 }
 
@@ -264,6 +294,22 @@ void AMetaHumanCompanionCharacter::ResetConversation()
 
 	const UMetaHumanLLMSettings* Settings = GetDefault<UMetaHumanLLMSettings>();
 	Conversation->Reset(Settings->SystemPrompt);
+	Conversation->SetMaxRetainedTurns(Settings->MaxRetainedTurns);
+
+	// A reset must reach the DISK too. Clearing only the in-memory history would look like it
+	// worked and then recall the whole conversation on the next launch — which is the opposite of
+	// what anyone means by "reset", and worse than not having the feature if the reason for the
+	// reset was that the transcript held something the user wanted gone.
+	if (Settings->bPersistConversation)
+	{
+		Conversation->SaveToJson(ResolveMemoryPath());
+	}
+}
+
+FString AMetaHumanCompanionCharacter::ResolveMemoryPath()
+{
+	const FString Configured = GetDefault<UMetaHumanLLMSettings>()->ConversationMemoryPath;
+	return Configured.IsEmpty() ? UOllamaConversation::DefaultMemoryPath() : Configured;
 }
 
 void AMetaHumanCompanionCharacter::HandleToken(const FString& Token)
@@ -275,6 +321,14 @@ void AMetaHumanCompanionCharacter::HandleComplete(const FString& FullText)
 {
 	CurrentRequestHandle = InvalidOllamaRequestHandle;
 	Conversation->AppendAssistantMessage(FullText);
+
+	// Persisted at the end of a completed exchange rather than on shutdown. A kiosk is far more
+	// likely to be killed, crash or lose power than to exit cleanly, and a memory that only survives
+	// a graceful shutdown is a memory that is empty exactly when it matters.
+	if (GetDefault<UMetaHumanLLMSettings>()->bPersistConversation)
+	{
+		Conversation->SaveToJson(ResolveMemoryPath());
+	}
 
 	const EEmotionType Emotion = UEmotionMapper::DetectEmotionFromText(FullText);
 	OnSetEmotion(Emotion);
@@ -292,6 +346,8 @@ void AMetaHumanCompanionCharacter::HandleError(const FString& ErrorMessage)
 	CurrentRequestHandle = InvalidOllamaRequestHandle;
 	UE_LOG(LogMetaHumanLLM, Warning, TEXT("Ollama chat error: %s"), *ErrorMessage);
 	OnConversationError(ErrorMessage);
+	// The one that reaches a listener that exists. See FOnCompanionError.
+	OnCompanionError.Broadcast(ErrorMessage);
 }
 
 void AMetaHumanCompanionCharacter::HandleVisemesReady(const TArray<FVisemeKey>& Keys)

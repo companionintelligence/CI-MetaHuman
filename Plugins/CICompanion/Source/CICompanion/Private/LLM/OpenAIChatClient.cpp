@@ -1,4 +1,5 @@
 #include "LLM/OpenAIChatClient.h"
+#include "LLM/CIStreamUtf8.h"
 #include "Settings/MetaHumanLLMSettings.h"
 #include "HttpModule.h"
 #include "Dom/JsonObject.h"
@@ -62,6 +63,12 @@ FOllamaRequestHandle UOpenAIChatClient::SendChat(
 	{
 		Request->SetHeader(TEXT("Authorization"), FString::Printf(TEXT("Bearer %s"), *Settings->OpenAIApiKey));
 	}
+	// See the matching note in UOllamaClient::SendChat: an unbounded request is how "thinking..."
+	// becomes permanent.
+	if (Settings->ChatRequestTimeoutSeconds > 0.0f)
+	{
+		Request->SetTimeout(Settings->ChatRequestTimeoutSeconds);
+	}
 	Request->SetContentAsString(Body);
 	Request->OnRequestProgress64().BindUObject(this, &UOpenAIChatClient::HandleRequestProgress, Handle);
 	Request->OnProcessRequestComplete().BindUObject(this, &UOpenAIChatClient::HandleRequestComplete, Handle);
@@ -91,15 +98,17 @@ void UOpenAIChatClient::CancelRequest(FOllamaRequestHandle Handle)
 	}
 }
 
-void UOpenAIChatClient::ConsumeNewBytes(FActiveRequest& Active, const FString& FullContentSoFar)
+void UOpenAIChatClient::ConsumeNewBytes(FActiveRequest& Active, const TArray<uint8>& FullContentSoFar)
 {
-	if (FullContentSoFar.Len() <= Active.LastProcessedLength)
+	// Byte-diffed, holding back a trailing partial UTF-8 character -- see CIStreamUtf8.h. This
+	// client is if anything MORE exposed than the Ollama one: SSE frames are base-delimited by
+	// blank lines, so a corrupted character can also break the frame boundary and lose a whole
+	// token rather than just mangling one glyph.
+	const FString NewChunk = CIStreamUtf8::ConsumeCompleteUtf8(FullContentSoFar, Active.LastProcessedBytes);
+	if (NewChunk.IsEmpty())
 	{
 		return;
 	}
-
-	const FString NewChunk = FullContentSoFar.Mid(Active.LastProcessedLength);
-	Active.LastProcessedLength = FullContentSoFar.Len();
 
 	for (const FOpenAIStreamParser::FParsedEvent& Event : Active.Parser.Feed(NewChunk))
 	{
@@ -119,7 +128,14 @@ void UOpenAIChatClient::HandleRequestProgress(FHttpRequestPtr Request, uint64 By
 		return;
 	}
 
-	ConsumeNewBytes(**Found, Request->GetResponse()->GetContentAsString());
+	// See the matching note in UOllamaClient::HandleRequestProgress: GetContent() warns on every
+	// in-flight read, so ticks that advanced nothing are skipped rather than paid for.
+	if (BytesReceived <= static_cast<uint64>((*Found)->LastProcessedBytes))
+	{
+		return;
+	}
+
+	ConsumeNewBytes(**Found, Request->GetResponse()->GetContent());
 }
 
 void UOpenAIChatClient::HandleRequestComplete(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful, FOllamaRequestHandle Handle)
@@ -150,7 +166,7 @@ void UOpenAIChatClient::HandleRequestComplete(FHttpRequestPtr Request, FHttpResp
 	}
 
 	// Catch any trailing bytes the progress delegate hadn't seen yet.
-	ConsumeNewBytes(*Active, Response->GetContentAsString());
+	ConsumeNewBytes(*Active, Response->GetContent());
 
 	Active->OnComplete.ExecuteIfBound(Active->AccumulatedText);
 }

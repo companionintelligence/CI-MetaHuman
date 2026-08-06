@@ -50,8 +50,14 @@ Applied strictly in this order, each overwriting the last when non-empty:
 `MHLLM_BACKEND` → `CI_HUB_URL` → `CI_HUB_TOKEN` → `CI_HUB_MODEL` → `OPENAI_BASE_URL` →
 `OPENAI_MODEL` → `OPENAI_API_KEY` → `LMSTUDIO_BASE_URL` → `LMSTUDIO_MODEL` → `OLLAMA_BASE_URL` →
 `OLLAMA_MODEL` → `MHLLM_THINKING` → `KOKORO_SERVER_URL` → `KOKORO_MODEL` → `KOKORO_VOICE` →
-`KOKORO_ALIGNER_URL` → `WHISPER_ENDPOINT_PATH` → `WHISPER_SERVER_URL` → `PIPER_SERVER_URL` →
-`MHLLM_SYSTEM_PROMPT`
+`KOKORO_ALIGNER_URL` → `WHISPER_ENDPOINT_PATH` → `WHISPER_SERVER_URL` → `WHISPER_MODEL` →
+`PIPER_SERVER_URL` → `MHLLM_SYSTEM_PROMPT` → `MHLLM_MAX_TURNS` → `MHLLM_MEMORY` →
+`MHLLM_MEMORY_PATH` → `MHLLM_CHAT_TIMEOUT`
+
+> An **unrecognised** `MHLLM_BACKEND` is now logged at Warning and ignored, and the value is
+> trimmed before matching. Previously `" ollama "` — which is what a compose file produces when it
+> interpolates an unset variable — matched neither branch, fell through silently, and handed the
+> backend straight back to the incidental `CI_HUB_URL` the paragraph below warns about.
 
 > An explicit `MHLLM_BACKEND` is **AUTHORITATIVE** and outranks the `CI_HUB_URL` inference below.
 > It used to be the other way round, and the result was that `MHLLM_BACKEND` did nothing whenever
@@ -91,6 +97,7 @@ Applied strictly in this order, each overwriting the last when non-empty:
 | `KOKORO_ALIGNER_URL` **`IN FLIGHT`** | *(not in the compose)* | **empty** | `kokoro-align` sidecar, e.g. `http://127.0.0.1:13400`. Blank means precision loss, never failure — lip-sync falls back to rescaling the estimate |
 | `WHISPER_SERVER_URL` | `http://127.0.0.1:13305` | **empty** | Same Lemonade endpoint as TTS. Blank keeps the Null STT stub |
 | `WHISPER_ENDPOINT_PATH` | `/api/v1/audio/transcriptions` | `/inference` | whisper.cpp serves `/inference`; **Lemonade serves the OpenAI shape**, hence the explicit override |
+| `WHISPER_MODEL` | *(set it to `Whisper-Base`)* | **empty** | Sent as the multipart `model` field, and **omitted entirely when blank**. whisper.cpp hosts one model and ignores it; the OpenAI shape **requires** it and rejects the request without one — so against Lemonade this must be set or every transcription fails with a 4xx that, until now, was logged at `Verbose` and therefore invisible |
 | `PIPER_SERVER_URL` | — | empty | Alternative TTS, only selected when Kokoro is unset. Drives the dead Blueprint viseme path |
 
 ⚠️ The Kokoro/Whisper API is served under **`/api/v1/...`**, not the `/v1/...` the marketing
@@ -109,6 +116,22 @@ implies — verified by probe against a running instance, not assumed.
 | `MHLLM_FACE_PROFILE` | `CC` (hard-coded) | `CC` = Reallusion Character Creator; `ARKit` = MetaHuman. **The two share no curve names** — anything unrecognised silently becomes `CC` |
 | `MHLLM_FACE_SELFTEST` | `0` (hard-coded) | Cycles all 15 visemes. Off deliberately: with it on the mouth moves whether or not the LLM ever replies, masking the exact failure the deployment exists to expose |
 | `MHLLM_EMOTION` | `1` | `0` disables facial emotion. Deliberately opt-**out**, unlike `MHLLM_OPENING_SHOT`: *"an expressionless face is the regression"*. Set to `0` to isolate a lip-sync problem from an expression problem in a capture |
+| `MHLLM_GAZE` | *(unset = on)* | `0` disables eye aim, saccades and the planning aversion. Opt-**out** for the same reason `MHLLM_EMOTION` is: a dead stare is the regression this fixes. Set to `0` to isolate an eye problem from a lip-sync one |
+
+---
+
+## 5.1 Conversation shape and memory
+
+| Variable | Default | Effect |
+|---|---|---|
+| `MHLLM_MAX_TURNS` | `24` | Retained user+assistant **pairs**, excluding the system prompt. `0` = unlimited. `/api/chat` has no server-side session, so the entire transcript is re-sent every turn: uncapped, each turn costs more than the last until the request overruns the context window, at which point the server truncates **from the front** and the first thing lost is the persona. She does not error — she stops being Eliza |
+| `MHLLM_MEMORY` | `0` | `1` persists the conversation across sessions. **Opt-in, deliberately**: turning it on writes everything anyone says to this companion to disk in plain text, indefinitely. Reasonable for an operator to choose, unreasonable to choose on their behalf — a kiosk must not quietly accumulate transcripts of its visitors |
+| `MHLLM_MEMORY_PATH` | *(empty)* | Absolute path for that transcript. Blank uses `Saved/Companion/Conversation.json`, which survives a cook and is never packaged into one |
+| `MHLLM_CHAT_TIMEOUT` | `180` | Seconds before a chat request is abandoned. `0` keeps the engine default. Neither client set a timeout at all, so a backend that accepted the connection and then went quiet left the HUD on `thinking...` for the rest of the session, with no error and no way back short of a restart |
+
+The persona is **never** written to the memory file — only the turns. Persisting it would pin
+whatever prompt was live when the file was first created, so a later `MHLLM_SYSTEM_PROMPT` change
+would be silently ignored on every machine that had already held one conversation.
 
 ---
 

@@ -12,7 +12,34 @@ both headless (no live Ollama server, no rendering required):
   wiring) is intentionally thin and not unit tested, since it requires a live server to
   meaningfully exercise; see "Not covered" below.
 - `EmotionMapperSpec.cpp` — table-driven text→emotion→animation-category mapping.
-- `ConversationHistorySpec.cpp` — system-prompt seeding, turn ordering, reset.
+- `ConversationHistorySpec.cpp` — system-prompt seeding, turn ordering, reset, **the turn cap and
+  persistence**. The cap cases exist because `/api/chat` has no server-side session: the whole
+  transcript is re-sent every turn, so an uncapped history makes each turn cost more than the last
+  until the request overruns the context window — at which point the server truncates *from the
+  front*, silently discarding the persona. The tests therefore assert the system prompt survives 50
+  turns, that `Num()` plateaus, and that eviction happens in **whole pairs** so the transcript never
+  begins on an assistant turn (a history starting mid-exchange reads to the model as though it had
+  spoken unprompted). The persistence cases pin that the persona comes from configuration and never
+  from the file, that a corrupt or missing file changes nothing, that a `system` role smuggled into
+  a hand-edited file is refused, and that a reset reaches the disk.
+- `CIStreamUtf8Spec.cpp` — **the property both streaming clients silently violated**: the decoded
+  text must not depend on how the bytes were chunked. Both clients diffed `GetContentAsString()` by
+  TCHAR count, so a multi-byte character split across a chunk boundary changed length once completed
+  and the cursor was left pointing into a string that had shifted underneath it — dropping or
+  doubling glyphs on any reply containing an em dash, a curly quote, an accent or any CJK, which
+  were then accumulated *and spoken aloud*. The headline case replays a mixed 1/2/3/4-byte payload
+  at every chunk size from one byte upward and asserts all of them decode identically. Neither
+  client spec could see this: they feed the parser whole, well-formed strings, exercising the parser
+  and never the cursor in front of it.
+- `CompanionGazeSpec.cpp` — the eye driver (`FCompanionGazeState`). Guards the two failure modes
+  that are invisible to everything else this project measures: **wall-eye**, since ARKit spells the
+  same physical direction as "Out" on one eye and "In" on the other, so pairing the curves by name
+  rather than by meaning crosses her eyes on every glance while a frame grab still shows moving
+  eyes and a curve-count check still shows 8/8 resolved; and **negative morph weights**, which
+  extrapolate geometry inside out on a rig that does not clamp. Also pins that saccades are
+  ballistic rather than eased (an eye that glides reads as a doll being turned by hand), the
+  listener/speaker eye-contact asymmetry, and the 30 s backstop that stops a dead backend leaving
+  her in the thinking aversion for the session.
 - `CompatSpec.cpp` — the UE 5.5↔5.8 compatibility layer (`MetaHumanLocalLLM.Backend.Compat`).
   Split so that a compile-time shim is genuinely testable: the *compatibility table*
   (`FCICompatReport::ExpectedFor(major, minor)`) is a pure function with no `#if` in it, so the

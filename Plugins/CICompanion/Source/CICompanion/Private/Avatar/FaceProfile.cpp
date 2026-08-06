@@ -26,6 +26,7 @@ namespace
 		P.BlinkCurves = { TEXT("Eye_Blink_L"), TEXT("Eye_Blink_R") };
 		P.GazeCurves  = { TEXT("Eye_L_Look_L"), TEXT("Eye_L_Look_R"), TEXT("Eye_L_Look_Up"), TEXT("Eye_L_Look_Down"),
 						  TEXT("Eye_R_Look_L"), TEXT("Eye_R_Look_R"), TEXT("Eye_R_Look_Up"), TEXT("Eye_R_Look_Down") };
+		P.EyeWidenCurves = { TEXT("Eye_Wide_L"), TEXT("Eye_Wide_R") };
 		// Weights stay LOW (<=0.45). A full-strength FACS pose reads as a caricature, and these sit
 		// under speech continuously rather than flashing, so anything stronger looks unhinged.
 		AddEmotion(P, EEmotionType::Neutral, {});
@@ -70,8 +71,11 @@ namespace
 		FFaceProfile P;
 		P.ProfileName = TEXT("ARKit");
 		P.BlinkCurves = { TEXT("eyeBlinkLeft"), TEXT("eyeBlinkRight") };
+		// In/Out swapped between the eyes ON PURPOSE — see FFaceProfile::GazeCurves. Index 0 and 4
+		// must both mean "look left", and on ARKit that is Out for the left eye and In for the right.
 		P.GazeCurves  = { TEXT("eyeLookOutLeft"), TEXT("eyeLookInLeft"), TEXT("eyeLookUpLeft"), TEXT("eyeLookDownLeft"),
 						  TEXT("eyeLookInRight"), TEXT("eyeLookOutRight"), TEXT("eyeLookUpRight"), TEXT("eyeLookDownRight") };
+		P.EyeWidenCurves = { TEXT("eyeWideLeft"), TEXT("eyeWideRight") };
 		AddEmotion(P, EEmotionType::Neutral, {});
 		AddEmotion(P, EEmotionType::Happy, { { TEXT("mouthSmileLeft"), 0.35f }, { TEXT("mouthSmileRight"), 0.35f },
 											 { TEXT("cheekSquintLeft"), 0.30f }, { TEXT("cheekSquintRight"), 0.30f } });
@@ -153,6 +157,13 @@ TArray<FName> FFaceProfile::AllCurves() const
 	for (const FName& Gaze : GazeCurves)
 	{
 		Unique.Add(Gaze);
+	}
+	// Widen curves are already reachable through EmotionShapes on both shipped profiles, so this is
+	// belt-and-braces — but AllCurves is the zeroing set, and a profile that ever listed a widen
+	// curve no emotion used would otherwise latch it on permanently.
+	for (const FName& Widen : EyeWidenCurves)
+	{
+		Unique.Add(Widen);
 	}
 	return Unique.Array();
 }

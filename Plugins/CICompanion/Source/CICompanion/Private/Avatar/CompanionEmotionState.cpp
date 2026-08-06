@@ -31,6 +31,12 @@ void FCompanionEmotionState::Release(float HoldSeconds)
 	SustainRemaining = FMath::Min(SustainRemaining, FMath::Max(0.0f, HoldSeconds));
 }
 
+void FCompanionEmotionState::Sustain(float Seconds)
+{
+	// Max, so a lease can only grow here. See the header for why shortening is Release's job alone.
+	SustainRemaining = FMath::Max(SustainRemaining, FMath::Max(0.0f, Seconds));
+}
+
 void FCompanionEmotionState::Reset()
 {
 	Current = EEmotionType::Neutral;

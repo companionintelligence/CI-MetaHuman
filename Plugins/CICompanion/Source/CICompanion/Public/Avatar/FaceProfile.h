@@ -90,11 +90,33 @@ struct CICOMPANION_API FFaceProfile
 	UPROPERTY(BlueprintReadOnly, Category = "MetaHumanLLM|Face")
 	TMap<EEmotionType, FVisemeShape> EmotionShapes;
 
-	// Eye-aim curves, in the order [LookLeft, LookRight, LookUp, LookDown]. Empty disables gaze.
+	// Eye-aim curves: EIGHT entries, in the order
+	//   [ L-eye Left, L-eye Right, L-eye Up, L-eye Down,  R-eye Left, R-eye Right, R-eye Up, R-eye Down ]
+	// Empty disables gaze; anything other than 0 or 8 is a mistake and FCompanionGazeState refuses
+	// to drive it rather than aiming one eye and leaving the other straight ahead.
+	//
+	// The ordering is by DIRECTION, not by the rig's own spelling, and that normalisation is the
+	// whole point of listing them here. ARKit names its horizontal pair by anatomy — "Out" is
+	// temporal and "In" is nasal — so eyeLookOutLeft and eyeLookOutRight point in OPPOSITE
+	// directions. Pairing the two eyes by name instead of by meaning yields an avatar that crosses
+	// its eyes on every glance, so the ARKit entries are deliberately stored In/Out-swapped between
+	// the eyes to put "look left" at indices 0 and 4 on both profiles.
+	//
 	// Named rather than assumed because CC and ARKit disagree completely (Eye_L_Look_L vs
 	// eyeLookOutLeft), and a missing name is a silent no-op that reads as a dead stare.
 	UPROPERTY(BlueprintReadOnly, Category = "MetaHumanLLM|Face")
 	TArray<FName> GazeCurves;
+
+	// Curves that widen the eye, and therefore fight the eyelids for the same anatomy.
+	//
+	// Fear and Alert both drive these as a sustained expression while blink drives the lids on its
+	// own involuntary clock, and the two are physically antagonistic: an eye cannot be held wide and
+	// be shut at the same time. Composited naively the blink still played, but against a lid that
+	// an expression was holding open — so during Fear she appeared to stop blinking altogether.
+	// Listed separately so the driver can damp them by the current blink amount without needing to
+	// know which emotion happens to be on the face.
+	UPROPERTY(BlueprintReadOnly, Category = "MetaHumanLLM|Face")
+	TArray<FName> EyeWidenCurves;
 
 	// Resolves an emotion to its weighted curves, accumulating like Accumulate does.
 	void AccumulateEmotion(EEmotionType Emotion, float Weight, TMap<FName, float>& OutCurves) const;

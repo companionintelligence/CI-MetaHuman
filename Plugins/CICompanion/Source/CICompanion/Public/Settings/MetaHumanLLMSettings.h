@@ -32,6 +32,20 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Backend")
 	EChatBackendType BackendType = EChatBackendType::OllamaNative;
 
+	// Seconds before a chat request is abandoned. 0 keeps the engine default.
+	//
+	// Neither client set a timeout at all, which meant a backend that accepted the connection and
+	// then stopped answering -- an Ollama mid-model-load, a dead SSH tunnel still holding its
+	// listener open, a machine that went to sleep -- left the request in flight forever. Nothing
+	// ever fired, so the companion sat on "thinking..." for the rest of the session with no error
+	// and no way back short of a restart. A timeout is what converts that into a reportable failure.
+	//
+	// Generous, because a COLD model load is legitimately slow: a 27B model paging in from disk can
+	// take well over a minute before it emits its first token, and cutting that off would break the
+	// first turn after every deploy.
+	UPROPERTY(Config, EditAnywhere, Category = "Backend", meta = (ClampMin = "0.0"))
+	float ChatRequestTimeoutSeconds = 180.0f;
+
 	// --- Ollama (native) backend ---
 
 	// Base URL of the local Ollama server.
@@ -77,6 +91,29 @@ public:
 		"You are a helpful, friendly companion speaking out loud through a MetaHuman avatar. "
 		"Keep replies short and conversational, since they will be spoken aloud.");
 
+	// Upper bound on retained user+assistant PAIRS, excluding the system prompt. 0 = unlimited.
+	//
+	// /api/chat has no server-side session, so the whole transcript is re-sent every turn: without a
+	// cap each turn is slower and costlier than the last until the request overruns the model's
+	// context window, at which point the server truncates from the FRONT and the first casualty is
+	// the system prompt. She does not error when that happens, she just stops being Eliza.
+	UPROPERTY(Config, EditAnywhere, Category = "Prompt", meta = (ClampMin = "0"))
+	int32 MaxRetainedTurns = 24;
+
+	// Remember the conversation across sessions. OPT-IN.
+	//
+	// Off by default deliberately, and not for technical reasons: turning it on writes everything
+	// anyone says to this companion to disk in plain text, indefinitely. That is a reasonable thing
+	// for an operator to choose and an unreasonable thing to choose on their behalf, so the default
+	// is the one that keeps a kiosk from quietly accumulating transcripts of its visitors.
+	UPROPERTY(Config, EditAnywhere, Category = "Prompt")
+	bool bPersistConversation = false;
+
+	// Where that transcript lives. Blank uses UOllamaConversation::DefaultMemoryPath(), which is
+	// under Saved/ so it survives a cook and is never packaged into one.
+	UPROPERTY(Config, EditAnywhere, Category = "Prompt", meta = (EditCondition = "bPersistConversation"))
+	FString ConversationMemoryPath;
+
 	// --- Voice ---
 
 	// Base URL of a local whisper.cpp server (built with `whisper-server`). The Whisper STT
@@ -112,6 +149,15 @@ public:
 
 	UPROPERTY(Config, EditAnywhere, Category = "Voice")
 	FString WhisperServerUrl;
+
+	// Model id sent as the multipart "model" field. Blank omits the field entirely.
+	//
+	// whisper.cpp's own /inference serves exactly one model and ignores this. The OpenAI shape does
+	// NOT: Lemonade's /api/v1/audio/transcriptions requires it and rejects a request without one, so
+	// omitting the field made the whole STT path fail against the very server it was pointed at.
+	// Blank-by-default keeps the whisper.cpp case byte-identical to what it was.
+	UPROPERTY(Config, EditAnywhere, Category = "Voice")
+	FString WhisperModel;
 
 	// Base URL of a local Piper HTTP server. The Piper TTS component POSTs text and expects
 	// WAV audio back. Intentionally blank by default for the same reason as Whisper above.

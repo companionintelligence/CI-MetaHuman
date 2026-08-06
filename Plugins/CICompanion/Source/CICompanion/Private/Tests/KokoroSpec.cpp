@@ -43,8 +43,25 @@ void FKokoroSpec::Define()
 
 		It("pins response_format to wav, the only format we can decode", [this]()
 		{
+			// The KEY AND THE VALUE together. Asserting on a bare "wav" substring passes if the
+			// field is renamed, dropped, or if "wav" appears anywhere else in the body at all --
+			// including inside the model or voice name a caller passed in. The failure that would
+			// slip through is the expensive one: the server happily returns mp3, FWavAudioReader
+			// declines to decode it, and she goes silent with a well-formed request in the log.
 			const FString Body = UKokoroTextToSpeech::BuildRequestBody(TEXT("hi"), TEXT("m"), TEXT("v"));
-			TestTrue("wav requested", Body.Contains(TEXT("wav")));
+
+			// Whitespace stripped before matching, because BuildRequestBody uses the DEFAULT
+			// TJsonWriterFactory policy, which PRETTY-prints -- so the literal on the wire is
+			// `"response_format": "wav"` with a space that a naive `"key":"value"` assertion misses.
+			// Normalising here pins the key/value pair without also pinning the print policy.
+			const FString Compact = Body
+				.Replace(TEXT(" "), TEXT(""))
+				.Replace(TEXT("\t"), TEXT(""))
+				.Replace(TEXT("\r"), TEXT(""))
+				.Replace(TEXT("\n"), TEXT(""));
+
+			TestTrue("response_format is pinned to wav",
+				Compact.Contains(TEXT("\"response_format\":\"wav\"")));
 		});
 
 		It("escapes quotes rather than emitting broken json", [this]()

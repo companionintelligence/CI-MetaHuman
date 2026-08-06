@@ -36,9 +36,13 @@ public:
 
 	// --- Pure helpers, exposed for unit testing without a live server ---
 
-	// Assembles a multipart/form-data body carrying the WAV bytes under the "file" field
-	// plus a "response_format=json" field, using the given boundary token.
-	static TArray<uint8> BuildMultipartFormData(const TArray<uint8>& WavBytes, const FString& Boundary, const FString& FileName);
+	// Assembles a multipart/form-data body carrying the WAV bytes under the "file" field,
+	// a "response_format=json" field, and — when Model is non-empty — a "model" field.
+	//
+	// Model is optional because the two servers this one client is meant to cover disagree about it:
+	// whisper.cpp's /inference hosts a single model and ignores the field, while the OpenAI shape
+	// Lemonade serves REQUIRES it. Defaulted to empty so the whisper.cpp body is unchanged.
+	static TArray<uint8> BuildMultipartFormData(const TArray<uint8>& WavBytes, const FString& Boundary, const FString& FileName, const FString& Model = FString());
 
 	// The matching Content-Type header value for a multipart body with this boundary.
 	static FString MultipartContentType(const FString& Boundary);

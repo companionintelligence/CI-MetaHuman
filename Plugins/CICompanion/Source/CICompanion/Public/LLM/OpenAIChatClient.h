@@ -45,12 +45,13 @@ private:
 		FOnOllamaToken OnToken;
 		FOnOllamaComplete OnComplete;
 		FOnOllamaError OnError;
-		int32 LastProcessedLength = 0;
+		// BYTES consumed, not TCHARs -- see CIStreamUtf8.h and the matching note in OllamaClient.h.
+		int32 LastProcessedBytes = 0;
 	};
 
 	void HandleRequestProgress(FHttpRequestPtr Request, uint64 BytesSent, uint64 BytesReceived, FOllamaRequestHandle Handle);
 	void HandleRequestComplete(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful, FOllamaRequestHandle Handle);
-	void ConsumeNewBytes(FActiveRequest& Active, const FString& FullContentSoFar);
+	void ConsumeNewBytes(FActiveRequest& Active, const TArray<uint8>& FullContentSoFar);
 
 	TMap<FOllamaRequestHandle, TSharedPtr<FActiveRequest>> ActiveRequests;
 	FOllamaRequestHandle NextHandle = 1;
