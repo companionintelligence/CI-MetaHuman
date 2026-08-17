@@ -5,7 +5,11 @@
 #
 services:
   project:
-    image: ci/metahuman-local-llm:5.5-face
+    # 5.8, not 5.5: this project's git-tracked Content is package version 1018 and UE 5.5.4 reads
+    # at most 1013, so a 5.5 cook cannot open it (Scripts/BuildNative.ps1's header has the full
+    # account). m2_clean.sh builds ci/metahuman-local-llm:5.8-face and hard-fails with
+    # COMPOSE_IMAGE_MISMATCH if this literal drifts from what it just built.
+    image: ci/metahuman-local-llm:5.8-face
     environment:
       # Rig naming for the resident. CC = Reallusion Character Creator (Nia's V_* morphs);
       # ARKit = MetaHuman. The two share no curve names, so this is not cosmetic.
@@ -59,12 +63,14 @@ services:
       # 1324 ms on beta-1 against 31 155 ms from what it calls a run that accidentally used the
       # laptop's local Ollama -- a 24x difference, in that document's words.
       #
-      # Pinning the backend rather than adding OPENAI_* aliases for the same server, because the
-      # thinking flag cannot survive the other path. bEnableThinking is read only by UOllamaClient
-      # (MetaHumanLLMSettings.h:65 gates the property on BackendType == OllamaNative) and the
-      # OpenAI /chat/completions schema has no field for it, so MHLLM_THINKING=0 below is INERT
-      # under the openai backend and the model reasons on every turn. Measured through this
-      # tunnel, same model, same one-line prompt:
+      # Pinning the backend rather than adding OPENAI_* aliases for the same server, because
+      # MHLLM_THINKING=0 below does not reach THIS server over the other path. The OpenAI client
+      # does now try: with thinking off it sends a top-level
+      # "chat_template_kwargs": {"enable_thinking": false}, which a vLLM backend honours. Ollama's
+      # /v1 shim does not -- probed against beta-1 with the field attached, it answered HTTP 200 in
+      # 1.24s and still returned a "reasoning" field. So against the server this stack actually
+      # talks to, /api/chat is the only path that can turn reasoning off, and the protocol costs
+      # less besides. Measured through this tunnel, same model, same one-line prompt:
       #
       #   /api/chat with "think": false   ->  0.42-0.58 s
       #   /v1/chat/completions            ->  1.18-1.23 s, with a "reasoning" field in the reply

@@ -1,10 +1,17 @@
-# AMD / Strix Halo override — VAAPI hardware encode via /dev/dri.
+# AMD / Strix Halo override — GPU render on /dev/dri, and VP8 SOFTWARE encode.
 #
 #   docker compose -f docker-compose.yml -f docker-compose.amd.yml up
 #
 # Measured on core-2 (AMD Ryzen AI Max+ 395, Radeon 8060S, RADV/Mesa 26): Vulkan renders and
 # VAAPI exposes H.264 (Baseline/Main/High), HEVC, and AV1 encode on /dev/dri/renderD128.
-# WebRTC uses H.264, so we select the VAAPI H.264 encoder here rather than NVENC.
+#
+# NOTE the encoder, because this header used to claim the opposite and its own command block
+# contradicted it: PixelStreaming does NOT reach that VAAPI encoder. Its hardware paths are NVENC
+# (NVIDIA) and AMF (AMD), and neither exists on RADV/Linux, so it falls back to VP8 in software --
+# which is why the command block below passes -PixelStreamingEncoderCodec=VP8 explicitly, to skip
+# a probe that was going to fail. What this file buys is the GPU doing the RENDERING plus the
+# device plumbing (/dev/dri, RENDER_GID/VIDEO_GID, LIBVA_DRIVER_NAME=radeonsi); the encode stays
+# on the CPU. Docs/BUILD-AND-DEPLOY.md and Docs/ARCHITECTURE.md already described it that way.
 #
 # Prereq on the host: the packaged app must be an AMD-runtime image (Mesa + Vulkan + VAAPI),
 # so point the build at Dockerfile.amd:  PROJECT_DOCKERFILE=Deployment/Dockerfile.amd

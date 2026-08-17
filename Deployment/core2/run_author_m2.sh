@@ -1,6 +1,20 @@
 #!/bin/bash
 # M2 diorama authoring in the content-only project: import 12 props + author the set.
 # Copies the WHOLE Content/ tree out (Maps + imported Diorama assets).
+#
+# STILL dev-5.5 while m2_full.sh / m2_clean.sh now cook on 5.8, and that split is deliberate
+# rather than an oversight. The engine ceiling that forces the COOK to 5.8 does not apply here:
+# the cook has to open the repo's git-tracked Content, which is package version 1018 against UE
+# 5.5.4's ceiling of 1013 (Scripts/BuildNative.ps1's header has the full account). This script
+# opens a different tree -- the content-only Author.uproject seeded from /home/ci/nia-content --
+# and every one of the 260 packages there is version 1009, comfortably under that ceiling.
+# Measured on core-2 by reading the package headers, not assumed.
+#
+# 5.5 also WRITES at its own version, and the 5.8 cook reads older packages happily, so the
+# handoff is in the safe direction. Moving this to dev-5.8 for consistency would cost pulling
+# another ~85 GB engine base (core2/README.md) onto a box that serves live work, for no behaviour
+# it does not already have. If nia-content is ever re-exported from a newer editor, re-check the
+# package version before assuming this still holds.
 echo "===== AUTHOR M2 $(date -u) ====="
 rm -f /home/ci/stage-out/AUTHOR_RESULT.txt /home/ci/stage-out/author_m2.log
 rm -rf /home/ci/stage-out/Content

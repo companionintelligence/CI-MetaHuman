@@ -2,9 +2,33 @@
 #include "LLM/OpenAIStreamParser.h"
 #include "LLM/OpenAIChatClient.h"
 #include "LLM/OllamaTypes.h"
+#include "Dom/JsonObject.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
 
 BEGIN_DEFINE_SPEC(FOpenAIChatClientSpec, "MetaHumanLocalLLM.Backend.OpenAIChatClient", EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 END_DEFINE_SPEC(FOpenAIChatClientSpec)
+
+namespace
+{
+	// PARSE the body; do not grep it. The older assertions in this file use Body.Contains(), which is
+	// adequate for "is this substring somewhere in the payload" but is the wrong instrument for the
+	// thinking-suppression field, because it cannot distinguish any of the ways that field can be
+	// wrong from the way it must be right: it passes on output that is not valid JSON at all, it
+	// cannot tell a boolean false from the string "false", and it cannot tell a TOP-LEVEL
+	// chat_template_kwargs -- the only place a server looks -- from the same key nested inside a
+	// message. A server would reject or ignore all three; a substring test would call them green.
+	TSharedPtr<FJsonObject> ParseJsonBody(const FString& Body)
+	{
+		TSharedPtr<FJsonObject> Root;
+		const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Body);
+		if (!FJsonSerializer::Deserialize(Reader, Root))
+		{
+			return nullptr;
+		}
+		return Root;
+	}
+}
 
 // Covers the two pure, HTTP-free units of UOpenAIChatClient: request-body construction
 // (OpenAI /v1/chat/completions shape) and SSE stream parsing. Neither touches the network,
@@ -44,6 +68,119 @@ void FOpenAIChatClientSpec::Define()
 		{
 			const FString Body = UOpenAIChatClient::BuildRequestBody(TArray<FOllamaMessage>{}, TEXT("m"));
 			TestTrue("empty messages array", Body.Contains(TEXT("\"messages\":[]")));
+		});
+	});
+
+	// The OpenAI-compatible sibling of OllamaClientSpec's "thinking suppression" block, but guarding a
+	// different failure. On Ollama, thinking costs latency (814ms -> 16-21s, measured on beta-1) and
+	// the answer still arrives. Against the vLLM server CI-Hub on core-2 hands out as hermes-agent's
+	// backend (cyankiwi/Qwen3.5-35B-A3B-AWQ-4bit), measured this session with the prompt "Say hello in
+	// one short sentence." and stream:false, the reasoning consumed the whole token budget and
+	// `content` came back NULL with finish_reason=length -- 28.1s and 2118 reasoning characters for an
+	// empty reply at max_tokens 600. The same request with chat_template_kwargs {enable_thinking:false}
+	// returned content "Hello!", zero reasoning characters, finish_reason=stop, in 0.335s. So what is
+	// under test here is a companion that speaks versus one that is silent.
+	Describe("thinking suppression", [this]()
+	{
+		It("sends a top-level chat_template_kwargs with a BOOLEAN enable_thinking:false when thinking is off", [this]()
+		{
+			TArray<FOllamaMessage> History;
+			History.Emplace(EOllamaRole::User, TEXT("hi"));
+			const FString Body = UOpenAIChatClient::BuildRequestBody(
+				History, TEXT("cyankiwi/Qwen3.5-35B-A3B-AWQ-4bit"), /*bEnableThinking=*/false);
+
+			const TSharedPtr<FJsonObject> Root = ParseJsonBody(Body);
+			if (!TestTrue("body parses as a JSON object", Root.IsValid()))
+			{
+				return;
+			}
+
+			// TOP-LEVEL and an OBJECT. The server reads this next to "model"/"messages"; the same key
+			// buried anywhere else is inert, and a stringified "{...}" would be too.
+			const TSharedPtr<FJsonObject>* Kwargs = nullptr;
+			if (!TestTrue("chat_template_kwargs is a top-level object",
+				Root->TryGetObjectField(TEXT("chat_template_kwargs"), Kwargs) && Kwargs != nullptr && Kwargs->IsValid()))
+			{
+				return;
+			}
+
+			// TryGetBoolField fails rather than coercing, so this also rejects "false" as a string.
+			bool bEnableThinkingOnWire = true;
+			if (TestTrue("enable_thinking is a JSON boolean",
+				(*Kwargs)->TryGetBoolField(TEXT("enable_thinking"), bEnableThinkingOnWire)))
+			{
+				TestFalse("enable_thinking is false", bEnableThinkingOnWire);
+			}
+
+			// The suppression field must not have cost the payload its actual content.
+			FString WireModel;
+			TestTrue("model survives alongside it", Root->TryGetStringField(TEXT("model"), WireModel));
+			TestEqual("model unchanged", WireModel, TEXT("cyankiwi/Qwen3.5-35B-A3B-AWQ-4bit"));
+			const TArray<TSharedPtr<FJsonValue>>* WireMessages = nullptr;
+			if (TestTrue("messages survive alongside it", Root->TryGetArrayField(TEXT("messages"), WireMessages)))
+			{
+				TestEqual("one message", WireMessages->Num(), 1);
+			}
+		});
+
+		It("suppresses by DEFAULT, since the caller that omits the flag is the one that most needs it", [this]()
+		{
+			// Guards the default argument specifically: BuildRequestBody's two-argument form is what
+			// every pre-existing call site in this file uses, and thinking-off is the default state of
+			// UMetaHumanLLMSettings::bEnableThinking.
+			const FString Body = UOpenAIChatClient::BuildRequestBody(TArray<FOllamaMessage>{}, TEXT("m"));
+
+			const TSharedPtr<FJsonObject> Root = ParseJsonBody(Body);
+			if (!TestTrue("body parses as a JSON object", Root.IsValid()))
+			{
+				return;
+			}
+			TestTrue("chat_template_kwargs present without being asked for", Root->HasField(TEXT("chat_template_kwargs")));
+		});
+
+		It("omits the field entirely when thinking is ENABLED, because it is a hint and not a toggle", [this]()
+		{
+			// Deliberately NOT {"enable_thinking": true}. Every server that understands the key already
+			// reasons by default, so sending true changes nothing on those; on a server that does not
+			// understand it, it is an unrecognised top-level field with no upside at all.
+			TArray<FOllamaMessage> History;
+			History.Emplace(EOllamaRole::User, TEXT("hi"));
+			const FString Body = UOpenAIChatClient::BuildRequestBody(
+				History, TEXT("cyankiwi/Qwen3.5-35B-A3B-AWQ-4bit"), /*bEnableThinking=*/true);
+
+			const TSharedPtr<FJsonObject> Root = ParseJsonBody(Body);
+			if (!TestTrue("body parses as a JSON object", Root.IsValid()))
+			{
+				return;
+			}
+			TestFalse("no chat_template_kwargs at all", Root->HasField(TEXT("chat_template_kwargs")));
+		});
+
+		It("omits the field when the escape hatch is closed, WITHOUT re-enabling thinking", [this]()
+		{
+			// The whole point of the fourth parameter. An operator whose gateway 400s on an unknown
+			// top-level body field must be able to drop the field while thinking stays off -- so this
+			// asserts both halves: the field is gone AND bEnableThinking is still false, i.e. nothing
+			// here quietly bought silence back by turning reasoning on. Whether api.openai.com is such
+			// a gateway is UNTESTED; this exists because it might be.
+			TArray<FOllamaMessage> History;
+			History.Emplace(EOllamaRole::User, TEXT("hi"));
+			const FString Body = UOpenAIChatClient::BuildRequestBody(
+				History, TEXT("gpt-4o-mini"), /*bEnableThinking=*/false, /*bSendThinkingSuppression=*/false);
+
+			const TSharedPtr<FJsonObject> Root = ParseJsonBody(Body);
+			if (!TestTrue("body parses as a JSON object", Root.IsValid()))
+			{
+				return;
+			}
+			TestFalse("no chat_template_kwargs", Root->HasField(TEXT("chat_template_kwargs")));
+
+			// Nothing else may have appeared in its place -- an escaped request has to be a PLAIN
+			// OpenAI request, or the 400 it was avoiding just comes back under a different field name.
+			TestFalse("no stray top-level enable_thinking either", Root->HasField(TEXT("enable_thinking")));
+			TestFalse("no stray top-level think either", Root->HasField(TEXT("think")));
+			bool bStreamOnWire = false;
+			TestTrue("still a normal streaming request", Root->TryGetBoolField(TEXT("stream"), bStreamOnWire) && bStreamOnWire);
 		});
 	});
 

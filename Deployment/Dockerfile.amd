@@ -1,16 +1,25 @@
 # syntax=docker/dockerfile:1
 #
-# AMD Pixel Streaming image — parameterized by engine version. Build a 5.5 OR a 5.8 container
-# from ONE file:
+# AMD Pixel Streaming image — parameterized by engine version. ONE file builds either engine:
 #
-#   docker build -f Deployment/Dockerfile.amd -t ci/metahuman-local-llm:5.8 ..                     # 5.8 (default)
-#   docker build -f Deployment/Dockerfile.amd --build-arg RELEASE=5.5 -t ci/metahuman-local-llm:5.5 ..
+#   docker build -f Deployment/Dockerfile.amd -t ci/metahuman-local-llm:5.8 .                       # 5.8 (default)
+#   docker build -f Deployment/Dockerfile.amd --build-arg RELEASE=5.5 -t ci/metahuman-local-llm:5.5 .
 #
-# Nothing else needs to change between versions: Target.cs uses BuildSettingsVersion.Latest, and
+# 5.8 IS THE NORMAL TARGET, because it is the only one that can cook this project. Every
+# git-tracked package under Content/ is UE5 package version 1018 and UE 5.5.4 reads at most 1013;
+# package serialisation is forward-only, so a 5.5 cook fails at LOAD rather than at compile --
+# which is exactly why a compile-only check kept reporting that 5.5 was fine. The full reasoning is
+# in Scripts/BuildNative.ps1's -Engine notes; keep to that account rather than starting a parallel one.
+#
+# The 5.5 path below is deliberately kept working: the C++ does still compile on 5.5, and
+# Scripts/RunCompatMatrix.ps1 builds and tests the plugin against both engines to keep it that way.
+# RELEASE stays a build-arg. 5.5 is the version you ask for on purpose, not the one you get.
+#
+# Little else changes between versions: Target.cs uses BuildSettingsVersion.Latest, and
 # MetaHumanLocalLLM.uproject marks the 5.8-only plugins (Unreal-MCP, MetaHuman*) "Optional" so the
-# same project opens in the 5.8 dev editor yet cooks clean on 5.5. For pre-5.6 targets, the build
-# drops 5.8-only plugins and MetaHumanCharacter assets, and synthesizes a stage ONLY if none was
-# supplied.
+# same project opens in the 5.8 dev editor and still configures for a pre-5.6 build. For pre-5.6
+# targets, the build drops 5.8-only plugins and MetaHumanCharacter assets, and synthesizes a stage
+# ONLY if none was supplied.
 #
 # The plugin strip-list below is a safety net, not redundancy: the 5.8 editor ADDS plugins to the
 # .uproject on its own (this is how AIAssistant appeared), and it adds them as REQUIRED rather than

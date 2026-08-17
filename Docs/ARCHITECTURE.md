@@ -24,7 +24,7 @@ model runs on hardware we own. Nothing leaves the tailnet.
 
 | | |
 |---|---|
-| **Engine** | UE **5.5** for the shipped cook. 5.8 is used for authoring and MCP work only — see [`COMPAT-AND-ECOSYSTEM-REVIEW.md`](COMPAT-AND-ECOSYSTEM-REVIEW.md) |
+| **Engine** | UE **5.8** — what the project authors, builds and cooks. The C++ still compiles on 5.5 and is still tested there (§5.4); the **content** is what cannot go back. Every git-tracked package under `Content/` is UE5 package version **1018**, UE 5.5.4 reads at most **1013**, and package serialisation is forward-only, so a 5.5 cook fails at asset *load* — see the header of `Scripts/BuildNative.ps1` and [`COMPAT-AND-ECOSYSTEM-REVIEW.md`](COMPAT-AND-ECOSYSTEM-REVIEW.md) |
 | **Avatar** | Reallusion CC "Nia" — **CC-named** morph targets (`V_*`), *not* ARKit. 286 morph targets, all 15 CC visemes present |
 | **Cognition** | Ollama `qwen3.8:27b`, thinking disabled — **424–914 ms** warm on beta-1 |
 | **Voice out** | Kokoro via AMD Lemonade Server, OpenAI-shaped HTTP — **1166 ms** median |
@@ -53,7 +53,7 @@ flowchart LR
         SIG["Signalling server<br/>player :8090 · streamer :8888"]
         TURN["coturn :3478"]
         OIDC["oauth2-proxy :8095<br/>never worked"]
-        APP["UE 5.5 packaged app<br/>deployment-project-1"]
+        APP["UE 5.8 packaged app<br/>deployment-project-1"]
         TUN["SSH tunnels<br/>user-level systemd units"]
     end
 
@@ -86,7 +86,7 @@ has (the core-2 tunnels are a core-2 arrangement, not part of the app).
 | Host | Hardware | Runs | Why |
 |---|---|---|---|
 | **core-2** `100.101.156.33` | Ryzen AI Max+ 395 "Strix Halo" iGPU (gfx1151), shared memory | UE app, Pixel Streaming, signalling, TURN | Renders and encodes. **Measured: not a cognition host** — `gemma4:e2b` takes ~12 s a reply here because inference contends with the same silicon that is rendering and VP8-encoding a live stream |
-| **beta-1** `100.124.211.75` | 2× discrete Navi 31, 2×25.7 GB VRAM, ROCm 6.4, 64c Threadripper PRO | Ollama, Lemonade (Kokoro + Whisper), kokoro-align | Moving inference here turned a 12 s reply into **814 ms while going from a 2 B model to a 27 B one**. The accelerator was the bottleneck, never the model size |
+| **beta-1** `100.124.211.75` | 2× discrete Navi 31, 2×25.7 GB VRAM, ROCm 6.4, 64c Threadripper PRO | Ollama, Lemonade (Kokoro + Whisper), kokoro-align | Moving inference here turned a 12 s reply into **814 ms while going from a 2 B model to a 27 B one** — measured at the time on `qwen3.6:27b`, which beta-1 no longer serves; the current model is `qwen3.8:27b`. The accelerator was the bottleneck, never the model size |
 
 ### 2.3 The tunnels
 
@@ -166,7 +166,7 @@ classes and it cannot embed a Blueprint. Therefore:
 | The map cannot name a C++ class | Actors are found by **tag** (`CompanionFace`, `TapeReel`), never by class or label |
 | Labels are useless | Actor *labels* are editor-only and do not survive a cook — a label lookup works in the editor and silently finds nothing in the shipped build |
 | The HUD cannot be a WidgetBlueprint | `SCompanionHUD` is hand-written Slate added via `AddViewportWidgetContent` |
-| `BlueprintImplementableEvent`s are inert | `OnSetVisemeWeights`, `OnSetEmotion`, `OnSpeak`, `OnConversationError` on the character fire into nothing, because the subsystem spawns `AMetaHumanCompanionCharacter::StaticClass()` directly and no `BP_CompanionCharacter` exists |
+| `BlueprintImplementableEvent`s are inert | `OnSetVisemeWeights`, `OnSetEmotion`, `OnSpeak`, `OnConversationError` on the character fire into nothing. The subsystem spawns `AMetaHumanCompanionCharacter::StaticClass()` directly (`CompanionRuntimeSubsystem.cpp:55-56`). A `BP_CompanionCharacter` **does** exist and is git-tracked, but `Deployment/create_and_save_bp.py` creates it as a bare subclass and adds no nodes, and the asset carries none of the four event names and no `UbergraphFunction` — so re-pointing the spawn at it would change nothing until someone authors the graph |
 
 That last row is why a whole parallel lip-sync path (`UPiperTextToSpeech` →
 `FVisemeKey.JawOpen` → character `Tick` → `OnSetVisemeWeights`) exists in the source and is
@@ -319,7 +319,7 @@ length — see [`LEARNINGS.md`](LEARNINGS.md) for the open UTF-8 defect that fol
 |---|---|
 | `UMetaHumanLLMSettings` | `UDeveloperSettings`, `Config=Game`. The single settings object every client reads |
 | `FMetaHumanLLMEnvConfig` | Applies process environment onto those settings at `StartupModule`. See [`CONFIGURATION.md`](CONFIGURATION.md) for precedence |
-| `CICompanionCompat.h` / `CICompatReport` / `CISkeletalMeshCompat.h` | The UE 5.5 ↔ 5.8 layer, with the compatibility *table* separated from the `#if`s so both branches are testable from one engine |
+| `CICompanionCompat.h` / `CICompatReport` / `CISkeletalMeshCompat.h` | The UE 5.5 ↔ 5.8 layer, with the compatibility *table* separated from the `#if`s so both branches are testable from one engine. Live and maintained: `Tests/CompatSpec.cpp` asserts `ExpectedFor(5, 5)` and `ExpectedFor(5, 8)` side by side, and `Scripts/RunCompatMatrix.ps1` defaults to `-Engines 5.5, 5.8`. This is the part of 5.5 that still works — the **code**. §1 covers the part that does not: the content |
 | `CICompanionEnv.h` / `CICompanionLog.h` | Shared env helpers and log categories, defined **once** — both files exist because unity builds merged their per-file predecessors |
 
 ---
@@ -328,7 +328,7 @@ length — see [`LEARNINGS.md`](LEARNINGS.md) for the open UTF-8 defect that fol
 
 | Seam | State |
 |---|---|
-| Text in → reply → mouth → audio | **Working, verified in a cooked build.** Reply in 0.63 s with `CI_HUB_URL` present and no workaround |
+| Text in → reply → mouth → audio | **Working, verified in a cooked build** (2026-07-30). Round trip 0.63 s, logged as `backend=ollama model=gemma3:1b`. `CI_HUB_URL` was present and needed no workaround — that run proved **backend precedence**, not that the Hub served the reply: CI-Hub does not proxy inference, see [`COMPAT-AND-ECOSYSTEM-REVIEW.md`](COMPAT-AND-ECOSYSTEM-REVIEW.md) §3 |
 | Typing over Pixel Streaming | **Working, measured from a real browser** — auto-focus, click-then-type, Send button, and recovery from a stray click |
 | Mic → Whisper → turn | **Not wired.** `SCompanionHUD` exposes `OnMicToggled`; `UCompanionRuntimeSubsystem` never binds it. The STT component and the service both work in isolation |
 | Real phoneme alignment | **`IN FLIGHT`.** The sidecar runs and is tunnelled; the client and `PlanBest` exist uncommitted |

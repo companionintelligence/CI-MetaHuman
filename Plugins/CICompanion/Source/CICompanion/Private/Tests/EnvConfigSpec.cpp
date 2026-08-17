@@ -101,6 +101,36 @@ void FEnvConfigSpec::Define()
 		TestEqual("ollama model", Settings->OllamaModel, TEXT("qwen2.5"));
 	});
 
+	// The escape hatch for the OpenAI-compatible client's reasoning-suppression field. Covered
+	// because its DEFAULT is the dangerous direction to get wrong: it ships true, and an operator
+	// setting it is working around a gateway that rejects the field, so a variable that silently
+	// failed to apply would reproduce the exact failure they were escaping.
+	It("turns off the OpenAI chat_template_kwargs suppression field", [this, MakeLookup]()
+	{
+		UMetaHumanLLMSettings* Settings = NewObject<UMetaHumanLLMSettings>(GetTransientPackage());
+		TestTrue("sends the field by default", Settings->bOpenAISendChatTemplateKwargs);
+
+		TMap<FString, FString> Env;
+		Env.Add(TEXT("MHLLM_OPENAI_CHAT_TEMPLATE_KWARGS"), TEXT("0"));
+
+		FMetaHumanLLMEnvConfig::Apply(*Settings, MakeLookup(Env));
+		TestFalse("suppression field disabled", Settings->bOpenAISendChatTemplateKwargs);
+	});
+
+	It("leaves the suppression field on when the variable is absent", [this, MakeLookup]()
+	{
+		// Separate from the default assertion above: this proves Apply() does not clear it as a
+		// side effect of running with an unrelated environment, which a TryBool that wrote through
+		// unconditionally would do.
+		UMetaHumanLLMSettings* Settings = NewObject<UMetaHumanLLMSettings>(GetTransientPackage());
+
+		TMap<FString, FString> Env;
+		Env.Add(TEXT("OLLAMA_MODEL"), TEXT("qwen2.5"));
+
+		FMetaHumanLLMEnvConfig::Apply(*Settings, MakeLookup(Env));
+		TestTrue("still sending the field", Settings->bOpenAISendChatTemplateKwargs);
+	});
+
 	It("overrides the voice service URLs and system prompt", [this, MakeLookup]()
 	{
 		UMetaHumanLLMSettings* Settings = NewObject<UMetaHumanLLMSettings>(GetTransientPackage());

@@ -8,11 +8,50 @@
 #include "Serialization/JsonSerializer.h"
 #include "CICompanion.h"
 
-FString UOpenAIChatClient::BuildRequestBody(const TArray<FOllamaMessage>& History, const FString& Model)
+FString UOpenAIChatClient::BuildRequestBody(
+	const TArray<FOllamaMessage>& History,
+	const FString& Model,
+	bool bEnableThinking,
+	bool bSendThinkingSuppression)
 {
 	TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
 	Root->SetStringField(TEXT("model"), Model);
 	Root->SetBoolField(TEXT("stream"), true);
+
+	// Chain-of-thought suppression. On this path it is not merely a latency saving the way "think":
+	// false is for UOllamaClient -- it is the difference between an answer and no answer at all.
+	//
+	// Measured this session against the vLLM server on :8000 that CI-Hub on core-2 distributes as
+	// hermes-agent's backend (cyankiwi/Qwen3.5-35B-A3B-AWQ-4bit), same prompt each time ("Say hello
+	// in one short sentence."), stream:false:
+	//
+	//   max_tokens 40,  no extra field                                content NULL, reasoning field
+	//                                                                 present, finish=length,  2.2s
+	//   max_tokens 600, no extra field                                content NULL, reasoning 2118
+	//                                                                 chars,   finish=length, 28.1s
+	//   max_tokens 200, chat_template_kwargs {enable_thinking:false}  content "Hello!", reasoning 0
+	//                                                                 chars,   finish=stop,  0.335s
+	//
+	// The reasoning spends the entire token budget before the model reaches its answer, so `content`
+	// comes back null and this client accumulates nothing: 28 seconds of wall clock for a companion
+	// that says NOTHING, versus a real reply in a third of a second.
+	//
+	// Emitted ONLY when thinking is disabled, because this is a suppression HINT and not a toggle.
+	// Sending {"enable_thinking": true} was not measured and has no upside to weigh against the risk:
+	// the backend measured above already reasoned with NO extra field present (rows one and two), so
+	// true would be a no-op there, and against a server that does not recognise the key it is simply
+	// an unrecognised top-level body field -- the one thing that can turn a working request into a
+	// 400. So the enabled path sends nothing extra at all.
+	//
+	// bSendThinkingSuppression is the operator's way out if some strict gateway 400s on that field;
+	// see UMetaHumanLLMSettings::bOpenAISendChatTemplateKwargs, including the explicit note that
+	// api.openai.com's behaviour here was NOT tested.
+	if (!bEnableThinking && bSendThinkingSuppression)
+	{
+		TSharedRef<FJsonObject> TemplateKwargs = MakeShared<FJsonObject>();
+		TemplateKwargs->SetBoolField(TEXT("enable_thinking"), false);
+		Root->SetObjectField(TEXT("chat_template_kwargs"), TemplateKwargs);
+	}
 
 	TArray<TSharedPtr<FJsonValue>> Messages;
 	Messages.Reserve(History.Num());
@@ -46,7 +85,15 @@ FOllamaRequestHandle UOpenAIChatClient::SendChat(
 		BaseUrl.LeftChopInline(1);
 	}
 	const FString Url = BaseUrl + TEXT("/chat/completions");
-	const FString Body = BuildRequestBody(History, Settings->OpenAIModel);
+	// bEnableThinking is read here as well as by UOllamaClient. It is deliberately NOT gated on
+	// BackendType any more: FMetaHumanLLMEnvConfig has always parsed MHLLM_THINKING into it whatever
+	// the backend, and until this call passed it through, a deployment on the OpenAI-compatible path
+	// that set MHLLM_THINKING=0 got no suppression at all.
+	const FString Body = BuildRequestBody(
+		History,
+		Settings->OpenAIModel,
+		Settings->bEnableThinking,
+		Settings->bOpenAISendChatTemplateKwargs);
 
 	const FOllamaRequestHandle Handle = NextHandle++;
 	TSharedPtr<FActiveRequest> Active = MakeShared<FActiveRequest>();

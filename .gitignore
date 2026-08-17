@@ -22,6 +22,10 @@ Thumbs.db
 
 # Local secrets — never commit real OIDC/hub credentials
 Deployment/.env
+# Listed separately rather than as Deployment/.env* -- the two .example templates beside these
+# are tracked on purpose, and a glob here would be one rename away from ignoring them too.
+# .env.edge holds the OIDC client secret and cookie secret, so it must never be committable.
+Deployment/.env.edge
 *.local.env
 
 # Native build output (BuildNative.ps1 / RunUAT BuildCookRun)

@@ -183,6 +183,22 @@ int32 FMetaHumanLLMEnvConfig::Apply(UMetaHumanLLMSettings& Settings, FEnvLookup 
 	}
 	TryString(TEXT("LMSTUDIO_MODEL"), Settings.OpenAIModel);
 
+	// MHLLM_OPENAI_CHAT_TEMPLATE_KWARGS=0 stops the OpenAI-compatible client sending the top-level
+	// "chat_template_kwargs": {"enable_thinking": false} it adds when thinking is off. It exists for a
+	// gateway that rejects unrecognised body fields; whether api.openai.com is such a gateway was
+	// never tested, so this is a way out rather than a prediction. Ollama's /v1 shim tolerates the
+	// field (HTTP 200, probed against beta-1) and vLLM acts on it.
+	//
+	// SEPARATE from MHLLM_THINKING deliberately. Turning thinking back on would also stop the field
+	// being sent, but only by accepting the reasoning it was added to suppress -- measured against
+	// the vLLM backend CI-Hub distributes, that is a null-content reply after 28.1s instead of an
+	// answer in 0.335s. Nobody working around a 400 should be charged that.
+	//
+	// TryBool rather than the ad-hoc parse MHLLM_THINKING uses below: it takes the whole
+	// 1/true/yes/on + 0/false/no/off vocabulary and warns on anything else. This default is true, so
+	// a typo that silently left the field ON would reproduce the exact 400 the operator was escaping.
+	TryBool(TEXT("MHLLM_OPENAI_CHAT_TEMPLATE_KWARGS"), Settings.bOpenAISendChatTemplateKwargs);
+
 	// Direct Ollama overrides (for a sidecar Ollama rather than the hub).
 	TryString(TEXT("OLLAMA_BASE_URL"), Settings.OllamaBaseUrl);
 	TryString(TEXT("OLLAMA_MODEL"), Settings.OllamaModel);

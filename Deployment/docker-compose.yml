@@ -64,7 +64,8 @@ services:
       - turnserver
 
   # CI-portal OIDC gate. Users authenticate against ci-portal before the player page or its
-  # signalling WebSocket are reachable. Secrets/issuer come from .env (never bake them in).
+  # signalling WebSocket are reachable. The issuer/client/redirect come from .env and the two
+  # secrets from .env.edge (never bake either in).
   oidc-proxy:
     image: "quay.io/oauth2-proxy/oauth2-proxy:v7.6.0"
     init: true
@@ -72,12 +73,29 @@ services:
     command: ["--config=/etc/oauth2-proxy.cfg"]
     volumes:
       - "./oauth2-proxy.cfg:/etc/oauth2-proxy.cfg:ro"
+    # The client secret and the cookie secret, and nothing else. They live in a SECOND file rather
+    # than in `.env` because `.env` is handed to the `project` container whole (see the env_file
+    # note on that service), and these two are wanted by this service alone.
+    #
+    # They keep oauth2-proxy's own OAUTH2_PROXY_* spelling inside the file, not the CI_PORTAL_* /
+    # OIDC_COOKIE_SECRET names .env.example used for them: env_file injects a file's keys into the
+    # container under those keys and cannot rename on the way. The container therefore sees the
+    # same two variable names it saw when they were interpolated below -- same names, new route.
+    #
+    # For the same reason they must NOT be re-listed under `environment:`. An `environment:` entry
+    # interpolating an unset variable renders as "" and an empty `environment:` value BEATS
+    # env_file, so `OAUTH2_PROXY_CLIENT_SECRET: "${...}"` here would blank the value this file had
+    # just supplied. (Both halves checked with `docker compose config`.)
+    #
+    # `required: false` because a clean checkout has no .env.edge either, and the stack still has
+    # to render -- the login gate is the only part that needs this file.
+    env_file:
+      - path: ".env.edge"
+        required: false
     environment:
       OAUTH2_PROXY_CLIENT_ID: "${CI_PORTAL_CLIENT_ID}"
-      OAUTH2_PROXY_CLIENT_SECRET: "${CI_PORTAL_CLIENT_SECRET}"
       OAUTH2_PROXY_OIDC_ISSUER_URL: "${CI_PORTAL_ISSUER_URL}"
       OAUTH2_PROXY_REDIRECT_URL: "${CI_PORTAL_REDIRECT_URL}"
-      OAUTH2_PROXY_COOKIE_SECRET: "${OIDC_COOKIE_SECRET}"
     depends_on:
       - signalling
 
@@ -107,17 +125,35 @@ services:
     # stops that list growing again: a key added to .env.example now arrives without a second edit
     # here, which is the failure mode enumeration has.
     #
-    # `required: false` because a clean checkout has no `.env` (it is gitignored, .gitignore:24)
-    # and the control-plane smoke test in core-2-runbook.md brings the stack up before anyone
-    # writes one.
+    # `required: false` because a clean checkout has no `.env` (it is gitignored, .gitignore:24),
+    # so without it `docker compose config` would fail outright rather than render. This is about
+    # rendering the stack, not running it: core-2-runbook.md's deploy steps copy `.env.example` to
+    # `.env` first, so no documented procedure actually brings the stack up without one.
     #
-    # Worth knowing rather than discovering: this gives the app container the WHOLE file, which
-    # includes CI_PORTAL_CLIENT_SECRET, OIDC_COOKIE_SECRET and TURN_PASSWORD — secrets only
-    # oidc-proxy and turnserver need. Splitting `.env` in two is the fix if that ever matters.
+    # Because this hands over the WHOLE file, `.env` must not carry anything the app should not
+    # see. Three secrets used to be in it — CI_PORTAL_CLIENT_SECRET, OIDC_COOKIE_SECRET and
+    # TURN_PASSWORD, wanted by oidc-proxy and turnserver — and they are dealt with two different
+    # ways, because they reach their consumers two different ways:
+    #
+    #  * the two OIDC ones were only ever read as oidc-proxy's container environment. They now live
+    #    in `.env.edge`, which that service alone reads.
+    #  * TURN_PASSWORD cannot move, because it is never delivered as container environment at all:
+    #    it is interpolated into turnserver's `-u` argument and into signalling's
+    #    peerConnectionOptions, and compose interpolation reads the shell and the project env file
+    #    ONLY — a service's env_file does not feed `${...}` (compose warns "variable is not set"
+    #    and renders it blank; checked). The flags that would add a second interpolation source,
+    #    `--env-file` and COMPOSE_ENV_FILES, both abort with "couldn't find env file" when a named
+    #    file is absent, and a clean checkout has neither file. So it stays in `.env`.
+    #
+    # All three are therefore blanked for this service in `environment:` below. That is what keeps
+    # TURN_PASSWORD out of the app, and it also covers the other two for anyone whose `.env` was
+    # written before the split and still lists them.
     env_file:
       - path: ".env"
         required: false
-    # Every key below is ALSO in `.env`, deliberately. env_file reads the FILE and nothing else, so
+    # Every INTERPOLATED key below is also in `.env`, deliberately (the three literal blanks below
+    # are the exception -- two of them no longer exist in `.env` at all, see .env.edge.example).
+    # env_file reads the FILE and nothing else, so
     # a key delivered only that way ignores the process environment entirely and
     # `VAR=x docker compose up` silently does nothing for it. What is kept here is the set a
     # one-off run actually flips — backend, hub endpoint/token/model, the two voice URLs, persona —
@@ -125,6 +161,18 @@ services:
     # shell still wins for these. The habit is in this repo's own instructions: README.md and
     # core-2-runbook.md both write the build step as `PROJECT_DOCKERFILE=… docker compose …`.
     environment:
+      # Blanked on purpose, and an empty value is the form that works. A valueless
+      # `TURN_PASSWORD:` entry does NOT remove it here -- but only because this env_file happens to
+      # be `.env`, which compose also reads as its own project env file: with the same entry against
+      # an env_file named anything else, a valueless key renders `null`. So this is a property of
+      # this file's setup rather than a general env_file-vs-environment rule; both forms were
+      # checked with `docker compose config`. An explicit `""` is unambiguous either way.
+      # Nothing in Plugins/CICompanion/Source reads any of these three names -- grepped across the
+      # whole repo, zero code hits -- so blanking them costs the app nothing.
+      CI_PORTAL_CLIENT_SECRET: ""
+      OIDC_COOKIE_SECRET: ""
+      TURN_PASSWORD: ""
+
       # `openai` selects UOpenAIChatClient, aimed at CI_HUB_URL below — the OpenAI-shaped path,
       # which is what the CI side of this deployment speaks. See the CI_HUB_URL block for what
       # that URL actually points at.
@@ -142,7 +190,7 @@ services:
 
       # --- CI hub inference ---
       # CI_HUB_URL is the OpenAI-compatible base URL up to and INCLUDING the version segment;
-      # UOpenAIChatClient appends "/chat/completions" to it (OpenAIChatClient.cpp:48).
+      # UOpenAIChatClient appends "/chat/completions" to it (OpenAIChatClient.cpp, BuildRequestBody).
       #
       # The default is NOT the Hub's own address, and that is the correction. The Hub does not
       # proxy inference — its inference controller says so itself ("The Hub does NOT proxy
