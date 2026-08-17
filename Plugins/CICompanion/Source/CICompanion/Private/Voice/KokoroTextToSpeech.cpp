@@ -63,6 +63,14 @@ void UKokoroTextToSpeech::Speak(const FString& Text)
 	ActiveRequest->SetVerb(TEXT("POST"));
 	ActiveRequest->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
 	ActiveRequest->SetHeader(TEXT("Accept"), TEXT("audio/wav"));
+	// The ONLY HTTP client in this plugin without a timeout. Both chat clients and the phoneme
+	// aligner set one; synthesis did not, so a Lemonade that accepted the connection and then went
+	// quiet left the reply permanently un-voiced -- no audio, no callback, no error, and no way
+	// back for that turn. That is the same hang the chat clients' timeout was added to close, and
+	// it is worse here because HandleCompanionSpoke has already armed an utterance by this point.
+	// Shares the chat budget rather than inventing a second knob: an operator who raised one for a
+	// slow box meant both.
+	ActiveRequest->SetTimeout(Settings->ChatRequestTimeoutSeconds);
 	ActiveRequest->SetContentAsString(
 		BuildRequestBody(Text, Settings->KokoroModel, Settings->KokoroVoice));
 	ActiveRequest->OnProcessRequestComplete().BindUObject(this, &UKokoroTextToSpeech::HandleSynthesisComplete);

@@ -186,6 +186,16 @@ void UCompanionRuntimeSubsystem::CreateHud()
 	Initial.LlmModel = CICompanionEnv::Get(TEXT("OLLAMA_MODEL"), Initial.LlmModel);
 	Initial.FaceProfile = CICompanionEnv::Get(TEXT("MHLLM_FACE_PROFILE"), Initial.FaceProfile);
 	Initial.bVoiceEnabled = !CICompanionEnv::Get(TEXT("KOKORO_SERVER_URL"), FString()).IsEmpty();
+	// Seeded from the SAME env var UCompanionFaceSubsystem reads, because otherwise the two
+	// disagree and this one wins. The face subsystem starts the self-test on MHLLM_FACE_SELFTEST=1
+	// and logs "Face self-test running."; ApplySettings then runs a moment later with
+	// bFaceSelfTest still at its `false` default and calls StopSelfTest(). The env var was
+	// therefore INERT in the shipped build while the log cheerfully claimed it was active -- and
+	// the one diagnostic that exists to prove the morph path works in a COOKED build was the one
+	// thing that could never run there. Found by capturing all 15 visemes and getting 15 identical
+	// closed mouths, which reads exactly like a dead face rather than a defeated flag.
+	Initial.bFaceSelfTest = CICompanionEnv::IsEnabled(TEXT("MHLLM_FACE_SELFTEST"))
+		|| FParse::Param(FCommandLine::Get(), TEXT("FaceSelfTest"));
 	Initial.Validate();
 
 	SettingsPanel = SNew(SCompanionSettingsPanel)

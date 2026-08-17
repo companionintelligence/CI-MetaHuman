@@ -56,11 +56,31 @@ namespace
 		Add(P, EViseme::SS,  { { TEXT("V_Tight"), 0.90f } });
 		Add(P, EViseme::NN,  { { TEXT("V_Tongue_Raise"), 0.85f } });
 		Add(P, EViseme::RR,  { { TEXT("V_Tongue_Curl_U"), 0.85f }, { TEXT("V_Tight_O"), 0.30f } });
-		Add(P, EViseme::AA,  { { TEXT("V_Open"), 1.0f }, { TEXT("Jaw_Open"), 0.55f } });
-		Add(P, EViseme::E,   { { TEXT("V_Wide"), 0.80f }, { TEXT("Jaw_Open"), 0.30f } });
-		Add(P, EViseme::IH,  { { TEXT("V_Wide"), 0.55f }, { TEXT("Jaw_Open"), 0.15f } });
-		Add(P, EViseme::OH,  { { TEXT("V_Tight_O"), 0.80f }, { TEXT("Jaw_Open"), 0.35f } });
-		Add(P, EViseme::OU,  { { TEXT("V_Tight_O"), 1.0f }, { TEXT("Jaw_Open"), 0.10f } });
+		// VOWEL APERTURE, re-measured 2026-08-16. These jaw values were 0.55/0.30/0.15/0.35/0.10,
+		// chosen against the "puppet hinge" concern in the note at the top of this file. That
+		// correction overshot: it removed nearly all APERTURE and left lip ROUNDING as the only
+		// visible motion, so a speaking face reads as a fish working its lips without ever
+		// opening its mouth.
+		//
+		// Measured against a live kokoro-align track for a deliberately vowel-heavy line
+		// ("Boom. Pop. Mama, papa, wow. Open wide, oh oh oh, ee ee ee, moo moo moo"), 77 spans
+		// over 5.22s: duration-weighted mean Jaw_Open was 0.094. The most common voiced shape was
+		// OU at 11.1% of the utterance -- V_Tight_O at FULL 1.0 against Jaw_Open 0.10, i.e.
+		// maximum purse with no opening. Genuine aperture (AA) covered 0.47s of 5.22s. Screen
+		// capture confirmed it: mouth-region darkness during speech was statistically identical
+		// to silence (12.52 vs 12.90 mean), because the jaw never moved.
+		//
+		// Raised so every vowel carries visible aperture while keeping its distinguishing shape.
+		// OU also drops V_Tight_O 1.0 -> 0.85: at full strength the purse closes the lips over
+		// whatever the jaw is doing, which is what made "moo" and "oh" indistinguishable. The
+		// same distribution now predicts a weighted mean near 0.15, concentrated on the vowels a
+		// viewer actually watches. Guarded by FaceProfileSpec's aperture test so a future
+		// hinge-panic cannot silently flatten it again.
+		Add(P, EViseme::AA,  { { TEXT("V_Open"), 1.0f }, { TEXT("Jaw_Open"), 0.72f } });
+		Add(P, EViseme::E,   { { TEXT("V_Wide"), 0.80f }, { TEXT("Jaw_Open"), 0.42f } });
+		Add(P, EViseme::IH,  { { TEXT("V_Wide"), 0.55f }, { TEXT("Jaw_Open"), 0.26f } });
+		Add(P, EViseme::OH,  { { TEXT("V_Tight_O"), 0.80f }, { TEXT("Jaw_Open"), 0.52f } });
+		Add(P, EViseme::OU,  { { TEXT("V_Tight_O"), 0.85f }, { TEXT("Jaw_Open"), 0.38f } });
 		return P;
 	}
 

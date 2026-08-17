@@ -34,6 +34,48 @@ void FFaceProfileSpec::Define()
 				TestFalse("no mouthPucker", Curve == FName(TEXT("mouthPucker")));
 			}
 		});
+
+		// REGRESSION GUARD. Every vowel previously satisfied "Jaw_Open is present and > 0" while
+		// carrying so little of it (0.10 on OU, the most common voiced shape) that the jaw never
+		// visibly moved: a duration-weighted mean of 0.094 across a real aligned utterance, and
+		// screen-captured mouth darkness during speech statistically identical to silence. The
+		// face read as a fish -- lips rounding, mouth never opening -- and NOTHING in this suite
+		// failed, because presence and sign were all anyone asserted. Assert MAGNITUDE.
+		It("opens the jaw enough on vowels to be visible, not merely non-zero", [this]()
+		{
+			const FFaceProfile& P = FFaceProfile::CharacterCreator();
+			// Floors, not equalities: re-tuning the shapes is expected, flattening them is not.
+			const TArray<TPair<EViseme, float>> Floors = {
+				{ EViseme::AA, 0.60f },   // the open vowel; if this is low nothing else matters
+				{ EViseme::OH, 0.40f },
+				{ EViseme::OU, 0.30f },   // the fish case: full purse over a shut jaw
+				{ EViseme::E,  0.30f },
+				{ EViseme::IH, 0.20f },
+			};
+			for (const TPair<EViseme, float>& Floor : Floors)
+			{
+				TMap<FName, float> Curves;
+				P.Accumulate(Floor.Key, 1.0f, Curves);
+				const float Jaw = Curves.FindRef(TEXT("Jaw_Open"));
+				TestTrue(FString::Printf(TEXT("viseme %d drives Jaw_Open >= %.2f (got %.3f)"),
+					static_cast<int32>(Floor.Key), Floor.Value, Jaw), Jaw >= Floor.Value);
+			}
+		});
+
+		// A pure purse shuts the lips over whatever the jaw is doing, which is what made "moo"
+		// and "oh" render identically. Rounding must leave room for aperture to read through it.
+		It("never rounds the lips at full strength, so aperture still reads", [this]()
+		{
+			const FFaceProfile& P = FFaceProfile::CharacterCreator();
+			for (const EViseme V : { EViseme::OU, EViseme::OH })
+			{
+				TMap<FName, float> Curves;
+				P.Accumulate(V, 1.0f, Curves);
+				const float Round = Curves.FindRef(TEXT("V_Tight_O"));
+				TestTrue(FString::Printf(TEXT("viseme %d rounds below full (got %.3f)"),
+					static_cast<int32>(V), Round), Round < 1.0f);
+			}
+		});
 	});
 
 	Describe("ARKit profile", [this]()

@@ -197,6 +197,12 @@ private:
 	int32 ResolvedCurveCount = 0;
 
 	bool bSelfTesting = false;
+
+	// Survival instrumentation: what ApplyCurves last wrote, checked a frame later by
+	// SampleSurvival() to see whether the mesh still holds it after its own animation ran.
+	void SampleSurvival();
+	FName LastWrittenCurve;
+	float LastWrittenWeight = 0.0f;
 	float SelfTestSecondsPerViseme = 0.4f;
 	float SelfTestElapsed = 0.0f;
 

@@ -91,6 +91,26 @@ void UCompanionFaceSubsystem::OnWorldBeginPlay(UWorld& InWorld)
 	Face->SetProfile(FFaceProfile::ByName(CICompanionEnv::Get(TEXT("MHLLM_FACE_PROFILE"), TEXT("CC"))));
 	Face->SetTargetMesh(Mesh);
 
+	// TICK AFTER THE MESH'S ANIMATION, or none of this is visible.
+	//
+	// UCompanionFaceComponent writes weights with USkeletalMeshComponent::SetMorphTarget from its
+	// TickComponent. Without an ordering constraint both components tick in the same group in
+	// registration order, so the face driver generally runs BEFORE the mesh evaluates its own
+	// animation -- and that evaluation rebuilds the component's curve/morph state from the anim
+	// graph, discarding whatever was set beforehand. The resident plays MF_Idle through a single
+	// node instance, so this happens every single frame.
+	//
+	// The failure is completely silent and reads as a dead rig: SetMorphTarget on a missing name
+	// is a no-op, so the existing "42/42 curves resolved" log looks identical whether the writes
+	// survive or are thrown away a millisecond later. Measured before this line existed: driving
+	// all 15 visemes through the self-test moved the mouth region no more than a CONTROL patch of
+	// cheek (2.25 vs 2.05 mean frame delta) -- i.e. the only thing moving was the whole head, under
+	// the very idle animation that was clobbering the morphs.
+	//
+	// AddTickPrerequisiteComponent is the narrow fix: it constrains order without moving either
+	// component to another tick group, so physics and rendering see the same schedule they did.
+	Face->AddTickPrerequisiteComponent(Mesh);
+
 	UE_LOG(LogCompanionFace, Log, TEXT("Face driver bound to '%s': %d/%d profile curves resolved."),
 		*Resident->GetName(), Face->GetResolvedCurveCount(), Face->GetProfileCurveCount());
 

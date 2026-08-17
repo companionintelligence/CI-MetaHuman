@@ -47,3 +47,6 @@ __pycache__/
 # Measurements, not source. Scripts/RunConversationE2E.py writes this into the working directory on
 # every run; the numbers belong in whatever doc quotes them, not in the tree.
 conversation_e2e_results.json
+
+# Audit capture output: reproducible, ~40 MB of PNG/GIF. The report .md is what matters.
+Docs/audit-*/media/

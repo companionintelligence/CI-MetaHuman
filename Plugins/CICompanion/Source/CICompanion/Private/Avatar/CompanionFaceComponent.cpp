@@ -3,6 +3,7 @@
 
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
+#include "Animation/MorphTarget.h"
 
 
 UCompanionFaceComponent::UCompanionFaceComponent()
@@ -78,17 +79,51 @@ void UCompanionFaceComponent::ResolveCurvesAgainstMesh()
 	}
 
 	TArray<FName> Missing;
+	// EDITOR ONLY, and the guard is the whole point.
+	//
+	// UMorphTarget::MorphLODModels holds the authored deltas, and the cook STRIPS them once they
+	// have been baked into the render data's morph vertex buffers. So in a packaged build this
+	// array is legitimately empty on a perfectly healthy mesh. An earlier version of this check ran
+	// unguarded and duly reported "42/42 curves with ZERO vertex deltas -- they will never deform
+	// anything" against a mesh whose source carries all 42 sets of deltas (see
+	// MorphDataSpec, which asserts exactly that in the editor). It was a false alarm that read like
+	// a smoking gun, which is worse than no check at all.
+	//
+	// Kept because it is genuinely useful where it CAN run: an editor session or a spec catches a
+	// bad import immediately. For the cooked runtime the equivalent question has to be asked of
+	// FSkeletalMeshRenderData's morph vertex buffers instead, which is a different API and not
+	// something to fake with this one.
+#if WITH_EDITORONLY_DATA
+	TArray<FString> Empty;
+#endif
 	for (const FName& Curve : CachedAllCurves)
 	{
-		if (Asset->FindMorphTarget(Curve))
+		if (const UMorphTarget* MT = Asset->FindMorphTarget(Curve))
 		{
 			++ResolvedCurveCount;
+#if WITH_EDITORONLY_DATA
+			const TArray<FMorphTargetLODModel>& LODs = MT->GetMorphLODModels();
+			if (LODs.Num() == 0 || LODs[0].Vertices.Num() == 0)
+			{
+				Empty.Add(Curve.ToString());
+			}
+#endif
 		}
 		else
 		{
 			Missing.Add(Curve);
 		}
 	}
+
+#if WITH_EDITORONLY_DATA
+	if (Empty.Num() > 0)
+	{
+		UE_LOG(LogCompanionFace, Warning,
+			TEXT("Face profile '%s': %d/%d curves resolve to morph targets with no authored deltas at LOD0 on '%s' (editor check) -- verify the import: %s"),
+			*Profile.ProfileName.ToString(), Empty.Num(), CachedAllCurves.Num(), *Asset->GetName(),
+			*FString::Join(Empty, TEXT(", ")));
+	}
+#endif
 
 	// Loud, because the failure mode is otherwise invisible: SetMorphTarget on a name the mesh
 	// does not have silently does nothing, and the character just stares back with a still face.
@@ -140,6 +175,55 @@ void UCompanionFaceComponent::ApplyCurves(const TMap<FName, float>& Curves)
 	{
 		TargetMesh->SetMorphTarget(Pair.Key, FMath::Clamp(Pair.Value, 0.0f, 1.0f));
 	}
+
+	// SURVIVAL CHECK. Records what was written; the verdict is logged at the START of the next
+	// tick by SampleSurvival(), because that is the only place the answer is meaningful.
+	//
+	// An immediate read-back proves nothing. GetMorphTarget called one line after SetMorphTarget
+	// re-reads the map that was just written, so it reports "ok" whether or not the value ever
+	// reaches skinning -- I chased that false positive already. What matters is whether the weight
+	// is STILL set after the mesh has evaluated its own animation, because
+	// USkeletalMeshComponent rebuilds its morph/curve state from the anim instance during
+	// evaluation and a single-node MF_Idle carries no morph curves at all, which would zero
+	// everything written before it.
+	if (Curves.Num() > 0)
+	{
+		float TopApplied = 0.0f;
+		FName TopName = NAME_None;
+		for (const TPair<FName, float>& Pair : Curves)
+		{
+			if (Pair.Value > TopApplied) { TopApplied = Pair.Value; TopName = Pair.Key; }
+		}
+		LastWrittenCurve = TopName;
+		LastWrittenWeight = TopApplied;
+	}
+}
+
+void UCompanionFaceComponent::SampleSurvival()
+{
+	// Called at the top of TickComponent, i.e. one full frame after ApplyCurves wrote the value and
+	// AFTER the mesh's animation has evaluated (this component holds a tick prerequisite on it).
+	// If Written is high and Survived is ~0, the weights are being cleared between frames and the
+	// fault is downstream of this class, not in the compositing above.
+	if (!TargetMesh || LastWrittenCurve.IsNone() || LastWrittenWeight <= 0.01f)
+	{
+		return;
+	}
+	static double LastLogTime = 0.0;
+	const double Now = FPlatformTime::Seconds();
+	if (Now - LastLogTime <= 1.0)
+	{
+		return;
+	}
+	LastLogTime = Now;
+
+	const float Survived = TargetMesh->GetMorphTarget(LastWrittenCurve);
+	// Verbose: useful when the face is under suspicion, silent otherwise. At Log level this
+	// prints every second of every session for a question nobody is asking most of the time.
+	UE_LOG(LogCompanionFace, Verbose,
+		TEXT("FACESURVIVE '%s' written=%.3f survived_next_frame=%.3f %s"),
+		*LastWrittenCurve.ToString(), LastWrittenWeight, Survived,
+		(Survived < 0.01f) ? TEXT("<-- CLEARED BETWEEN FRAMES") : TEXT("held"));
 }
 
 void UCompanionFaceComponent::ClearFace()
@@ -281,6 +365,9 @@ TMap<FName, float> UCompanionFaceComponent::ComposeFrame(float DeltaTime)
 void UCompanionFaceComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+
+	// Before composing anything: did last frame's write survive the mesh's animation pass?
+	SampleSurvival();
 
 	const TMap<FName, float> Curves = ComposeFrame(DeltaTime);
 
@@ -442,3 +529,4 @@ float UCompanionFaceComponent::TickBlink(float DeltaTime)
 	}
 	return 0.0f;
 }
+

@@ -125,8 +125,15 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Voice")
 	FString KokoroServerUrl;
 
+	// "kokoro-v1" is what a live Lemonade Server actually advertises at /api/v1/models. The old
+	// default here was "Kokoro-82M-ONNX" -- the upstream model's own name, and a reasonable guess,
+	// but Lemonade rejects it with HTTP 404 model_not_found. Only docker-compose.face.yml carried
+	// the working override, so every path that did NOT go through that compose file (a native
+	// build, BuildNative.ps1, a bare editor run) got a silent 404 on every single utterance and a
+	// companion that never spoke. Probed against beta-1, which returns exactly two models:
+	// Whisper-Base and kokoro-v1.
 	UPROPERTY(Config, EditAnywhere, Category = "Voice")
-	FString KokoroModel = TEXT("Kokoro-82M-ONNX");
+	FString KokoroModel = TEXT("kokoro-v1");
 
 	UPROPERTY(Config, EditAnywhere, Category = "Voice")
 	FString KokoroVoice = TEXT("af_sky");

@@ -29,7 +29,22 @@ int32 FMetaHumanLLMEnvConfig::Apply(UMetaHumanLLMSettings& Settings, FEnvLookup 
 		}
 		if (Value.IsNumeric())
 		{
-			Target = FCString::Atoi(*Value);
+			const int32 Parsed = FCString::Atoi(*Value);
+			// NEGATIVE is rejected; zero is not. Zero legitimately means "unlimited" (see above),
+			// but FString::IsNumeric() accepts a leading '-', so "-1" sailed straight through this
+			// guard -- the one written to stop a bad value silently removing the cap -- and did
+			// something strictly worse than removing it. UOllamaConversation::Trim computes
+			// MaxMessages = MaxRetainedTurns * 2, so a negative cap makes Excess exceed the history
+			// itself and every append erases the WHOLE conversation, persona included. The bound
+			// the operator was tightening instead deletes everything, and nothing says so.
+			if (Parsed < 0)
+			{
+				UE_LOG(LogMetaHumanLLM, Warning,
+					TEXT("%s='%s' is negative, which would erase the conversation on every append; keeping %d."),
+					Name, *Value, Target);
+				return;
+			}
+			Target = Parsed;
 			++Applied;
 		}
 		else
