@@ -2,6 +2,8 @@
 
 #include "CoreMinimal.h"
 #include "Brushes/SlateRoundedBoxBrush.h"
+#include "Engine/FontFace.h"
+#include "Fonts/CompositeFont.h"
 #include "Styling/CoreStyle.h"
 #include "Styling/SlateBrush.h"
 #include "Styling/SlateColor.h"
@@ -19,12 +21,11 @@
  * here because Slate's FLinearColor has no oklch constructor. FromSRGB is used rather than the
  * FLinearColor(hex) path so the numbers below can be compared literally against the guide.
  *
- * KNOWN DEVIATION -- TYPEFACE. The guide mandates Montserrat (weights 200/400/500/600/700). No
- * Montserrat face exists in this project or in CI-Common/assets: the web surfaces pull it from
- * Google Fonts, which Slate cannot do. Importing it needs a .ttf brought in as a UFont asset,
- * which is a content change, not a code one. Until then this uses the engine's default sans and
- * carries the brand through COLOR, RADIUS and SPACING, which are reproduced exactly. Do not
- * describe the HUD as fully brand-compliant while this note stands.
+ * TYPEFACE. The guide mandates Montserrat, and this uses it -- three faces vendored from
+ * CI-Capture/assets/fonts under the SIL Open Font License and imported to /Game/Fonts. It briefly
+ * shipped with Roboto substituted, on the mistaken belief that no Montserrat existed anywhere in
+ * the org; it does, on several surfaces. Only three weights are carried rather than the guide's
+ * five, so the ladder is approximated -- see the note above the font accessors.
  */
 namespace CIBrand
 {
@@ -100,23 +101,96 @@ namespace CIBrand
 	}
 
 	// --- Type ---------------------------------------------------------------------------------
-	// SUBSTITUTE FACE: Roboto, the family the engine ships in Engine/Content/Slate/Fonts.
+	// REAL MONTSERRAT, as the guide mandates.
 	//
-	// The guide mandates Montserrat. It is not installed on this machine and is not in
-	// CI-Common/assets -- the web surfaces pull it from Google Fonts, which Slate cannot do -- and
-	// no geometric alternative (Poppins, Century Gothic, Futura, Quicksand) is present either, so
-	// the honest choice is the closest thing already available rather than a font that has to be
-	// imported before the HUD will build. Roboto is neo-grotesque where Montserrat is geometric,
-	// so the letterforms differ most on 'a', 'e' and 'g'; at the 9-12px this HUD renders, over a
-	// moving 3D background, that difference is far less visible than the WEIGHT and COLOUR
-	// relationships, which are reproduced exactly.
+	// The faces are imported as UFontFace assets under /Game/Fonts (see
+	// Deployment/import_brand_font.py; the TTFs are vendored from CI-Capture/assets/fonts under the
+	// SIL Open Font License, so embedding and redistribution are permitted). The org already ships
+	// this family on its web surfaces, which pull it from Google Fonts -- something Slate cannot do,
+	// which is why it has to be an asset here.
 	//
-	// Weight ladder maps the guide's Montserrat weights onto the Roboto faces the engine has:
-	//     Montserrat 200 -> Light      400 -> Regular      500 -> Medium      600/700 -> Bold
-	// Swapping in real Montserrat later is a one-line change per accessor once a UFont asset
-	// exists; nothing else in the HUD refers to a face by name.
-	inline FSlateFontInfo BodyFont()    { return FCoreStyle::GetDefaultFontStyle("Regular", 12); }
-	inline FSlateFontInfo SpeakerFont() { return FCoreStyle::GetDefaultFontStyle("Medium", 10); }
-	inline FSlateFontInfo StatusFont()  { return FCoreStyle::GetDefaultFontStyle("Medium", 9); }
-	inline FSlateFontInfo InputFont()   { return FCoreStyle::GetDefaultFontStyle("Regular", 12); }
+	// Composed in C++ rather than as a UFont asset on purpose. Creating the composite UFont needs a
+	// live Slate application, so it cannot be built by the -run=pythonscript commandlet the rest of
+	// this project's content is authored with (it asserts CurrentApplication.IsValid() and takes the
+	// editor down). Building the FCompositeFont here needs only the three face assets, which DO
+	// import headlessly, so the whole font path stays reproducible from the command line.
+	//
+	// Weight ladder, mapping the guide's Montserrat weights onto the three vendored faces:
+	//     200 -> Light      400/500 -> Regular      600/700 -> SemiBold
+	//
+	// FALLS BACK to the engine's Roboto if the assets are absent. A content-light checkout should
+	// get a HUD in the wrong typeface, not a HUD with no text in it.
+	namespace Detail
+	{
+		inline const UFontFace* LoadFace(const TCHAR* Path)
+		{
+			// Lazy and cached: this is called every frame the HUD paints, and LoadObject at static
+			// init time would run before the asset registry is up.
+			static TMap<FString, const UFontFace*> Cache;
+			if (const UFontFace** Found = Cache.Find(Path))
+			{
+				return *Found;
+			}
+			const UFontFace* Face = LoadObject<UFontFace>(nullptr, Path);
+			Cache.Add(Path, Face);
+			return Face;
+		}
+
+		inline TSharedPtr<const FCompositeFont> Montserrat()
+		{
+			static TSharedPtr<const FCompositeFont> Composite;
+			static bool bTried = false;
+			if (bTried)
+			{
+				return Composite;
+			}
+			bTried = true;
+
+			const UFontFace* Light    = LoadFace(TEXT("/Game/Fonts/Montserrat-Light.Montserrat-Light"));
+			const UFontFace* Regular  = LoadFace(TEXT("/Game/Fonts/Montserrat-Regular.Montserrat-Regular"));
+			const UFontFace* SemiBold = LoadFace(TEXT("/Game/Fonts/Montserrat-SemiBold.Montserrat-SemiBold"));
+			if (!Regular)
+			{
+				// Regular is the floor: without it there is no body copy, so fall back wholesale
+				// rather than render half the HUD in one family and half in another.
+				return nullptr;
+			}
+
+			TSharedRef<FCompositeFont> Built = MakeShared<FCompositeFont>();
+			auto Append = [&Built](const TCHAR* Name, const UFontFace* Face)
+			{
+				if (Face)
+				{
+					// FTypeface::AppendFont's public overload takes a FILENAME, which is the path
+					// that breaks in a cooked container. Emplacing an FFontData built from the face
+					// ASSET keeps the reference inside the package instead.
+					// Named local, not FTypefaceEntry Entry(FName(Name)) -- that form is a function
+					// declaration to the compiler, not a variable.
+					const FName EntryName(Name);
+					FTypefaceEntry Entry(EntryName);
+					Entry.Font = FFontData(Face);
+					Built->DefaultTypeface.Fonts.Add(MoveTemp(Entry));
+				}
+			};
+			Append(TEXT("Light"), Light);
+			Append(TEXT("Regular"), Regular);
+			Append(TEXT("SemiBold"), SemiBold);
+			Composite = Built;
+			return Composite;
+		}
+
+		inline FSlateFontInfo Font(const TCHAR* Typeface, float Size, const char* RobotoFallback)
+		{
+			if (TSharedPtr<const FCompositeFont> M = Montserrat())
+			{
+				return FSlateFontInfo(M, Size, FName(Typeface));
+			}
+			return FCoreStyle::GetDefaultFontStyle(RobotoFallback, Size);
+		}
+	}
+
+	inline FSlateFontInfo BodyFont()    { return Detail::Font(TEXT("Regular"), 12, "Regular"); }
+	inline FSlateFontInfo SpeakerFont() { return Detail::Font(TEXT("SemiBold"), 10, "Medium"); }
+	inline FSlateFontInfo StatusFont()  { return Detail::Font(TEXT("SemiBold"), 9, "Medium"); }
+	inline FSlateFontInfo InputFont()   { return Detail::Font(TEXT("Regular"), 12, "Regular"); }
 }

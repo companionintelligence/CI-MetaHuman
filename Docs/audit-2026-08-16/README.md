@@ -14,10 +14,12 @@ against a native Win64 build cooked from `feat/gaze-memory-and-input-wiring` plu
 | Compiles on the supported engine | ✅ UE **5.8** |
 | Automation Specs pass | ✅ **284/284** backend + 28 frontend, against a freshly built binary |
 | Chat turn completes, audio correct | ✅ typed turn + opening beat, Tier-1 phoneme alignment |
-| **Facial animation visibly works** | ❌ **NO — unresolved, see §4** |
+| **Facial animation visibly works** | ✅ **RESOLVED — see §4** |
 | Real container / Pixel Streaming | ⛔ not validated — host limitation, §6 |
 
-**The face does not visibly animate, and the cause is not yet known.** Everything else below works.
+The face animates. It was never broken: it was **under-driven by roughly an order of magnitude**,
+which is indistinguishable from broken when you look at it, and which defeated four separate
+measurements before a method was found that could see it (§4, §7).
 
 ---
 
@@ -58,44 +60,77 @@ mere presence — the old tests passed at 0.094 because they only checked `> 0.0
 
 ---
 
-## 4. The face does not animate — open investigation
+## 4. The face — resolved
 
-Nothing in the pipeline reports an error, and the mouth does not move.
+Three defects stacked. Fixing only the middle one produces the "fish mouth" that prompted this.
 
-### Measured
+### 4.1 The self-test could never run in a cooked build
 
-With emotion and gaze **off** and the self-test genuinely running, all 15 visemes render an
-identical closed mouth — including `AA` (`V_Open` 1.0 + `Jaw_Open` 0.72). The control is what makes
-this conclusive:
+`UCompanionFaceSubsystem` starts it on `MHLLM_FACE_SELFTEST=1` and logs `Face self-test running.`;
+`UCompanionRuntimeSubsystem::ApplySettings` then ran with `bFaceSelfTest` at its `false` default and
+called `StopSelfTest()`. The env var was never seeded into the settings model, so the one diagnostic
+that exists to prove the morph path in a shipped build was the one thing that could not run there.
+Both facts appeared in the same log: `Face self-test running.` next to `selftest=0`.
 
-| Region | Mean frame delta |
-|---|---|
-| Mouth | 2.10 |
-| **Cheek (control)** | **1.90** |
-| Eyes | 1.62 |
+### 4.2 Under-driven by ~10×
 
-The mouth moves no more than a patch of cheek. No localized deformation anywhere — no visemes, and
-no detectable blink.
+Reallusion CC's `V_*` morphs are subtle. At unity, lip deformation sits far below the idle head
+animation on top of it, so it reads as a dead face — and defeats any time-domain measurement.
 
-### Ruled out, with evidence
+The self-test drives one viseme per 0.4 s, i.e. **2.5 Hz**, while the idle cycle is ~0.23 Hz. Those
+separate cleanly. Measuring lip aperture at the drive frequency against an **undriven nose control**:
+
+| gain | lips @2.5 Hz | nose (control) | lips/nose | Appearance |
+|---|---|---|---|---|
+| 1.0 | 0.129 | 0.017 | 7.5× | barely parted |
+| 2.0 | 0.267 | 0.016 | 16.3× | still subtle |
+| **3.0** | 0.260 | 0.023 | 11.2× | **open, teeth visible** |
+| 5.0 | 0.343 | 0.029 | 12.0× | distorted oval |
+
+`Config/DefaultEngine.ini` had been granting the renderer `r.MorphTarget.MaxBlendWeight=5.0` all
+along, while the code clamped to a hardcoded `1.0` — none of that headroom was reachable. Gain
+defaults to 3.0 (`MHLLM_FACE_GAIN`) and applies to the **viseme layer only**: `AddEmotion` keeps
+FACS weights ≤0.45 deliberately ("a full-strength FACS pose reads as a caricature") and blink is
+already a full close at 1.0, so a uniform gain would give a mugging face and eyes that slam shut.
+
+### 4.3 Unbounded composition tore the lip
+
+Once visible, ~1.9 s into a test utterance the upper lip stretched with dark artifacts at both
+corners. `FFaceProfile::Accumulate` clamps each curve to 1.0 **independently**, so two overlapping
+visemes can each reach full strength and then both get multiplied — a pose nobody sculpted.
+
+Bounded by scaling the composed set by one factor, `Effective = min(Gain, VisemePoseCap / Peak)`,
+which preserves the ratios that make a pose read as a particular viseme. Cap 2.0
+(`MHLLM_FACE_POSE_CAP`).
+
+### 4.4 Verified on real speech
+
+Same utterance, same regions, before and after the cap:
+
+| | LIPS speech | vs silence | Cheek control |
+|---|---|---|---|
+| Before cap | 11.49 rev/s | 6.98× | 1.51× |
+| **After cap** | **11.36 rev/s** | 6.51× | 1.39× |
+
+11.5 reversals/s ≈ 5.75 Hz, inside the phoneme band. Articulation survived the cap — the prediction
+that would have falsified the fix (lip rate collapsing toward the 1.65 rev/s silence baseline) did
+not occur, and the torn frame became a clean rounded O.
+
+### Ruled out along the way, with evidence
 
 | Hypothesis | Evidence against |
 |---|---|
-| Self-test never ran | fixed; `selftest=1`, still no motion |
 | Tick ordering (anim clobbers writes) | `AddTickPrerequisiteComponent(Mesh)` changed nothing |
 | Weights don't survive the frame | `FACESURVIVE 'V_Open' written=0.806 survived_next_frame=0.806 held` |
-| Compose/write broken | `V_Open` composes to 0.62–0.99; every write accepted |
-| GPU morph path | forcing `r.MorphTarget.Mode 0` + skin cache off: 2.07 vs 1.82, unchanged |
+| GPU morph path | forcing `r.MorphTarget.Mode 0` + skin cache off: unchanged |
 | Nanite skeletal mesh | `nanite ENABLED = False` on all three meshes |
 | MinLOD / wrong LOD | `min_lod = 0` |
-| Morph targets absent or empty **in source** | `MorphDataSpec`: **42/42 curves have LOD0 vertex deltas** |
+| Morph targets empty in source | `MorphDataSpec`: **42/42 curves have LOD0 vertex deltas** |
 | Wrong actor driven | authoring spawns one `SkeletalMeshActor` (`SK_Nia`) tagged `CompanionFace` |
 
-### Next probe
-
-Interrogate `FSkeletalMeshRenderData`'s morph vertex buffers at runtime — the cooked-build
-equivalent of the delta question. `UMorphTarget::MorphLODModels` is **stripped by the cook** once
-deltas are baked into render data, so it must not be used as a runtime health check (see §7).
+`UMorphTarget::MorphLODModels` is **stripped by the cook** once deltas are baked into render data,
+so it must never be used as a runtime health check — doing so produced a false "ZERO vertex deltas"
+alarm that read exactly like a smoking gun (§7).
 
 ---
 
@@ -111,13 +146,24 @@ visitor** — scannable by colour before a word is read. Only her lines carry th
 outlining both would spend the accent to say nothing. Width-capped at 620 px so text does not run
 across her face in the portrait framing.
 
-**Typeface deviation.** The guide mandates Montserrat. It is not installed here and not in
-`CI-Common/assets` (web surfaces pull it from Google Fonts, which Slate cannot), and no geometric
-alternative is present. Substituted the engine's **Roboto** with the weight ladder mapped —
-Montserrat 200→Light, 400→Regular, 500→Medium, 600/700→Bold. Roboto is neo-grotesque where
-Montserrat is geometric; at 9–12 px over a moving background the weight and colour relationships
-carry the brand and those are exact. **Do not call the HUD fully brand-compliant until a real
-Montserrat UFont asset lands.**
+**Typeface — now actually Montserrat.** It briefly shipped with Roboto substituted, on the mistaken
+conclusion that no Montserrat existed anywhere available. It does: `CI-Capture/assets/fonts` carries
+Light / Regular / SemiBold TTFs under the SIL Open Font License, and CI-Hub and CI-Server both ship
+a variable woff2. Those three faces are now vendored into `Content/Fonts` and imported as
+`UFontFace` assets.
+
+Two notes on how, because both were dead ends first:
+
+- The composite font is built **in C++** (`CIBrandStyle.h`), not as a `UFont` asset. Creating a
+  `UFont` needs a live Slate application, which the `-run=pythonscript` commandlet never has — it
+  asserts `CurrentApplication.IsValid()` and takes the editor down. The face assets *do* import
+  headlessly, so composing in code keeps the whole font path reproducible from the command line.
+- `FTypeface::AppendFont`'s public overload takes a **filename**, which is exactly the path that
+  breaks in a cooked container. The faces are referenced as `FFontData(asset)` instead.
+
+Only three weights are vendored against the guide's five, so the ladder is approximated:
+200→Light, 400/500→Regular, 600/700→SemiBold. Falls back to Roboto if the assets are absent, so a
+content-light checkout gets the wrong typeface rather than no text.
 
 ---
 
