@@ -550,6 +550,7 @@ void UCompanionRuntimeSubsystem::CancelUtterance()
 	PendingAudioSeconds = 0.0f;
 	bAlignmentResolved = true;
 	bAudioReady = false;
+	bAudioFailed = false;
 	bMouthDriven = true;
 }
 
@@ -657,6 +658,10 @@ void UCompanionRuntimeSubsystem::ResolveVoice()
 		// long sentence the estimate drifts far enough to see. Binding here keeps the mouth locked to
 		// the clip that is actually playing.
 		Tts->OnSpeechAudioReady.AddDynamic(this, &UCompanionRuntimeSubsystem::HandleSpeechAudioReady);
+		// The other half of the same contract. Above is the happy path; this is the only notice
+		// this subsystem gets that a Speak() ended without audio, which until now left the mouth
+		// armed and shut for the whole reply. See HandleSpeechFinished.
+		Tts->OnSpeechFinished.AddDynamic(this, &UCompanionRuntimeSubsystem::HandleSpeechFinished);
 		UE_LOG(LogCompanionRuntime, Log,
 			TEXT("Voice enabled (Kokoro, shared with the companion); viseme timing bound to measured audio duration."));
 		bVoiceResolutionReported = true;
@@ -701,6 +706,7 @@ void UCompanionRuntimeSubsystem::BeginUtterance(const FString& Text)
 	// mouth starts the instant audio does.
 	bAlignmentResolved = (Aligner == nullptr);
 	bAudioReady = false;
+	bAudioFailed = false;
 	bMouthDriven = false;
 }
 
@@ -721,6 +727,58 @@ void UCompanionRuntimeSubsystem::HandleSpeechAudioReady(const FString& Text, flo
 	AudioStartRealTime = FPlatformTime::Seconds();
 	bAudioReady = true;
 
+	DriveOrWaitForAlignment();
+}
+
+void UCompanionRuntimeSubsystem::HandleSpeechFinished(const FString& Text)
+{
+	if (bAudioReady || bMouthDriven)
+	{
+		// Ordinary end of playback, or a mouth already running. Only a "finished" for something
+		// that never became audio is a failure, and only if nothing is already moving.
+		return;
+	}
+
+	if (PendingUtteranceText.IsEmpty())
+	{
+		// Nothing armed. Adopt the delegate's text, for the same reason HandleSpeechAudioReady
+		// does one function up -- it carries the same guard, against the same case: a line can
+		// reach the voice without passing through HandleCompanionSpoke. Reachable only before the
+		// first utterance is armed, because CancelUtterance and a completed reply both leave
+		// bMouthDriven set, which the guard above has already caught.
+		if (Text.IsEmpty())
+		{
+			return;
+		}
+		BeginUtterance(Text);
+	}
+	else if (!Text.Equals(PendingUtteranceText))
+	{
+		// Superseded. NOT re-armed to this text, and that is the difference from the audio-ready
+		// path above: there, adopting the delegate's text is right because that audio is now
+		// playing. Here nothing is playing, so adopting it would mouth an abandoned reply over a
+		// live one.
+		return;
+	}
+
+	// Synthesis failed. UKokoroTextToSpeech has already logged WHICH way (missing URL, non-2xx, or
+	// an undecodable body); what it cannot know is that a face is waiting on it.
+	//
+	// Falling back to the same planner the no-voice-service branch uses is not a consolation prize:
+	// a viewer who cannot hear her can still read a moving mouth, and a companion that goes
+	// completely still on a transport error looks broken in a way a slightly-wrong mouth does not.
+	// PendingAudioSeconds is deliberately left at 0, which makes PlanBest fall to the aligner's own
+	// timing if the sidecar answered and to the spelling estimate if it did not.
+	UE_LOG(LogCompanionRuntime, Warning,
+		TEXT("Speech finished with no audio for this utterance; synthesis failed. Driving the mouth from %s so the reply is not delivered by a still face."),
+		bAlignmentResolved && PendingAlignment.Num() > 0 ? TEXT("phoneme alignment") : TEXT("the text estimate"));
+
+	bAudioFailed = true;
+	DriveOrWaitForAlignment();
+}
+
+void UCompanionRuntimeSubsystem::DriveOrWaitForAlignment()
+{
 	if (bAlignmentResolved)
 	{
 		DriveMouthFromBestSource();
@@ -752,7 +810,7 @@ void UCompanionRuntimeSubsystem::HandlePhonemeAlignmentReady(const FString& Text
 	PendingAlignedSeconds = AlignedSeconds;
 	bAlignmentResolved = true;
 
-	if (bAudioReady)
+	if (bAudioReady || bAudioFailed)
 	{
 		DriveMouthFromBestSource();
 	}
@@ -764,9 +822,13 @@ void UCompanionRuntimeSubsystem::DriveMouthFromBestSource()
 	{
 		World->GetTimerManager().ClearTimer(AlignmentGraceHandle);
 	}
-	// Three callers race to get here and only the first should win; a second track would restart
+	// Four callers race to get here and only the first should win; a second track would restart
 	// the mouth mid-sentence, which reads as a stutter.
-	if (bMouthDriven || !bAudioReady)
+	//
+	// bAudioFailed is a release condition alongside bAudioReady, not an exception to the gate: the
+	// mouth may run either because audio exists or because it has been established that none is
+	// coming. What must never happen is the third state — audio still in flight — driving early.
+	if (bMouthDriven || (!bAudioReady && !bAudioFailed))
 	{
 		return;
 	}
@@ -794,7 +856,17 @@ void UCompanionRuntimeSubsystem::DriveMouthFromBestSource()
 		: 0.0f;
 	Face->PlayVisemeTrack(Track, Elapsed);
 
-	if (Source == EVisemeTimingSource::Alignment)
+	if (bAudioFailed)
+	{
+		// Reported separately because the two numbers the other branches print -- the measured clip
+		// length, and alignment's ratio against it -- do not exist here. Printing PendingAudioSeconds
+		// anyway would put a confident "over 0.00s" in the log of the one case an operator is most
+		// likely to be reading it for.
+		UE_LOG(LogCompanionRuntime, Log,
+			TEXT("Lip-sync source=%s (synthesis produced no audio): %d spans over %.2fs, unvoiced."),
+			FVisemePlanner::TimingSourceName(Source), Track.Num(), FVisemePlanner::TrackDuration(Track));
+	}
+	else if (Source == EVisemeTimingSource::Alignment)
 	{
 		// The ratio is the size of the correction PlanBest just applied, and a live check on the
 		// two services: the sidecar's Kokoro and the voice service's Kokoro run about 7% apart on
