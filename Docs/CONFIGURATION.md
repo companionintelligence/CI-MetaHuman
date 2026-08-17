@@ -71,9 +71,9 @@ Applied strictly in this order, each overwriting the last when non-empty:
 
 | Variable | Compose default | C++ default | What it does |
 |---|---|---|---|
-| `MHLLM_BACKEND` | `ollama` via `docker-compose.ollama.yml`; `openai` in the base file | `OllamaNative` | `openai` or `ollama`, case-insensitive. Anything else is ignored |
+| `MHLLM_BACKEND` | `openai` in the base file; `ollama` pinned by **both** `docker-compose.ollama.yml` and `docker-compose.face.yml` | `OllamaNative` | `openai` or `ollama`, case-insensitive. Anything else is ignored. The face stack pins `ollama` because `MHLLM_THINKING` only exists on that path — `bEnableThinking` is gated on `BackendType == OllamaNative` and the OpenAI schema has no equivalent, so under `openai` the model reasons on every turn (measured: **0.42–0.58 s** native with thinking off vs **1.18–1.23 s** over `/v1`, same model and prompt) |
 | `OLLAMA_BASE_URL` | `http://127.0.0.1:11435` | `http://127.0.0.1:11434` | `:11435` is the SSH tunnel to beta-1. Client appends `/api/chat` |
-| `OLLAMA_MODEL` | `qwen3.6:27b` | `llama3.2` | Measured: `qwen3.6:27b` **814 ms**, `qwen3:8b` **262 ms** (both beta-1, thinking off); `gemma4:e2b` ~12 s on core-2 |
+| `OLLAMA_MODEL` | `qwen3.8:27b` | `llama3.2` | Measured warm, thinking off: `qwen3.8:27b` **424–914 ms** on beta-1. Historical, on models beta-1 no longer serves: `qwen3.6:27b` 814 ms, `qwen3:8b` 262 ms; `gemma4:e2b` ~12 s on core-2. **beta-1 serves exactly one model at a time — ask `/api/tags` before pinning a name here, a wrong one 404s silently** |
 | `MHLLM_THINKING` | `0` | `false` | `1` re-enables chain-of-thought. **~20× latency** (814 ms → 16–21 s) for reasoning nobody reads — Ollama returns it in a separate `thinking` field that never reaches the mouth |
 | `CI_HUB_URL` | `http://127.0.0.1:11434/v1` (base compose) | `http://127.0.0.1:11434/v1` | OpenAI-compatible base URL, up to and including `/v1`. Not the Hub's own address: CI-Hub **does not proxy inference**, it distributes the backend's address over `/api/inference/apps/<slug>/credentials` — see [`COMPAT-AND-ECOSYSTEM-REVIEW.md`](COMPAT-AND-ECOSYSTEM-REVIEW.md) §3 |
 | `CI_HUB_TOKEN` | `ollama` / historically `change-me-hub-token` and the literal `__NEEDS__` | empty | Bearer token. Ollama's `/v1` validates nothing, so the literal is a placeholder that works |

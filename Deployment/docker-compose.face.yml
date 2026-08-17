@@ -32,7 +32,8 @@ services:
       # Navi 31 GPUs (2x25.7GB, ROCm 6.4), and serves a 27B model in well under a second.
       #
       # Measured warm, one-line greeting, thinking disabled:
-      #   qwen3.6:27b on beta-1   ->  814ms   (used here: 27B quality at conversational speed)
+      #   qwen3.8:27b on beta-1   ->  424-914ms (used here: 27B quality at conversational speed)
+      #   qwen3.6:27b on beta-1   ->  814ms   (the previous default; beta-1 no longer serves it)
       #   qwen3:8b    on beta-1   ->  262ms   (if latency ever matters more than quality)
       #   gemma4:e2b  on core-2   ->  ~12s    (the old default; 77s cold)
       #
@@ -43,32 +44,39 @@ services:
       # instead. If that service is ever restarted, point straight at http://100.124.211.75:11434
       # and drop the tunnel.
       OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://127.0.0.1:11435}"
-      OLLAMA_MODEL: "${OLLAMA_MODEL:-qwen3.6:27b}"
+      # qwen3.8, not qwen3.6. beta-1 was upgraded and now serves exactly one model; the old
+      # default 404s against it, which is a silent mute -- the same failure the KokoroModel default
+      # had. Confirmed by asking the server: /api/tags returns qwen3.8:27b and nothing else.
+      OLLAMA_MODEL: "${OLLAMA_MODEL:-qwen3.8:27b}"
 
-      # The same beta-1 Ollama spelled for the OTHER backend, because this file did not pick one.
-      # The base stack selects MHLLM_BACKEND=openai, which reads OPENAI_* and ignores the two lines
-      # above entirely -- so `-f docker-compose.yml -f docker-compose.face.yml` set a 27B model on
-      # beta-1 and then talked to whatever OPENAI_BASE_URL happened to be, which with no .env was
-      # the C++ default of a local 127.0.0.1:11434. That is not hypothetical, and the size of the
-      # gap is why it got noticed: Docs/audit-2026-08-16/README.md section 3 ("Verified working")
-      # records an LLM median of 1324 ms on beta-1 against 31 155 ms from what it calls a run that
-      # accidentally used the laptop's local Ollama -- a 24x difference, in that document's words.
+      # PIN THE NATIVE BACKEND HERE. This file sets OLLAMA_BASE_URL, OLLAMA_MODEL and
+      # MHLLM_THINKING below, and the base stack selects MHLLM_BACKEND=openai -- which reads
+      # OPENAI_* and ignores all three. So `-f docker-compose.yml -f docker-compose.face.yml`
+      # configured a 27B model on beta-1 and then talked to whatever OPENAI_BASE_URL happened to
+      # be, which with no .env was the C++ default pointing at a LOCAL 127.0.0.1:11434. That is
+      # not hypothetical, and the size of the gap is why it got noticed:
+      # Docs/audit-2026-08-16/README.md section 3 ("Verified working") records an LLM median of
+      # 1324 ms on beta-1 against 31 155 ms from what it calls a run that accidentally used the
+      # laptop's local Ollama -- a 24x difference, in that document's words.
       #
-      # Pointing both at the same place fixes it without this file quietly choosing a backend for
-      # the whole stack -- deciding that here is what would make `-f face` mean something different
-      # from the base stack it is layered onto. Ollama serves its native /api/chat and its
-      # OpenAI-compatible shim on one port: MetaHumanLLMSettings.h:70-74 names
-      # "http://127.0.0.1:11434/v1" as the shim's base, and 127.0.0.1:11434 is the native default
-      # at :53. So the two pairs describe one server and either backend reaches beta-1.
-      OPENAI_BASE_URL: "${OPENAI_BASE_URL:-http://127.0.0.1:11435/v1}"
-      OPENAI_MODEL: "${OPENAI_MODEL:-qwen3.6:27b}"
-      # Ollama's /v1 does not validate the bearer token, but a literal is carried rather than
-      # nothing because UOpenAIChatClient guards the header on a non-empty key
-      # (OpenAIChatClient.cpp:62) -- an empty value sends no Authorization header at all, which is
-      # a different request shape from one carrying an ignored token.
-      OPENAI_API_KEY: "${OPENAI_API_KEY:-ollama}"
+      # Pinning the backend rather than adding OPENAI_* aliases for the same server, because the
+      # thinking flag cannot survive the other path. bEnableThinking is read only by UOllamaClient
+      # (MetaHumanLLMSettings.h:65 gates the property on BackendType == OllamaNative) and the
+      # OpenAI /chat/completions schema has no field for it, so MHLLM_THINKING=0 below is INERT
+      # under the openai backend and the model reasons on every turn. Measured through this
+      # tunnel, same model, same one-line prompt:
+      #
+      #   /api/chat with "think": false   ->  0.42-0.58 s
+      #   /v1/chat/completions            ->  1.18-1.23 s, with a "reasoning" field in the reply
+      #
+      # A literal rather than "${MHLLM_BACKEND:-ollama}", matching how docker-compose.ollama.yml
+      # pins its own: an override file's value replaces the base file's, so a literal wins, while
+      # the interpolated form would hand the decision back to whatever .env carries -- which is
+      # the same mechanism that caused the bug above.
+      MHLLM_BACKEND: "ollama"
 
-      # Chain-of-thought off. qwen3.6:27b answers in ~814ms without it and 16-21s with it, and
+      # Chain-of-thought off. The 27B answers a one-liner in well under a second without it and
+      # 16-21s with it (measured on qwen3.6:27b, the model that preceded this one), and
       # Ollama returns the reasoning in a separate field that never reaches the mouth.
       MHLLM_THINKING: "${MHLLM_THINKING:-0}"
 

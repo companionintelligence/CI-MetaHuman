@@ -26,7 +26,7 @@ model runs on hardware we own. Nothing leaves the tailnet.
 |---|---|
 | **Engine** | UE **5.5** for the shipped cook. 5.8 is used for authoring and MCP work only — see [`COMPAT-AND-ECOSYSTEM-REVIEW.md`](COMPAT-AND-ECOSYSTEM-REVIEW.md) |
 | **Avatar** | Reallusion CC "Nia" — **CC-named** morph targets (`V_*`), *not* ARKit. 286 morph targets, all 15 CC visemes present |
-| **Cognition** | Ollama `qwen3.6:27b`, thinking disabled — **814 ms** warm on beta-1 |
+| **Cognition** | Ollama `qwen3.8:27b`, thinking disabled — **424–914 ms** warm on beta-1 |
 | **Voice out** | Kokoro via AMD Lemonade Server, OpenAI-shaped HTTP — **1166 ms** median |
 | **Voice in** | Whisper via the same Lemonade endpoint — **66 ms** median. Service works; **not wired to a UI control** (§6) |
 | **Delivery A** | Linux container cook → Pixel Streaming (WebRTC, software VP8) → browser kiosk at `:8090` |
@@ -58,7 +58,7 @@ flowchart LR
     end
 
     subgraph beta1["beta-1 — 2x Navi 31, ROCm 6.4"]
-        OLL["Ollama :11434<br/>qwen3.6:27b"]
+        OLL["Ollama :11434<br/>qwen3.8:27b"]
         LEM["Lemonade Server :13305<br/>Kokoro TTS + Whisper STT"]
         ALN["kokoro-align :13400<br/>phoneme durations"]
     end

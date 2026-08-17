@@ -15,7 +15,7 @@ A photoreal avatar standing in a 1970s mainframe room, holding a conversation wi
 |---|---|
 | **Engine** | UE **5.5** for the shipped cook. 5.8 is used for authoring and MCP work only |
 | **Avatar** | Reallusion Character Creator "Nia" (persona: Eliza) — **CC-named** morph targets (`V_*`), *not* ARKit. 286 morphs, all 15 CC visemes |
-| **Cognition** | Ollama, thinking disabled — **814 ms** warm for `qwen3.6:27b` on the reference host |
+| **Cognition** | Ollama, thinking disabled — **424–914 ms** warm for `qwen3.8:27b` on the reference host |
 | **Voice out** | Kokoro via AMD Lemonade, OpenAI-shaped HTTP — 1166 ms median, **audible in the browser, measured by energy** |
 | **Voice in** | Whisper via the same endpoint — 66 ms median |
 | **Lip-sync** | Phoneme-timed from Kokoro's own duration predictor, with two documented fallbacks |

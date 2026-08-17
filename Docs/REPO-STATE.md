@@ -114,7 +114,7 @@ to a 430 px box now. This is the case for verifying UI with screenshots rather t
 | Face rig binds | ✅ 42/42 curves resolved on `SK_Nia` |
 | Opening line | ✅ Verbatim in chat + spoken |
 | Console renders | ✅ Screenshot; scene luma 110 |
-| LLM round trip | ✅ ~814 ms warm (`qwen3.6:27b` on beta-1) |
+| LLM round trip | ✅ 424–914 ms warm (`qwen3.8:27b` on beta-1) |
 | **Audio reaching a browser** | ✅ **Proven 2026-08-06** — speech `peakRms` 0.0769 vs 0.0211 room-tone floor |
 
 That last row was the oldest open item in the project, and it is now closed — but the cause was not
