@@ -4,6 +4,7 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
 #include "Animation/MorphTarget.h"
+#include "CICompanionEnv.h"
 
 
 UCompanionFaceComponent::UCompanionFaceComponent()
@@ -16,6 +17,10 @@ UCompanionFaceComponent::UCompanionFaceComponent()
 	// never registered into a world — which is how the tests reach it.
 	bEmotionEnabled = FCompanionEmotionState::IsEnabled();
 	bGazeEnabled = FCompanionGazeState::IsEnabled();
+	// 1.0 keeps the historical behaviour; MHLLM_FACE_GAIN dials the CC rig's subtle morphs up
+	// toward the 5x ceiling Config/DefaultEngine.ini already grants the renderer.
+	FaceGain = FCString::Atof(*CICompanionEnv::Get(TEXT("MHLLM_FACE_GAIN"), TEXT("3.0")));
+	if (FaceGain <= 0.0f) { FaceGain = 1.0f; }
 }
 
 void UCompanionFaceComponent::BeginPlay()
@@ -171,9 +176,22 @@ void UCompanionFaceComponent::ApplyCurves(const TMap<FName, float>& Curves)
 		TargetMesh->SetMorphTarget(Curve, 0.0f);
 	}
 
+	// CEILING, not gain. The mouth gain is applied per-layer in ComposeFrame, because it must not
+	// touch blink, gaze or emotion -- see the note there. What is left here is the bound.
+	//
+	// It used to be a hardcoded 1.0, while Config/DefaultEngine.ini raises
+	//   r.MorphTarget.MaxBlendWeight=5.0
+	// i.e. the renderer had deliberately been granted 5x of headroom that this line then clamped
+	// away, so none of it was ever reachable. Read from the same CVar rather than restated, so the
+	// two cannot drift apart again.
+	static const auto* MaxBlendCVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.MorphTarget.MaxBlendWeight"));
+	const float Ceiling = MaxBlendCVar ? FMath::Max(1.0f, MaxBlendCVar->GetFloat()) : 1.0f;
+
 	for (const TPair<FName, float>& Pair : Curves)
 	{
-		TargetMesh->SetMorphTarget(Pair.Key, FMath::Clamp(Pair.Value, 0.0f, 1.0f));
+		// Gain is already applied per-layer in ComposeFrame; here we only bound to what the
+		// renderer will actually blend.
+		TargetMesh->SetMorphTarget(Pair.Key, FMath::Clamp(Pair.Value, 0.0f, Ceiling));
 	}
 
 	// SURVIVAL CHECK. Records what was written; the verdict is logged at the START of the next
@@ -253,6 +271,9 @@ void UCompanionFaceComponent::StopSelfTest()
 TMap<FName, float> UCompanionFaceComponent::ComposeFrame(float DeltaTime)
 {
 	TMap<FName, float> Curves;
+	// Kept apart from Curves so the output gain can be applied to the MOUTH alone -- see the
+	// note where it is merged in below.
+	TMap<FName, float> VisemeCurves;
 
 	// Blink is involuntary and composites over whatever the mouth is doing, so it is computed
 	// every frame regardless of speech or self-test state.
@@ -279,7 +300,7 @@ TMap<FName, float> UCompanionFaceComponent::ComposeFrame(float DeltaTime)
 		{
 			for (const TPair<EViseme, float>& Pair : FVisemePlanner::SampleAt(SpeechTrack, SpeechElapsed))
 			{
-				Profile.Accumulate(Pair.Key, Pair.Value, Curves);
+				Profile.Accumulate(Pair.Key, Pair.Value, VisemeCurves);
 			}
 		}
 	}
@@ -296,7 +317,32 @@ TMap<FName, float> UCompanionFaceComponent::ComposeFrame(float DeltaTime)
 		const float Local = (Phase - (Index * SelfTestSecondsPerViseme)) / SelfTestSecondsPerViseme;
 		const float Weight = FMath::Sin(Local * PI);	// 0 -> 1 -> 0 across the slot
 
-		Profile.Accumulate(static_cast<EViseme>(Index), Weight, Curves);
+		Profile.Accumulate(static_cast<EViseme>(Index), Weight, VisemeCurves);
+	}
+
+	// GAIN APPLIES TO THE MOUTH ONLY, which is why the visemes were accumulated into their own map.
+	//
+	// The CC rig's V_* morphs are subtle: at unity the whole vocabulary produces lip motion an
+	// order of magnitude below the idle head movement sitting on top of it, which is why the face
+	// reads as dead. Measured across a gain sweep, lip deformation at the self-test's 2.5Hz drive
+	// frequency roughly doubles from 1.0 to 2.0 while an undriven NOSE control stays flat, and by
+	// 3.0 the open vowels are unmistakable on screen -- teeth visible, mouth genuinely open.
+	//
+	// It must NOT reach the other layers. AddEmotion deliberately keeps every FACS weight <= 0.45
+	// because "a full-strength FACS pose reads as a caricature", and blink is already a full close
+	// at 1.0; multiplying either by 3 would give a permanently mugging face and eyes that slam
+	// shut. Gaze is likewise authored in its own normalised space.
+	//
+	// 5.0 was measured too: the mouth distorts into a stretched oval and stops reading as a mouth,
+	// so the useful range ends well below the engine's ceiling.
+	if (VisemeCurves.Num() > 0)
+	{
+		const float Gain = FMath::Max(0.1f, FaceGain);
+		for (const TPair<FName, float>& Pair : VisemeCurves)
+		{
+			float& Value = Curves.FindOrAdd(Pair.Key, 0.0f);
+			Value = FMath::Max(Value, Pair.Value * Gain);
+		}
 	}
 
 	// LAYER 2: the eyelids, over whatever the mouth is doing.
