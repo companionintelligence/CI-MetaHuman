@@ -64,7 +64,8 @@ services:
       - turnserver
 
   # CI-portal OIDC gate. Users authenticate against ci-portal before the player page or its
-  # signalling WebSocket are reachable. Secrets/issuer come from .env (never bake them in).
+  # signalling WebSocket are reachable. The issuer/client/redirect come from .env and the two
+  # secrets from .env.edge (never bake either in).
   oidc-proxy:
     image: "quay.io/oauth2-proxy/oauth2-proxy:v7.6.0"
     init: true
@@ -72,12 +73,29 @@ services:
     command: ["--config=/etc/oauth2-proxy.cfg"]
     volumes:
       - "./oauth2-proxy.cfg:/etc/oauth2-proxy.cfg:ro"
+    # The client secret and the cookie secret, and nothing else. They live in a SECOND file rather
+    # than in `.env` because `.env` is handed to the `project` container whole (see the env_file
+    # note on that service), and these two are wanted by this service alone.
+    #
+    # They keep oauth2-proxy's own OAUTH2_PROXY_* spelling inside the file, not the CI_PORTAL_* /
+    # OIDC_COOKIE_SECRET names .env.example used for them: env_file injects a file's keys into the
+    # container under those keys and cannot rename on the way. The container therefore sees the
+    # same two variable names it saw when they were interpolated below -- same names, new route.
+    #
+    # For the same reason they must NOT be re-listed under `environment:`. An `environment:` entry
+    # interpolating an unset variable renders as "" and an empty `environment:` value BEATS
+    # env_file, so `OAUTH2_PROXY_CLIENT_SECRET: "${...}"` here would blank the value this file had
+    # just supplied. (Both halves checked with `docker compose config`.)
+    #
+    # `required: false` because a clean checkout has no .env.edge either, and the stack still has
+    # to render -- the login gate is the only part that needs this file.
+    env_file:
+      - path: ".env.edge"
+        required: false
     environment:
       OAUTH2_PROXY_CLIENT_ID: "${CI_PORTAL_CLIENT_ID}"
-      OAUTH2_PROXY_CLIENT_SECRET: "${CI_PORTAL_CLIENT_SECRET}"
       OAUTH2_PROXY_OIDC_ISSUER_URL: "${CI_PORTAL_ISSUER_URL}"
       OAUTH2_PROXY_REDIRECT_URL: "${CI_PORTAL_REDIRECT_URL}"
-      OAUTH2_PROXY_COOKIE_SECRET: "${OIDC_COOKIE_SECRET}"
     depends_on:
       - signalling
 
@@ -96,11 +114,122 @@ services:
         RELEASE: "${UE_RELEASE}"
     init: true
     network_mode: "host"
+    # `.env` is the file the README quickstart tells operators to create (`cp .env.example .env`),
+    # and nothing handed it to THIS container: compose auto-loads `.env` for `${...}` interpolation
+    # only, so a documented key that no environment: entry below happened to name by hand reached
+    # nothing at all. Six app settings were in exactly that state — MHLLM_MAX_TURNS, MHLLM_MEMORY,
+    # MHLLM_MEMORY_PATH, MHLLM_GAZE, MHLLM_CHAT_TIMEOUT, WHISPER_MODEL — documented in
+    # .env.example, defaulted there, and delivered nowhere. (A seventh name, UE_RELEASE_SHORT, is
+    # also delivered nowhere, but it has no reader anywhere in the repo either, so it is dead
+    # rather than undelivered.) Handing the app the whole file is what
+    # stops that list growing again: a key added to .env.example now arrives without a second edit
+    # here, which is the failure mode enumeration has.
+    #
+    # `required: false` because a clean checkout has no `.env` (it is gitignored, .gitignore:24),
+    # so without it `docker compose config` would fail outright rather than render. This is about
+    # rendering the stack, not running it: core-2-runbook.md's deploy steps copy `.env.example` to
+    # `.env` first, so no documented procedure actually brings the stack up without one.
+    #
+    # Because this hands over the WHOLE file, `.env` must not carry anything the app should not
+    # see. Three secrets used to be in it — CI_PORTAL_CLIENT_SECRET, OIDC_COOKIE_SECRET and
+    # TURN_PASSWORD, wanted by oidc-proxy and turnserver — and they are dealt with two different
+    # ways, because they reach their consumers two different ways:
+    #
+    #  * the two OIDC ones were only ever read as oidc-proxy's container environment. They now live
+    #    in `.env.edge`, which that service alone reads.
+    #  * TURN_PASSWORD cannot move, because it is never delivered as container environment at all:
+    #    it is interpolated into turnserver's `-u` argument and into signalling's
+    #    peerConnectionOptions, and compose interpolation reads the shell and the project env file
+    #    ONLY — a service's env_file does not feed `${...}` (compose warns "variable is not set"
+    #    and renders it blank; checked). The flags that would add a second interpolation source,
+    #    `--env-file` and COMPOSE_ENV_FILES, both abort with "couldn't find env file" when a named
+    #    file is absent, and a clean checkout has neither file. So it stays in `.env`.
+    #
+    # All three are therefore blanked for this service in `environment:` below. That is what keeps
+    # TURN_PASSWORD out of the app, and it also covers the other two for anyone whose `.env` was
+    # written before the split and still lists them.
+    env_file:
+      - path: ".env"
+        required: false
+    # Every INTERPOLATED key below is also in `.env`, deliberately (the three literal blanks below
+    # are the exception -- two of them no longer exist in `.env` at all, see .env.edge.example).
+    # env_file reads the FILE and nothing else, so
+    # a key delivered only that way ignores the process environment entirely and
+    # `VAR=x docker compose up` silently does nothing for it. What is kept here is the set a
+    # one-off run actually flips — backend, hub endpoint/token/model, the two voice URLs, persona —
+    # because an interpolated environment: entry outranks the same key coming from env_file, so the
+    # shell still wins for these. The habit is in this repo's own instructions: README.md and
+    # core-2-runbook.md both write the build step as `PROJECT_DOCKERFILE=… docker compose …`.
     environment:
-      MHLLM_BACKEND: "openai"
-      CI_HUB_URL: "${CI_HUB_URL}"
+      # Blanked on purpose, and an empty value is the form that works. A valueless
+      # `TURN_PASSWORD:` entry does NOT remove it here -- but only because this env_file happens to
+      # be `.env`, which compose also reads as its own project env file: with the same entry against
+      # an env_file named anything else, a valueless key renders `null`. So this is a property of
+      # this file's setup rather than a general env_file-vs-environment rule; both forms were
+      # checked with `docker compose config`. An explicit `""` is unambiguous either way.
+      # Nothing in Plugins/CICompanion/Source reads any of these three names -- grepped across the
+      # whole repo, zero code hits -- so blanking them costs the app nothing.
+      CI_PORTAL_CLIENT_SECRET: ""
+      OIDC_COOKIE_SECRET: ""
+      TURN_PASSWORD: ""
+
+      # `openai` selects UOpenAIChatClient, aimed at CI_HUB_URL below — the OpenAI-shaped path,
+      # which is what the CI side of this deployment speaks. See the CI_HUB_URL block for what
+      # that URL actually points at.
+      #
+      # The default is spelled out here rather than left to the file, because .env.example ships a
+      # value for this key: with a bare "${MHLLM_BACKEND}" the quickstart's `cp .env.example .env`
+      # would decide the protocol, and README.md's quickstart never mentions MHLLM_BACKEND at all,
+      # so nobody following it would know a copied file had moved the base stack onto the native
+      # Ollama client. The `:-` also covers a missing or blank `.env`.
+      #
+      # docker-compose.ollama.yml pins the literal "ollama" and still wins — an override file's
+      # value replaces this one, not the other way round (checked with `docker compose config` on
+      # the merged pair, with a `.env` copied from .env.example).
+      MHLLM_BACKEND: "${MHLLM_BACKEND:-openai}"
+
+      # --- CI hub inference ---
+      # CI_HUB_URL is the OpenAI-compatible base URL up to and INCLUDING the version segment;
+      # UOpenAIChatClient appends "/chat/completions" to it (OpenAIChatClient.cpp, BuildRequestBody).
+      #
+      # The default is NOT the Hub's own address, and that is the correction. The Hub does not
+      # proxy inference — its inference controller says so itself ("The Hub does NOT proxy
+      # inference requests. Apps talk to the Ollama container ... directly", CI-Hub
+      # packages/backend/src/modules/inference/inference.controller.ts) and this repo's
+      # Docs/COMPAT-AND-ECOSYSTEM-REVIEW.md §3 reached the same conclusion by enumerating all 190
+      # paths in the Hub's swagger.json and finding no /v1, no *chat*, no *completions*. Grepping
+      # that checkout's packages/backend/src for a `chat/completions` route or any `v1/…` route
+      # declaration returns nothing, which is the same answer from a third direction.
+      #
+      # An `/api/inference/v1` base does appear in
+      # CI-Server/docs/architecture/hub-inference-integration.md §2, and it is easy to mistake for
+      # current: that document is headed "Status: Design / proposal", and its §7 lists two hard
+      # prerequisites in CI-Hub that block it today. It describes a contract to build, not one to
+      # configure against.
+      #
+      # What the Hub actually distributes, over GET /api/inference/apps/<slug>/credentials(.env),
+      # is the backend's OWN OpenAI base — `${ollamaBaseUrl}/v1`, where ollamaBaseUrl resolves to
+      # host.docker.internal / 172.17.0.1 / localhost on :11434 (inference/backends/ollama.backend.ts).
+      # Every service here is network_mode: host, so on a box that also runs the Hub's Ollama that
+      # is the loopback address below. Point it elsewhere if Ollama is on another host.
+      #
+      # Note that CI-MetaHuman cannot fetch those credentials itself: the Hub's APP_ENV_KEYS table
+      # registers `hermes-agent` and `openclaw` and nothing else, so there is no slug for this app
+      # to ask under. Until one exists, this value is set by hand.
+      CI_HUB_URL: "${CI_HUB_URL:-http://127.0.0.1:11434/v1}"
       CI_HUB_TOKEN: "${CI_HUB_TOKEN}"
       CI_HUB_MODEL: "${CI_HUB_MODEL}"
+      # The same three values under the vendor-neutral names, so the mapping is visible in the
+      # manifest instead of only in C++. FMetaHumanLLMEnvConfig::Apply already assigns CI_HUB_URL
+      # to OpenAIBaseUrl, CI_HUB_TOKEN to OpenAIApiKey and CI_HUB_MODEL to OpenAIModel, then
+      # applies OPENAI_* afterwards — so an explicit OPENAI_* wins, and pointing this stack at a
+      # non-CI OpenAI-compatible server (LM Studio, vLLM, llama.cpp, Lemonade) is these three
+      # variables and nothing else. Set to the CI_HUB_* value when unset, so they agree by
+      # construction and cannot drift into two different endpoints.
+      OPENAI_BASE_URL: "${OPENAI_BASE_URL:-${CI_HUB_URL:-http://127.0.0.1:11434/v1}}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-${CI_HUB_TOKEN}}"
+      OPENAI_MODEL: "${OPENAI_MODEL:-${CI_HUB_MODEL}}"
+
       WHISPER_SERVER_URL: "${WHISPER_SERVER_URL}"
       PIPER_SERVER_URL: "${PIPER_SERVER_URL}"
       MHLLM_SYSTEM_PROMPT: "${MHLLM_SYSTEM_PROMPT}"

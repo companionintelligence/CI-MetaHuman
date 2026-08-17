@@ -46,6 +46,40 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Backend", meta = (ClampMin = "0.0"))
 	float ChatRequestTimeoutSeconds = 180.0f;
 
+	// Reasoning models (qwen3.x, deepseek-r1, ...) emit a chain of thought before answering.
+	//
+	// This lives in "Backend", not "Ollama", and has NO EditCondition, because it now affects BOTH
+	// backends. It used to be gated on `BackendType == EChatBackendType::OllamaNative`, which was
+	// accurate while UOllamaClient was the only client that read it -- the gate is what made
+	// MHLLM_THINKING=0 inert on the OpenAI-compatible path, even though FMetaHumanLLMEnvConfig read
+	// the variable into this field regardless of backend. UOpenAIChatClient::BuildRequestBody now
+	// honours it too, so restricting the editor field to one backend would misdescribe it.
+	//
+	// OLLAMA NATIVE -- a latency cost. Measured on beta-1: qwen3.6:27b answers a one-line greeting
+	// in ~814ms with thinking off and 16-21s with it on, a ~20x penalty for reasoning nobody reads,
+	// since Ollama returns it in a separate `thinking` field that never reaches the mouth. Sent as
+	// "think": false, which Ollama ignores for non-reasoning models.
+	//
+	// OPENAI-COMPATIBLE -- worse than a latency cost: it can be total silence. Measured this session
+	// against the vLLM server on :8000 that CI-Hub on core-2 hands out as hermes-agent's backend
+	// (cyankiwi/Qwen3.5-35B-A3B-AWQ-4bit), prompt "Say hello in one short sentence.", stream:false:
+	//
+	//   max_tokens 40,  no extra field                                -> content NULL, reasoning field
+	//                                                                    present, finish=length,  2.2s
+	//   max_tokens 600, no extra field                                -> content NULL, reasoning 2118
+	//                                                                    chars,  finish=length, 28.1s
+	//   max_tokens 200, chat_template_kwargs {enable_thinking:false}  -> content "Hello!", reasoning 0
+	//                                                                    chars,  finish=stop,   0.335s
+	//
+	// The reasoning consumes the whole token budget, so the answer the mouth needs never arrives:
+	// an empty reply after 28 seconds versus a real one in a third of a second. Suppressed by
+	// sending top-level "chat_template_kwargs": {"enable_thinking": false} -- see
+	// bOpenAISendChatTemplateKwargs for the case where a gateway rejects that field.
+	//
+	// Off by default on both paths; turn it on only where answer quality needs deliberation.
+	UPROPERTY(Config, EditAnywhere, Category = "Backend")
+	bool bEnableThinking = false;
+
 	// --- Ollama (native) backend ---
 
 	// Base URL of the local Ollama server.
@@ -55,15 +89,6 @@ public:
 	// Model name as known to `ollama list`, e.g. "llama3.2".
 	UPROPERTY(Config, EditAnywhere, Category = "Ollama", meta = (EditCondition = "BackendType == EChatBackendType::OllamaNative"))
 	FString OllamaModel = TEXT("llama3.2");
-
-	// Reasoning models (qwen3.x, deepseek-r1, ...) emit a chain of thought before answering.
-	// For a companion that is pure latency cost: measured on beta-1, qwen3.6:27b answers a
-	// one-line greeting in ~814ms with thinking off and 16-21s with it on -- a ~20x penalty for
-	// reasoning nobody reads, since Ollama returns it in a separate `thinking` field that never
-	// reaches the mouth. Off by default; turn it on only where answer quality needs deliberation.
-	// Sent as "think": false, which Ollama ignores for non-reasoning models.
-	UPROPERTY(Config, EditAnywhere, Category = "Ollama", meta = (EditCondition = "BackendType == EChatBackendType::OllamaNative"))
-	bool bEnableThinking = false;
 
 	// --- OpenAI-compatible backend ---
 
@@ -82,6 +107,31 @@ public:
 	// Model id as the gateway expects it, e.g. "llama3.2" (Ollama), "gpt-4o-mini" (OpenAI).
 	UPROPERTY(Config, EditAnywhere, Category = "OpenAI-compatible", meta = (EditCondition = "BackendType == EChatBackendType::OpenAICompatible"))
 	FString OpenAIModel = TEXT("llama3.2");
+
+	// Whether to send the thinking-suppression field at all. ON by default.
+	//
+	// With bEnableThinking off, this client adds a top-level
+	// "chat_template_kwargs": {"enable_thinking": false} to /v1/chat/completions. That is a
+	// server-side extension -- measured working against the vLLM backend described under
+	// bEnableThinking -- and not a field the OpenAI chat-completions schema defines, so a strict
+	// gateway is entitled to reject the whole request with HTTP 400 for an unrecognised body field.
+	// This switch turns the field off without touching bEnableThinking.
+	//
+	// Whether OpenAI proper (api.openai.com) rejects it is UNTESTED -- there was no key available to
+	// test with, so nothing here should be read as a claim in either direction. Treat a 400 from a
+	// hosted gateway as a live possibility and turn this off if one appears.
+	//
+	// The tolerance evidence that does exist: beta-1's Ollama /v1 shim, sent exactly this field,
+	// returned HTTP 200 with a normal reply in 1.24s -- it ignores the unknown field harmlessly.
+	//
+	// SEPARATE from bEnableThinking on purpose. Re-enabling thinking would also stop the field being
+	// sent, but only by accepting the failure the field exists to prevent: against the measured vLLM
+	// backend that is a NULL `content` after 28.1s. Nobody working around a 400 should be forced to
+	// take a 28-second empty reply as the price. Default ON because the failure it prevents is silent
+	// -- the companion simply never speaks -- and the failure it can cause is loud, an HTTP 400 that
+	// names the offending field.
+	UPROPERTY(Config, EditAnywhere, Category = "OpenAI-compatible", meta = (EditCondition = "BackendType == EChatBackendType::OpenAICompatible"))
+	bool bOpenAISendChatTemplateKwargs = true;
 
 	// --- Shared ---
 

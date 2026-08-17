@@ -164,6 +164,21 @@ private:
 	UFUNCTION()
 	void HandleSpeechAudioReady(const FString& Text, float DurationSeconds);
 
+	// The end of a Speak() call, whether or not it made a sound -- and the only signal this
+	// subsystem gets that synthesis FAILED.
+	//
+	// UKokoroTextToSpeech has no failure delegate. All four of its exits broadcast the same
+	// OnSpeechFinished: no server URL configured, a non-2xx response, a body that would not decode
+	// as WAV, and playback finishing normally. Only the last of those fired OnSpeechAudioReady
+	// first, so bAudioReady is what tells them apart -- a "finished" for an utterance that never
+	// became audio is a failure by elimination.
+	//
+	// This matters because HandleCompanionSpoke arms an utterance and then RETURNS, handing the
+	// mouth to the audio callback. If that callback never comes the face simply stays shut: the
+	// reply is on screen, the emotion is set, and she does not move.
+	UFUNCTION()
+	void HandleSpeechFinished(const FString& Text);
+
 	// Adopts the character's own TTS component and binds the audio-ready callback to it. Idempotent
 	// and called from two places, because the component is not there yet when this subsystem starts:
 	// the character swaps its default UNullTextToSpeech for the real one in its own BeginPlay, which
@@ -195,9 +210,16 @@ private:
 	void HandlePhonemeAlignmentReady(const FString& Text, const TArray<FPhonemeSpan>& Spans, float AlignedSeconds);
 
 	// Builds and plays the viseme track from the best timing that has arrived, exactly once per
-	// utterance. Reached from three directions — audio ready, alignment ready, grace expired —
+	// utterance. Reached from four directions — audio ready, synthesis failed, alignment ready, grace expired —
 	// whichever gets there first, which is why it is idempotent.
 	void DriveMouthFromBestSource();
+
+	// Shared tail of the two events that can release the mouth: audio arriving, and synthesis
+	// failing. Either way the question is the same -- drive now, or spend the grace window waiting
+	// for alignment that is still in flight -- and it was worth factoring out rather than writing
+	// the timer arming twice, because the two copies would have to stay in step with
+	// AlignmentGraceSeconds forever.
+	void DriveOrWaitForAlignment();
 
 	// How long the mouth will wait for real alignment after the audio has already started.
 	//
@@ -223,6 +245,11 @@ private:
 	double AudioStartRealTime = 0.0;
 	bool bAlignmentResolved = true;
 	bool bAudioReady = false;
+	// Set when Speak() ended without ever producing audio. Distinct from bAudioReady rather than
+	// folded into it because PendingAudioSeconds stays 0 in this case, and the planner reads a
+	// zero measured length as "no clip to scale onto" -- which is exactly right here and would be
+	// a lie if this path pretended audio had arrived.
+	bool bAudioFailed = false;
 	bool bMouthDriven = false;
 	FTimerHandle AlignmentGraceHandle;
 

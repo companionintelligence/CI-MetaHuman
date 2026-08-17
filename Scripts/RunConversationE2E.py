@@ -20,7 +20,7 @@ missing text.
 Usage (run it where the services are reachable -- beta-1 hosts both):
     python3 RunConversationE2E.py
     python3 RunConversationE2E.py --turns 10 --ollama http://127.0.0.1:11434 \
-        --lemonade http://127.0.0.1:13305 --model qwen3.6:27b
+        --lemonade http://127.0.0.1:13305 --model qwen3.8:27b
 
 Exit code is 0 only if every turn passes.
 """
@@ -153,7 +153,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ollama", default="http://127.0.0.1:11434")
     ap.add_argument("--lemonade", default="http://127.0.0.1:13305")
-    ap.add_argument("--model", default="qwen3.6:27b")
+    ap.add_argument("--model", default="qwen3.8:27b")
     ap.add_argument("--tts-model", default="kokoro-v1")
     ap.add_argument("--stt-model", default="Whisper-Base")
     ap.add_argument("--voice", default="af_sky")

@@ -34,7 +34,25 @@ public:
 
 	// Pure helper, exposed for unit testing without a live request. Produces the
 	// OpenAI chat-completions request JSON (model, stream, messages[]).
-	static FString BuildRequestBody(const TArray<FOllamaMessage>& History, const FString& Model);
+	//
+	// bEnableThinking mirrors UOllamaClient::BuildRequestBody's parameter, but the WIRE SHAPE is
+	// deliberately asymmetric. Ollama's "think" is a real two-way toggle and is always emitted; here
+	// the only thing emitted is a SUPPRESSION hint -- top-level
+	// "chat_template_kwargs": {"enable_thinking": false} -- and only when thinking is DISABLED.
+	// Emitting {"enable_thinking": true} was not measured and has nothing to gain: the vLLM backend
+	// measured in the .cpp already reasoned with no such field present, so true would be a no-op
+	// there, and a server that does not recognise the key is handed an unrecognised top-level body
+	// field for no benefit -- the one thing that can turn a working request into an HTTP 400.
+	//
+	// bSendThinkingSuppression is the escape hatch (UMetaHumanLLMSettings::bOpenAISendChatTemplateKwargs):
+	// false omits the field even when thinking is off, for a gateway that rejects unknown body fields.
+	// It is a separate parameter rather than a third state of bEnableThinking because "do not send the
+	// field" and "let the model reason" are different requests with very different costs.
+	static FString BuildRequestBody(
+		const TArray<FOllamaMessage>& History,
+		const FString& Model,
+		bool bEnableThinking = false,
+		bool bSendThinkingSuppression = true);
 
 private:
 	struct FActiveRequest

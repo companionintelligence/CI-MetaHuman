@@ -1,9 +1,12 @@
 #include "Misc/AutomationTest.h"
 
+#include "Avatar/CompanionFaceComponent.h"
 #include "Avatar/CompanionFaceSubsystem.h"
 #include "Avatar/CompanionRuntimeSubsystem.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
+#include "Voice/KokoroTextToSpeech.h"
 
 BEGIN_DEFINE_SPEC(FCompanionSubsystemSpec, "MetaHumanLocalLLM.Backend.CompanionSubsystems", EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 	UWorld* World = nullptr;
@@ -109,6 +112,128 @@ void FCompanionSubsystemSpec::Define()
 		{
 			UCompanionRuntimeSubsystem* Subsystem = NewObject<UCompanionRuntimeSubsystem>(World);
 			TestFalse("not for a plain object", Subsystem->ShouldCreateSubsystem(GetTransientPackage()));
+		});
+	});
+
+	// The mouth when the VOICE FAILS.
+	//
+	// With a TTS component attached, HandleCompanionSpoke deliberately does not plan a viseme
+	// track: it arms the utterance and hands the mouth to the audio callback, because planning in
+	// both places would play the utterance twice at two different speeds. The consequence nobody
+	// covered is that when synthesis never produces audio -- no server URL, a non-2xx, an
+	// undecodable body -- that callback never comes and the face simply stays shut for the whole
+	// reply, with the text on screen and no error anywhere near the face.
+	//
+	// These drive the handlers through reflection rather than through a live Kokoro. They are
+	// UFUNCTIONs precisely because they are dynamic-delegate targets, so this is the same entry
+	// point the delegate uses, and it keeps the cases free of an HTTP server.
+	Describe("UCompanionRuntimeSubsystem speech failure", [this]()
+	{
+		// Binds a face to a resident the way the real BeginPlay does, and returns a runtime
+		// subsystem holding a TTS component -- the state in which the mouth is deferred.
+		auto MakeArmedSubsystem = [this](UCompanionFaceComponent*& OutFace) -> UCompanionRuntimeSubsystem*
+		{
+			AActor* Resident = World->SpawnActor<AActor>();
+			Resident->Tags.Add(UCompanionFaceSubsystem::ResidentTag);
+			USkeletalMeshComponent* Mesh = NewObject<USkeletalMeshComponent>(Resident);
+			Mesh->RegisterComponent();
+			Resident->SetRootComponent(Mesh);
+
+			// The REGISTERED subsystem, not a fresh NewObject: ResolveFace looks the face driver up
+			// through World->GetSubsystem, so a hand-built instance would be invisible to it.
+			UCompanionFaceSubsystem* FaceSubsystem = World->GetSubsystem<UCompanionFaceSubsystem>();
+			if (!FaceSubsystem)
+			{
+				AddError(TEXT("world has no CompanionFaceSubsystem"));
+				return nullptr;
+			}
+			FaceSubsystem->OnWorldBeginPlay(*World);
+			OutFace = FaceSubsystem->GetFace();
+
+			UCompanionRuntimeSubsystem* Subsystem = NewObject<UCompanionRuntimeSubsystem>(World);
+			// Stands in for the character's own component. Set by reflection because Tts is private
+			// and is otherwise only ever adopted from a spawned AMetaHumanCompanionCharacter; the
+			// point of these cases is the mouth, not the adoption.
+			FObjectProperty* TtsProperty = FindFProperty<FObjectProperty>(
+				UCompanionRuntimeSubsystem::StaticClass(), TEXT("Tts"));
+			if (!TtsProperty)
+			{
+				AddError(TEXT("UCompanionRuntimeSubsystem has no reflected Tts property"));
+				return nullptr;
+			}
+			TtsProperty->SetObjectPropertyValue_InContainer(Subsystem,
+				NewObject<UKokoroTextToSpeech>(Resident));
+			return Subsystem;
+		};
+
+		auto Invoke = [](UObject* Target, const TCHAR* FunctionName, const FString& Text)
+		{
+			struct FTextParam { FString Text; } Params{ Text };
+			Target->ProcessEvent(Target->FindFunctionChecked(FName(FunctionName)), &Params);
+		};
+
+		It("defers the mouth to the audio callback while a voice is attached", [this, MakeArmedSubsystem, Invoke]()
+		{
+			UCompanionFaceComponent* Face = nullptr;
+			UCompanionRuntimeSubsystem* Subsystem = MakeArmedSubsystem(Face);
+			if (!Subsystem || !Face) { return; }
+
+			Invoke(Subsystem, TEXT("HandleCompanionSpoke"), TEXT("Hello there."));
+			// Not a bug -- this is the deferral working, and it is the precondition that makes the
+			// next case matter. Asserted so that if the deferral is ever removed, the failure test
+			// below cannot start passing for the wrong reason.
+			TestFalse("mouth waits for audio", Face->IsSpeaking());
+		});
+
+		It("mouths the line anyway when synthesis produced no audio", [this, MakeArmedSubsystem, Invoke]()
+		{
+			UCompanionFaceComponent* Face = nullptr;
+			UCompanionRuntimeSubsystem* Subsystem = MakeArmedSubsystem(Face);
+			if (!Subsystem || !Face) { return; }
+
+			Invoke(Subsystem, TEXT("HandleCompanionSpoke"), TEXT("Hello there."));
+			// Every Kokoro failure exit broadcasts OnSpeechFinished without ever having broadcast
+			// OnSpeechAudioReady. That combination is the failure signal.
+			Invoke(Subsystem, TEXT("HandleSpeechFinished"), TEXT("Hello there."));
+			TestTrue("mouth falls back rather than staying shut", Face->IsSpeaking());
+		});
+
+		It("ignores a finish belonging to a superseded reply", [this, MakeArmedSubsystem, Invoke]()
+		{
+			UCompanionFaceComponent* Face = nullptr;
+			UCompanionRuntimeSubsystem* Subsystem = MakeArmedSubsystem(Face);
+			if (!Subsystem || !Face) { return; }
+
+			Invoke(Subsystem, TEXT("HandleCompanionSpoke"), TEXT("The reply now in flight."));
+			Invoke(Subsystem, TEXT("HandleSpeechFinished"), TEXT("A reply from before the barge-in."));
+			// Driving here would mouth the CURRENT text on the previous utterance's cue, which is
+			// the stutter the identity guards elsewhere in this class exist to prevent.
+			TestFalse("stale finish does not drive the mouth", Face->IsSpeaking());
+		});
+
+		It("mouths a failed line that never passed through the reply handler", [this, MakeArmedSubsystem, Invoke]()
+		{
+			UCompanionFaceComponent* Face = nullptr;
+			UCompanionRuntimeSubsystem* Subsystem = MakeArmedSubsystem(Face);
+			if (!Subsystem || !Face) { return; }
+
+			// No HandleCompanionSpoke first, so nothing is armed. A line can still reach the voice
+			// this way, and the mouth should follow the text it was handed rather than the state
+			// it was not.
+			Invoke(Subsystem, TEXT("HandleSpeechFinished"), TEXT("Unprompted."));
+			TestTrue("adopts the delegate's text", Face->IsSpeaking());
+		});
+
+		It("ignores a finish carrying no text at all", [this, MakeArmedSubsystem, Invoke]()
+		{
+			UCompanionFaceComponent* Face = nullptr;
+			UCompanionRuntimeSubsystem* Subsystem = MakeArmedSubsystem(Face);
+			if (!Subsystem || !Face) { return; }
+
+			// StopSpeaking clears Kokoro's PendingText, so a cancelled request that still calls
+			// back reports an empty string. There is nothing to mouth and nothing to infer.
+			Invoke(Subsystem, TEXT("HandleSpeechFinished"), FString());
+			TestFalse("no text, no fallback", Face->IsSpeaking());
 		});
 	});
 }

@@ -30,7 +30,7 @@ mostly in §3.
 | Viseme mapping | ✅ | CC and ARKit profiles, planner with digraphs, punctuation, cross-fade |
 | Lip-sync timing | ⚠️ | Tier 2 of 3 shipped (rescale to measured clip). **Tier 1, real phoneme alignment, is in flight** |
 | Blink | ✅ | Randomised 2–6 s, asymmetric close/open, composited over speech. The idle-latch and self-test-drop defects were removed by the `dea0437` layering rewrite |
-| Cognition | ✅ | `qwen3.6:27b`, 814 ms warm, thinking off |
+| Cognition | ✅ | `qwen3.8:27b`, 424–914 ms warm, thinking off |
 | Persona | ✅ | `MHLLM_SYSTEM_PROMPT`, seeded per conversation |
 | Short-term memory | ✅ | `UOllamaConversation`, in RAM, one session |
 | Speech out | ✅ | Kokoro, 1166 ms median, **audible in the browser — measured by energy** |

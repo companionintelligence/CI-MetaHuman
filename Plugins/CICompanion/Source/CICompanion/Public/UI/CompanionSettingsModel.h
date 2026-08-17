@@ -57,7 +57,7 @@ struct CICOMPANION_API FCompanionSettingsModel
 
 	// --- cognition ---
 	UPROPERTY(BlueprintReadWrite, Category = "MetaHumanLLM|Settings")
-	FString LlmModel = TEXT("qwen3.6:27b");
+	FString LlmModel = TEXT("qwen3.8:27b");
 
 	UPROPERTY(BlueprintReadWrite, Category = "MetaHumanLLM|Settings")
 	bool bThinking = false;

@@ -5,7 +5,19 @@
 # root, so a host-side `rm -rf`/`cp` as user ci silently half-fails on permissions — which is
 # exactly how an earlier run ended up cooking with NO map, letting Dockerfile.amd regenerate a
 # bare fallback stage and produce a build with no resident in it.
+#
+# COOKS ON 5.8. This script drove a RELEASE=5.5 cook. Every git-tracked package under Content/ is
+# UE5 package version 1018 and UE 5.5.4 reads at most 1013, and package serialisation is
+# forward-only, so a 5.5 cook cannot open this project's content: it fails at LOAD, never at
+# compile, which is why a compile-only check kept reporting that 5.5 was fine. The full reasoning
+# lives in Scripts/BuildNative.ps1's -Engine notes. 5.5 stays buildable on purpose -- Dockerfile.amd
+# still takes --build-arg RELEASE and Deployment/docker-compose.ue55.yml still runs a 5.5 image --
+# it is just not the default any more.
 set -o pipefail
+
+RELEASE=5.8
+IMAGE="ci/metahuman-local-llm:${RELEASE}-face"
+
 echo "===== FACE COOK START $(date -u) ====="
 
 # 1. Refresh the source tree from the committed tarball (Dockerfile fixes included).
@@ -36,12 +48,23 @@ test -d /home/ci/cook-clean/Content/CC_ControlRig_Nia || { echo "NO_NIA_CONTENT 
 echo "NIA_CONTENT_PRESENT"
 
 cd /home/ci/cook-clean
-DOCKER_BUILDKIT=1 docker build -f Deployment/Dockerfile.amd --build-arg RELEASE=5.5 \
-  -t ci/metahuman-local-llm:5.5-face . && echo BUILD_OK || { echo BUILD_FAIL; exit 1; }
-docker build --progress=plain -f Deployment/Dockerfile.amd --build-arg RELEASE=5.5 -t ci/metahuman-local-llm:5.5-face . 2>&1 | grep -iE "SUPPLIED|synthesizing" | head -2
+DOCKER_BUILDKIT=1 docker build -f Deployment/Dockerfile.amd --build-arg RELEASE="${RELEASE}" \
+  -t "${IMAGE}" . && echo BUILD_OK || { echo BUILD_FAIL; exit 1; }
+docker build --progress=plain -f Deployment/Dockerfile.amd --build-arg RELEASE="${RELEASE}" -t "${IMAGE}" . 2>&1 | grep -iE "SUPPLIED|synthesizing" | head -2
 
 cp /home/ci/docker-compose.face.yml /home/ci/ci-metahermit/Deployment/docker-compose.face.yml
 cd /home/ci/ci-metahermit/Deployment
+
+# docker-compose.face.yml pins the app image by NAME and is not maintained by this script, so the
+# tag built above has to be the tag it names. If it is not, compose starts whatever older tag it
+# does name and the fresh cook is never deployed -- the same class of silent-wrong-artifact failure
+# as the missing map above, so fail the same way: loudly, before deploying.
+grep -q "^[[:space:]]*image:.*${IMAGE}" docker-compose.face.yml || {
+  echo "COMPOSE_IMAGE_MISMATCH - docker-compose.face.yml does not name ${IMAGE}:"
+  grep -n "image:" docker-compose.face.yml
+  echo "point its project.image at ${IMAGE} (that file is maintained elsewhere), then re-run"
+  exit 1; }
+
 docker compose -f docker-compose.yml -f docker-compose.amd.yml -f docker-compose.ollama.yml \
                -f docker-compose.face.yml up -d project
 sleep 40

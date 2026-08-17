@@ -66,7 +66,7 @@ bool FCompanionSettingsModel::Validate()
 	// Empty identifiers would silently disable the thing they name.
 	if (AvatarId.TrimStartAndEnd().IsEmpty()) { AvatarId = TEXT("eliza"); bWasValid = false; }
 	if (TtsModel.TrimStartAndEnd().IsEmpty()) { TtsModel = TEXT("kokoro-v1"); bWasValid = false; }
-	if (LlmModel.TrimStartAndEnd().IsEmpty()) { LlmModel = TEXT("qwen3.6:27b"); bWasValid = false; }
+	if (LlmModel.TrimStartAndEnd().IsEmpty()) { LlmModel = TEXT("qwen3.8:27b"); bWasValid = false; }
 	if (SttModel.TrimStartAndEnd().IsEmpty()) { SttModel = TEXT("whisper-base"); bWasValid = false; }
 
 	return bWasValid;

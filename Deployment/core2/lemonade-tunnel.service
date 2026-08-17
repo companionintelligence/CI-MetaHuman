@@ -19,11 +19,26 @@
 Description=SSH tunnel: core-2 localhost:13305 -> beta-1 Lemonade Server :13305
 After=network-online.target
 
+# Never give up on this link. systemd's default start rate limit parks a unit in `failed` after
+# enough restarts inside a short window, and a failed tunnel stays down until a human notices it --
+# the wrong end state for a forward that should simply come back when beta-1 does.
+# Honest about how much this line does: it states an intent, not a fix for an observed failure.
+# Whether the default limit would ever have been reached depends on RestartSec and on systemd's
+# own default window, neither of which was measured here; this makes the outcome independent of
+# both.
+StartLimitIntervalSec=0
+
 [Service]
 # ExitOnForwardFailure so a port clash fails loudly instead of leaving a dead tunnel that looks
-# healthy; ServerAlive* so a silently dropped link is noticed and restarted rather than hanging.
+# healthy. ServerAliveInterval/ServerAliveCountMax bound an *established* session: ssh hangs up
+# after three unanswered probes 30 s apart, which is the only thing that notices a half-open TCP
+# connection -- nothing else changes, the local listener stays up, and callers get HTTP 000 rather
+# than a refusal. ConnectTimeout bounds the other end of the same problem: on ssh's default a
+# connect to a beta-1 that is unreachable rather than refusing sits in the kernel's TCP retry
+# schedule, the unit "running" throughout and the port not forwarded.
 ExecStart=/usr/bin/ssh -N \
   -o ExitOnForwardFailure=yes \
+  -o ConnectTimeout=10 \
   -o ServerAliveInterval=30 \
   -o ServerAliveCountMax=3 \
   -o StrictHostKeyChecking=accept-new \
@@ -31,6 +46,17 @@ ExecStart=/usr/bin/ssh -N \
   ci@100.124.211.75
 Restart=always
 RestartSec=5
+# Widen the gap between retries from RestartSec toward RestartMaxDelaySec over RestartSteps, so a
+# momentary drop is back within seconds while an outage that lasts is not dialled on a fixed 5 s
+# cadence from end to end. RestartSteps/RestartMaxDelaySec need systemd >= 254; core-2 runs
+# Ubuntu 26.04 (../core-2-runbook.md), which is well past that.
+#
+# The cost, stated because it is the one thing this trades away: once the delay has walked up to
+# RestartMaxDelaySec, the forward can be up to that long coming back AFTER beta-1 returns. Two
+# minutes of silence at the end of a long outage is the deliberate price of not retrying a dead
+# host every 5 s for its duration. Lower RestartMaxDelaySec if a faster return matters more.
+RestartSteps=6
+RestartMaxDelaySec=120
 
 [Install]
 WantedBy=default.target
