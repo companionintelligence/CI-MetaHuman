@@ -330,7 +330,16 @@ try:
     ceil = spawn(unreal.StaticMeshActor, (450,0,500))
     ceil.static_mesh_component.set_static_mesh(cube)
     ceil.set_actor_scale3d(unreal.Vector(28,15,0.2))
-    paint(ceil, "M_SetCeiling", (0.90, 0.90, 0.88), 0.8)                  # pale troffer ceiling
+    # Back at 0.90 after trying 0.35. The reasoning for 0.35 was sound -- at 0.90 this slab is lit
+    # from below by the troffer grid and clips to white, outshining the very fittings the design
+    # note below wants reading as "light SOURCES, not a pale surface" -- but the fix does not work,
+    # because the problem is not the albedo. This ceiling is ONE PAINTED SLAB with emissive
+    # rectangles stuck to its underside. Darkening it swapped a blown white band for a flat grey
+    # void with two pale trapezoids floating in it, which reads as unfinished geometry: worse.
+    # Neither value is right; recessed fittings need actual geometry (a plenum recess plus a tile
+    # normal or texture), which is a modelling pass, not a number. Left bright until then, because
+    # a too-bright ceiling at least reads AS a ceiling.
+    paint(ceil, "M_SetCeiling", (0.90, 0.90, 0.88), 0.8)                  # see note: needs geometry
     w("shell ok (walls + ceiling)")
 
     # ---------- reference match: fluorescent troffers + operator desk ----------
@@ -630,6 +639,21 @@ try:
                 # Reels ride as their own actors at the same transform, tagged for the spinner.
                 for rm in reel_meshes:
                     r = spawn(unreal.StaticMeshActor, (bx, bank_y, 0), yaw=face)
+                    # MOVABLE, set BEFORE the mesh assignment. spawn() leaves a StaticMeshActor
+                    # at its default STATIC mobility, and UE refuses to transform a Static
+                    # component at runtime -- so UTapeReelSpinner rotated NOTHING while the log
+                    # filled with one
+                    #     "Mobility of ... has to be 'Movable' if you'd like to move"
+                    # per reel PER TICK: 24 actors x every frame = 29,342 warnings in a single
+                    # ~1-minute run, which also buries every real error above it. The runtime
+                    # still cheerfully logs "Tape reels spinning: 24", because the spinner counts
+                    # what it FOUND by tag, not what actually turned.
+                    # The reels are separate actors precisely so they CAN turn (see the note
+                    # above the import), so Static mobility silently defeats the entire reason
+                    # this GLB is modelled with detached reel objects. Ordered before
+                    # set_static_mesh for the same reason documented further down this file:
+                    # assigning a mesh to a Static-mobility component has its own caveats.
+                    r.static_mesh_component.set_editor_property("mobility", MOVABLE)
                     r.static_mesh_component.set_static_mesh(rm)
                     r.tags = ["TapeReel"]
                     r.set_actor_label("Reel_%s_%d_%s" % ("L" if bank_y < 0 else "R", i, rm.get_name()))
@@ -1047,25 +1071,29 @@ try:
     # Eyeline comes from the measured mesh (NIA_EYE_Z above); the literal is only a fallback for
     # the Seo path, where no measurement was taken.
     EYE_Z = float(globals().get("NIA_EYE_Z", 165.0))
-    # Wider and further back than the first attempt (18deg at 2.0m), which produced a beauty
-    # close-up: correct framing of a face, but it showed none of the room, and a call from a
-    # mainframe centre that could be a call from anywhere has lost the point of the set.
-    # 24deg at 2.4m in 9:16 covers ~1.8m vertically -- head to hips, with the aisle visible past
-    # both shoulders. Aiming BELOW the eyeline puts her eyes in the upper third where a face
-    # belongs, instead of dead-centre.
-    # Distance is SOLVED for a target framing, not dialled in by eye. Vertical coverage is
-    #   2 * d * tan(vFOV/2),  vFOV = 2*atan(tan(hFOV/2) / (9/16))
-    # so for head-and-chest (~1.05m of subject) at hFOV 21deg:  d = 1.05 / (2*tan(18.24deg)) ~= 1.6m.
-    # At the previous 2.2m the same lens covered 1.45m -- head to knees, a body shot rather than a
-    # call. Framing is centred below the eyeline so the eyes sit ~70% up the frame, where a video
-    # call puts them, instead of dead centre.
-    CAM_DIST = 160.0
+    # Distance is SOLVED for a target framing, not dialled in by eye, and the constant below is
+    # MEASURED off a shipped 720x1280 frame rather than derived -- the analytic version
+    #   coverage = 2*d*tan(vFOV/2),  vFOV = 2*atan(tan(hFOV/2)/(9/16))
+    # predicts 0.659*d, the render actually gives 0.6125*d (a 7% overestimate). Measured wins.
+    #
+    # DEAD TARGET, do not resurrect: earlier revisions of this comment aimed for "head to hips
+    # with the aisle visible past both shoulders". That framing does not exist at ANY distance.
+    # AspectRatioAxisConstraint=AspectRatio_MaintainYFOV holds the vertical, so horizontal is
+    # always aspect x vertical -- at 9:16, 0.5625x. Aisle past both shoulders needs ~120cm
+    # horizontal, which forces ~213cm vertical: head to knees. Chasing it is what produced the
+    # 160cm setup, whose 98cm of coverage put the CHEST at ~27% of frame area and made it the
+    # subject of the shot. For a product that opens with "Welcome to Companion Intelligence,
+    # I'm Eliza. How can I help you?", that is the wrong subject.
+    #
+    # A video call is a face against a soft background. Accept the hall as backdrop, not as
+    # side margin, and frame for the face:
+    #   coverage 65cm -> frame 141-206cm -> crop at mid-chest, 13cm headroom, eyes 40% from top
+    #   d = 65 / 0.6125 = 106cm
+    CAM_DIST = 106.0
     CAM_POS = (330.0 - CAM_DIST, 20.0, EYE_Z - 8.0)
-    # Aim raised 10cm from EYE_Z-22. At -22 the frame ran 105-211cm: eyes at 71% with almost no
-    # headroom and a lot of chest below, which for a line like "Welcome to Companion Intelligence"
-    # reads as a glamour crop rather than a corporate one. At -12 it runs 115-221cm, eyes ~62%,
-    # ~21cm of headroom -- the proportions of a video call.
-    LOOK_AT = (330.0, 20.0, EYE_Z - 12.0)
+    # Frame centre wants 173.5cm to land 141-206. Camera sits at EYE_Z-8 (just under eye level,
+    # which is where a call camera sits), so this is a ~0.8deg lift rather than the old dip.
+    LOOK_AT = (330.0, 20.0, EYE_Z - 6.5)
     dx, dy, dz = (LOOK_AT[0]-CAM_POS[0], LOOK_AT[1]-CAM_POS[1], LOOK_AT[2]-CAM_POS[2])
     cam_yaw = math.degrees(math.atan2(dy, dx))
     cam_pitch = math.degrees(math.atan2(dz, math.sqrt(dx*dx + dy*dy)))

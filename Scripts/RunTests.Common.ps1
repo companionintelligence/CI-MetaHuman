@@ -6,12 +6,16 @@ function Invoke-MetaHumanLLMTests {
     param(
         [Parameter(Mandatory = $true)][string]$TestFilter,
         [Parameter(Mandatory = $true)][string]$LogName,
-        [string]$EngineDir = "C:\Program Files\Epic Games\UE_5.8"
+        [string]$EngineDir = "C:\Program Files\Epic Games\UE_5.8",
+        # Escape hatch for running the same binary twice (e.g. backend then frontend) without
+        # paying for a second no-op build. Never skip it on the FIRST run of a session.
+        [switch]$SkipBuild
     )
 
     $ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
     $ProjectPath = Join-Path $ProjectRoot "MetaHumanLocalLLM.uproject"
     $EditorCmd = Join-Path $EngineDir "Engine\Binaries\Win64\UnrealEditor-Cmd.exe"
+    $BuildBat = Join-Path $EngineDir "Engine\Build\BatchFiles\Build.bat"
     $LogDir = Join-Path $ProjectRoot "Saved\TestLogs"
     $LogPath = Join-Path $LogDir "$LogName.log"
 
@@ -22,10 +26,39 @@ function Invoke-MetaHumanLLMTests {
         return 1
     }
 
+    # COMPILE FIRST. This function used to launch the editor directly, which loads whatever DLL was
+    # last built and happily reports a full green suite for source that is not on disk. That is the
+    # most dangerous shape of false pass this repo has: every other guard below exists to stop a
+    # crashed or truncated run being read as a pass, and none of them can tell you that the code
+    # under test was never compiled. RunCompatMatrix.ps1 already builds; this did not.
+    if (-not $SkipBuild) {
+        if (-not (Test-Path $BuildBat)) {
+            Write-Error "Build.bat not found at $BuildBat"
+            return 1
+        }
+        Write-Host "Building MetaHumanLocalLLMEditor before testing..." -ForegroundColor Cyan
+        # -NoHotReloadFromIDE for the same reason BuildNative.ps1 passes it. Live Coding's guard
+        # mutex is named after the EXECUTABLE, and every project's editor target produces the same
+        # one: <engine>\Engine\Binaries\Win64\UnrealEditor.exe. So an editor open on a COMPLETELY
+        # DIFFERENT project is enough to fail this build with exit 6 and "Unable to build while Live
+        # Coding is active" -- a message that reads as if THIS project were open, which it is not.
+        # Without the flag the suite cannot be run at all on a box where any 5.8 editor is up, which
+        # is the normal state of a developer machine.
+        & $BuildBat MetaHumanLocalLLMEditor Win64 Development "-project=$ProjectPath" -waitmutex -NoHotReloadFromIDE
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "Build FAILED (exit $LASTEXITCODE) - not running tests against a stale binary."
+            return 1
+        }
+    }
+
     Write-Host "Running '$TestFilter' tests..." -ForegroundColor Cyan
 
     # -abslog (not -log, which takes a bare filename under Saved/Logs, not a full path)
-    & $EditorCmd $ProjectPath -ExecCmds="Automation RunTests $TestFilter;Quit" -unattended -nopause -nullrhi "-abslog=$LogPath" | Out-Null
+    # The MCP ini override stops the Model Context Protocol plugin auto-starting its HTTP server on
+    # the fixed port 8000, which collides with the developer's own editor if one is open and adds a
+    # bind error to every log. BuildNative.ps1 already passes the same flag.
+    $McpOff = '-ini:EditorPerProjectUserSettings:[/Script/ModelContextProtocolEngine.ModelContextProtocolSettings]:bAutoStartServer=False'
+    & $EditorCmd $ProjectPath -ExecCmds="Automation RunTests $TestFilter;Quit" -unattended -nopause -nullrhi $McpOff "-abslog=$LogPath" | Out-Null
 
     if (-not (Test-Path $LogPath)) {
         Write-Error "No log output captured at $LogPath"

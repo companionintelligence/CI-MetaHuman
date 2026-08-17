@@ -1,5 +1,6 @@
 #include "Settings/MetaHumanLLMEnvConfig.h"
 #include "Settings/MetaHumanLLMSettings.h"
+#include "CICompanion.h"
 #include "Misc/Parse.h"
 
 int32 FMetaHumanLLMEnvConfig::Apply(UMetaHumanLLMSettings& Settings, FEnvLookup EnvLookup)
@@ -16,12 +17,101 @@ int32 FMetaHumanLLMEnvConfig::Apply(UMetaHumanLLMSettings& Settings, FEnvLookup 
 		}
 	};
 
+	// Trimmed and validated rather than silently coerced: FCString::Atoi returns 0 for "banana",
+	// and 0 means "unlimited" for the turn cap -- so a typo would remove the very bound it was
+	// trying to set. Refusing the value and saying so is the only safe reading.
+	auto TryInt = [&EnvLookup, &Applied](const TCHAR* Name, int32& Target)
+	{
+		const FString Value = EnvLookup(Name).TrimStartAndEnd();
+		if (Value.IsEmpty())
+		{
+			return;
+		}
+		if (Value.IsNumeric())
+		{
+			const int32 Parsed = FCString::Atoi(*Value);
+			// NEGATIVE is rejected; zero is not. Zero legitimately means "unlimited" (see above),
+			// but FString::IsNumeric() accepts a leading '-', so "-1" sailed straight through this
+			// guard -- the one written to stop a bad value silently removing the cap -- and did
+			// something strictly worse than removing it. UOllamaConversation::Trim computes
+			// MaxMessages = MaxRetainedTurns * 2, so a negative cap makes Excess exceed the history
+			// itself and every append erases the WHOLE conversation, persona included. The bound
+			// the operator was tightening instead deletes everything, and nothing says so.
+			if (Parsed < 0)
+			{
+				UE_LOG(LogMetaHumanLLM, Warning,
+					TEXT("%s='%s' is negative, which would erase the conversation on every append; keeping %d."),
+					Name, *Value, Target);
+				return;
+			}
+			Target = Parsed;
+			++Applied;
+		}
+		else
+		{
+			UE_LOG(LogMetaHumanLLM, Warning, TEXT("%s='%s' is not a number; keeping %d."), Name, *Value, Target);
+		}
+	};
+
+	auto TryFloat = [&EnvLookup, &Applied](const TCHAR* Name, float& Target)
+	{
+		const FString Value = EnvLookup(Name).TrimStartAndEnd();
+		if (Value.IsEmpty())
+		{
+			return;
+		}
+		if (Value.IsNumeric())
+		{
+			Target = FCString::Atof(*Value);
+			++Applied;
+		}
+		else
+		{
+			UE_LOG(LogMetaHumanLLM, Warning, TEXT("%s='%s' is not a number; keeping %.1f."), Name, *Value, Target);
+		}
+	};
+
+	// Recognises the usual truthy/falsy vocabulary and REFUSES anything else loudly, matching TryInt
+	// above. Accepting only "1"/"true" and silently reading everything else as false is the same
+	// trap in a nastier form: MHLLM_MEMORY=yes would DISABLE persistence on a deploy that plainly
+	// asked for it, while the startup log still reported the override as applied.
+	auto TryBool = [&EnvLookup, &Applied](const TCHAR* Name, bool& Target)
+	{
+		const FString Value = EnvLookup(Name).TrimStartAndEnd();
+		if (Value.IsEmpty())
+		{
+			return;
+		}
+		if (Value == TEXT("1") || Value.Equals(TEXT("true"), ESearchCase::IgnoreCase)
+			|| Value.Equals(TEXT("yes"), ESearchCase::IgnoreCase) || Value.Equals(TEXT("on"), ESearchCase::IgnoreCase))
+		{
+			Target = true;
+			++Applied;
+		}
+		else if (Value == TEXT("0") || Value.Equals(TEXT("false"), ESearchCase::IgnoreCase)
+			|| Value.Equals(TEXT("no"), ESearchCase::IgnoreCase) || Value.Equals(TEXT("off"), ESearchCase::IgnoreCase))
+		{
+			Target = false;
+			++Applied;
+		}
+		else
+		{
+			UE_LOG(LogMetaHumanLLM, Warning,
+				TEXT("%s='%s' is not a recognised boolean (1/true/yes/on or 0/false/no/off); keeping %s."),
+				Name, *Value, Target ? TEXT("true") : TEXT("false"));
+		}
+	};
+
 	// An explicit MHLLM_BACKEND is AUTHORITATIVE and outranks the CI_HUB_URL inference below.
 	// It used to be the other way round, and the result was that MHLLM_BACKEND did nothing
 	// whenever CI_HUB_URL happened to be set -- which the base compose always sets. A deploy
 	// asking plainly for Ollama silently talked to the hub instead, with a placeholder token,
 	// and every turn died on HTTP 405. A specific, deliberate signal must beat an incidental one.
-	const FString Backend = EnvLookup(TEXT("MHLLM_BACKEND"));
+	//
+	// TRIMMED, because a compose file that interpolates an unset variable leaves whitespace behind
+	// and " ollama " is unmistakably a request for Ollama. Untrimmed it matched neither branch and
+	// fell through to exactly the silent CI_HUB_URL takeover described above.
+	const FString Backend = EnvLookup(TEXT("MHLLM_BACKEND")).TrimStartAndEnd();
 	bool bBackendExplicit = false;
 	if (!Backend.IsEmpty())
 	{
@@ -36,6 +126,16 @@ int32 FMetaHumanLLMEnvConfig::Apply(UMetaHumanLLMSettings& Settings, FEnvLookup 
 			Settings.BackendType = EChatBackendType::OllamaNative;
 			bBackendExplicit = true;
 			++Applied;
+		}
+		else
+		{
+			// LOUD. Both variables look correct in isolation and the wrong one quietly wins, which
+			// is precisely the failure mode EnvConfigSpec exists to guard: a typo here used to be
+			// indistinguishable in every log from not having set the variable at all.
+			UE_LOG(LogMetaHumanLLM, Warning,
+				TEXT("MHLLM_BACKEND='%s' is not recognised (expected 'ollama' or 'openai'); ")
+				TEXT("ignoring it, so the backend will be decided by CI_HUB_URL/OPENAI_* or the project default."),
+				*Backend);
 		}
 	}
 
@@ -104,10 +204,19 @@ int32 FMetaHumanLLMEnvConfig::Apply(UMetaHumanLLMSettings& Settings, FEnvLookup 
 	TryString(TEXT("KOKORO_ALIGNER_URL"), Settings.KokoroAlignerUrl);
 	TryString(TEXT("WHISPER_ENDPOINT_PATH"), Settings.WhisperEndpointPath);
 	TryString(TEXT("WHISPER_SERVER_URL"), Settings.WhisperServerUrl);
+	TryString(TEXT("WHISPER_MODEL"), Settings.WhisperModel);
 	TryString(TEXT("PIPER_SERVER_URL"), Settings.PiperServerUrl);
 
 	// Persona.
 	TryString(TEXT("MHLLM_SYSTEM_PROMPT"), Settings.SystemPrompt);
+
+	// Conversation shape and memory.
+	TryInt(TEXT("MHLLM_MAX_TURNS"), Settings.MaxRetainedTurns);
+	TryBool(TEXT("MHLLM_MEMORY"), Settings.bPersistConversation);
+	TryString(TEXT("MHLLM_MEMORY_PATH"), Settings.ConversationMemoryPath);
+
+	// Request budget.
+	TryFloat(TEXT("MHLLM_CHAT_TIMEOUT"), Settings.ChatRequestTimeoutSeconds);
 
 	return Applied;
 }

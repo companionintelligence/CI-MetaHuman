@@ -26,6 +26,7 @@ namespace
 		P.BlinkCurves = { TEXT("Eye_Blink_L"), TEXT("Eye_Blink_R") };
 		P.GazeCurves  = { TEXT("Eye_L_Look_L"), TEXT("Eye_L_Look_R"), TEXT("Eye_L_Look_Up"), TEXT("Eye_L_Look_Down"),
 						  TEXT("Eye_R_Look_L"), TEXT("Eye_R_Look_R"), TEXT("Eye_R_Look_Up"), TEXT("Eye_R_Look_Down") };
+		P.EyeWidenCurves = { TEXT("Eye_Wide_L"), TEXT("Eye_Wide_R") };
 		// Weights stay LOW (<=0.45). A full-strength FACS pose reads as a caricature, and these sit
 		// under speech continuously rather than flashing, so anything stronger looks unhinged.
 		AddEmotion(P, EEmotionType::Neutral, {});
@@ -55,11 +56,31 @@ namespace
 		Add(P, EViseme::SS,  { { TEXT("V_Tight"), 0.90f } });
 		Add(P, EViseme::NN,  { { TEXT("V_Tongue_Raise"), 0.85f } });
 		Add(P, EViseme::RR,  { { TEXT("V_Tongue_Curl_U"), 0.85f }, { TEXT("V_Tight_O"), 0.30f } });
-		Add(P, EViseme::AA,  { { TEXT("V_Open"), 1.0f }, { TEXT("Jaw_Open"), 0.55f } });
-		Add(P, EViseme::E,   { { TEXT("V_Wide"), 0.80f }, { TEXT("Jaw_Open"), 0.30f } });
-		Add(P, EViseme::IH,  { { TEXT("V_Wide"), 0.55f }, { TEXT("Jaw_Open"), 0.15f } });
-		Add(P, EViseme::OH,  { { TEXT("V_Tight_O"), 0.80f }, { TEXT("Jaw_Open"), 0.35f } });
-		Add(P, EViseme::OU,  { { TEXT("V_Tight_O"), 1.0f }, { TEXT("Jaw_Open"), 0.10f } });
+		// VOWEL APERTURE, re-measured 2026-08-16. These jaw values were 0.55/0.30/0.15/0.35/0.10,
+		// chosen against the "puppet hinge" concern in the note at the top of this file. That
+		// correction overshot: it removed nearly all APERTURE and left lip ROUNDING as the only
+		// visible motion, so a speaking face reads as a fish working its lips without ever
+		// opening its mouth.
+		//
+		// Measured against a live kokoro-align track for a deliberately vowel-heavy line
+		// ("Boom. Pop. Mama, papa, wow. Open wide, oh oh oh, ee ee ee, moo moo moo"), 77 spans
+		// over 5.22s: duration-weighted mean Jaw_Open was 0.094. The most common voiced shape was
+		// OU at 11.1% of the utterance -- V_Tight_O at FULL 1.0 against Jaw_Open 0.10, i.e.
+		// maximum purse with no opening. Genuine aperture (AA) covered 0.47s of 5.22s. Screen
+		// capture confirmed it: mouth-region darkness during speech was statistically identical
+		// to silence (12.52 vs 12.90 mean), because the jaw never moved.
+		//
+		// Raised so every vowel carries visible aperture while keeping its distinguishing shape.
+		// OU also drops V_Tight_O 1.0 -> 0.85: at full strength the purse closes the lips over
+		// whatever the jaw is doing, which is what made "moo" and "oh" indistinguishable. The
+		// same distribution now predicts a weighted mean near 0.15, concentrated on the vowels a
+		// viewer actually watches. Guarded by FaceProfileSpec's aperture test so a future
+		// hinge-panic cannot silently flatten it again.
+		Add(P, EViseme::AA,  { { TEXT("V_Open"), 1.0f }, { TEXT("Jaw_Open"), 0.72f } });
+		Add(P, EViseme::E,   { { TEXT("V_Wide"), 0.80f }, { TEXT("Jaw_Open"), 0.42f } });
+		Add(P, EViseme::IH,  { { TEXT("V_Wide"), 0.55f }, { TEXT("Jaw_Open"), 0.26f } });
+		Add(P, EViseme::OH,  { { TEXT("V_Tight_O"), 0.80f }, { TEXT("Jaw_Open"), 0.52f } });
+		Add(P, EViseme::OU,  { { TEXT("V_Tight_O"), 0.85f }, { TEXT("Jaw_Open"), 0.38f } });
 		return P;
 	}
 
@@ -70,8 +91,11 @@ namespace
 		FFaceProfile P;
 		P.ProfileName = TEXT("ARKit");
 		P.BlinkCurves = { TEXT("eyeBlinkLeft"), TEXT("eyeBlinkRight") };
+		// In/Out swapped between the eyes ON PURPOSE — see FFaceProfile::GazeCurves. Index 0 and 4
+		// must both mean "look left", and on ARKit that is Out for the left eye and In for the right.
 		P.GazeCurves  = { TEXT("eyeLookOutLeft"), TEXT("eyeLookInLeft"), TEXT("eyeLookUpLeft"), TEXT("eyeLookDownLeft"),
 						  TEXT("eyeLookInRight"), TEXT("eyeLookOutRight"), TEXT("eyeLookUpRight"), TEXT("eyeLookDownRight") };
+		P.EyeWidenCurves = { TEXT("eyeWideLeft"), TEXT("eyeWideRight") };
 		AddEmotion(P, EEmotionType::Neutral, {});
 		AddEmotion(P, EEmotionType::Happy, { { TEXT("mouthSmileLeft"), 0.35f }, { TEXT("mouthSmileRight"), 0.35f },
 											 { TEXT("cheekSquintLeft"), 0.30f }, { TEXT("cheekSquintRight"), 0.30f } });
@@ -153,6 +177,13 @@ TArray<FName> FFaceProfile::AllCurves() const
 	for (const FName& Gaze : GazeCurves)
 	{
 		Unique.Add(Gaze);
+	}
+	// Widen curves are already reachable through EmotionShapes on both shipped profiles, so this is
+	// belt-and-braces — but AllCurves is the zeroing set, and a profile that ever listed a widen
+	// curve no emotion used would otherwise latch it on permanently.
+	for (const FName& Widen : EyeWidenCurves)
+	{
+		Unique.Add(Widen);
 	}
 	return Unique.Array();
 }

@@ -63,6 +63,14 @@ void UKokoroTextToSpeech::Speak(const FString& Text)
 	ActiveRequest->SetVerb(TEXT("POST"));
 	ActiveRequest->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
 	ActiveRequest->SetHeader(TEXT("Accept"), TEXT("audio/wav"));
+	// The ONLY HTTP client in this plugin without a timeout. Both chat clients and the phoneme
+	// aligner set one; synthesis did not, so a Lemonade that accepted the connection and then went
+	// quiet left the reply permanently un-voiced -- no audio, no callback, no error, and no way
+	// back for that turn. That is the same hang the chat clients' timeout was added to close, and
+	// it is worse here because HandleCompanionSpoke has already armed an utterance by this point.
+	// Shares the chat budget rather than inventing a second knob: an operator who raised one for a
+	// slow box meant both.
+	ActiveRequest->SetTimeout(Settings->ChatRequestTimeoutSeconds);
 	ActiveRequest->SetContentAsString(
 		BuildRequestBody(Text, Settings->KokoroModel, Settings->KokoroVoice));
 	ActiveRequest->OnProcessRequestComplete().BindUObject(this, &UKokoroTextToSpeech::HandleSynthesisComplete);
@@ -76,6 +84,9 @@ void UKokoroTextToSpeech::StopSpeaking()
 		ActiveRequest->CancelRequest();
 		ActiveRequest.Reset();
 	}
+	// Cleared with the request that owned it. Left set, it would be reported as the "finished" text
+	// of whatever utterance happened to complete next.
+	PendingText.Empty();
 	if (ActiveAudio)
 	{
 		ActiveAudio->OnAudioFinished.RemoveDynamic(this, &UKokoroTextToSpeech::HandleAudioFinished);
@@ -86,6 +97,18 @@ void UKokoroTextToSpeech::StopSpeaking()
 
 void UKokoroTextToSpeech::HandleSynthesisComplete(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful)
 {
+	// IDENTITY GUARD, matching UKokoroPhonemeAligner. Cancelling an HTTP request does not un-bind
+	// its completion delegate: a cancelled request still calls back, typically with
+	// bWasSuccessful=false. On barge-in Speak() calls StopSpeaking() and then immediately starts a
+	// NEW request, so the dead one's callback arrives with ActiveRequest already pointing at the
+	// live request -- and the unconditional Reset() below would drop the new request's handle on
+	// the floor. StopSpeaking could then no longer cancel it, so the reply the user interrupted
+	// would still be spoken over the one they interrupted it with.
+	if (!ActiveRequest.IsValid() || Request.Get() != ActiveRequest.Get())
+	{
+		return;
+	}
+
 	ActiveRequest.Reset();
 	const FString CompletedText = PendingText;
 

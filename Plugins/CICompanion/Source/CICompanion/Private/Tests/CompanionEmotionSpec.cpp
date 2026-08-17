@@ -44,11 +44,21 @@ void FCompanionEmotionSpec::Define()
 	// timer and would add eyelid curves to half the assertions below) and emotion explicitly on
 	// (the constructor reads MHLLM_EMOTION, and a developer running with it set to 0 must not
 	// silently turn these tests green).
+	//
+	// Gaze off for the SAME reason blink is, and it is a stronger version of the problem. Blink is
+	// intermittent, so it only sometimes dirtied a frame; gaze is continuous by design -- the eyes
+	// are always aimed somewhere, so from the moment it landed EVERY composed frame carried four eye
+	// curves. That is correct behaviour and it is why two assertions here read "the face composes to
+	// nothing at all" and got 4: they were written when an idle face genuinely was empty, and they
+	// are asserting the EMOTION contract, not the gaze one. Turning the channel off restores the
+	// question each test is actually asking. Gaze composition has its own coverage in
+	// CompanionGazeSpec.
 	auto MakeFace = []() -> UCompanionFaceComponent*
 	{
 		UCompanionFaceComponent* Face = NewObject<UCompanionFaceComponent>(GetTransientPackage());
 		Face->SetProfile(FFaceProfile::CharacterCreator());
 		Face->SetBlinkEnabled(false);
+		Face->SetGazeEnabled(false);
 		Face->SetEmotionEnabled(true);
 		return Face;
 	};

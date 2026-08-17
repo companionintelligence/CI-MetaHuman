@@ -34,18 +34,39 @@ TTS and STT now work as *services* — verified over 10 turns, Kokoro 1166ms and
 round-trip transcription accuracy 1.000. `UKokoroTextToSpeech` is implemented and the WAV decoder
 now survives real Kokoro output (it previously segfaulted on it).
 
-**But no audio has ever reached a browser.** Pixel Streaming on this stack has only ever carried
-video. Until one clip plays through it, the entire voice path is theoretical, and if it fails the
-fix is a reroute (e.g. play TTS in the browser from the audio bytes) rather than a patch. This is
-the highest-risk unknown remaining and it is a ~1 hour experiment.
+~~**But no audio has ever reached a browser.**~~ **RESOLVED 2026-08-06.** It reaches a browser and
+it is audible: speech measured at `peakRms` 0.0769 against a 0.0211 room-tone floor, 3.65x. UE had
+been transmitting correctly all along — the stock frontend simply never attached the inbound audio
+track to the `<video>` element it built from the video track alone. One script in the already-mounted
+`Deployment/pixelstreaming/player.html` closes it. See `REPO-STATE.md` §5 for the measurements and
+for why this hid so well.
 
-Also missing: **barge-in**. `SubmitUserText` cancels an in-flight LLM response, but nothing stops
-audio already playing, so a visitor who interrupts will be talked over.
+~~Also missing: **barge-in**.~~ **DONE.** `UCompanionRuntimeSubsystem::CancelUtterance` now stops the
+audio, the viseme track and the pending alignment timer together. `StopSpeaking` had zero callers in
+the entire repo, so an interrupted reply used to keep being *mouthed* in silence.
 
-## 3. She forgets everyone, immediately
+## 3. ~~She forgets everyone, immediately~~ — RESOLVED 2026-08-06
 
-`UOllamaConversation` holds turn history in RAM for one session. Close the tab and she has never
-met you. There is no identity, no persistence, no recall.
+`UOllamaConversation` now caps retained turns and persists the transcript as JSON
+(`MHLLM_MEMORY=1`, `MHLLM_MEMORY_PATH`). Verified end to end on core-2 against a bind-mounted
+path, which is the only version of the claim that means anything — an in-container file would
+prove only that one process can read what it just wrote:
+
+```
+turn 1   "My name is Liam and my favourite colour is orange."
+turn 2   "What is my name and my favourite colour?"
+         -> "Your name is Liam and your favorite color is orange! 🧡"
+docker compose restart project
+         -> Conversation memory loaded: 4 message(s) recalled from '/memory/conversation.json'.
+```
+
+The cap is not a nicety. `/api/chat` has no server-side session, so the whole transcript is re-sent
+every turn until it overruns the context window — at which point the server truncates from the
+FRONT and the first casualty is the system prompt. She does not error when that happens; she stops
+being Eliza.
+
+Still open: this is a flat per-installation transcript, not identity. Two visitors share one
+memory, and `ci-memory` on the same host remains unused.
 
 `ci-memory` is already running on the same host, unused. For a *companion* — the actual product
 premise — this is arguably a more serious gap than voice: a companion that cannot remember you is a
@@ -91,26 +112,62 @@ survive a reboot.
 
 ## 7. Art direction is close but not finished
 
-The portrait framing and the machine hall now read correctly. Remaining:
+**The framing does NOT read correctly, and this doc previously said it did.** Captured from the
+live stream on core-2, 2026-08-06 (`Deployment/core2/bank_chat_audio.mjs`):
 
-- **Props render pale.** The GLB cabinets import washed out, where the reference is dark charcoal
-  with blue panels and chrome trim. This is the long-standing issue #22 and is the biggest single
-  gap between our frame and the reference.
+- **The default stream is landscape 1280x720, not the composed 720x1280.** `docker-compose.amd.yml`
+  passes `-ResX=720 -ResY=1280` and its comment calls that "portrait 9:16 by default" — but without
+  `-ForceRes` those values are only a *hint*, and UE under `-RenderOffscreen` falls back to its own
+  1280x720 default. Every viewer who has ever opened `:8090` has seen the landscape crop. The
+  composed portrait call has effectively never shipped.
+- **Neither aspect currently gives the intended shot.** In landscape she sits small and centred, the
+  cabinet tops form a hard horizontal band straight across the frame at her waist, and the back wall
+  is a large flat orange field over the top third. Forcing portrait via `?MatchViewportRes=true`
+  overcorrects into a tight bust shot with the hall almost entirely gone and a blown-out ceiling band
+  across the top ~15%. The `author_diorama.py` framing math derives distance from a *horizontal* FOV
+  while `DefaultEngine.ini` pins `AspectRatio_MaintainYFOV`, so the two disagree about which axis is
+  being held — which is why neither window shape lands on the shot the maths describes.
+- **Props render pale — confirmed, and it is as bad as issue #22 says.** The cabinets read as light
+  grey office furniture against a reference of dark charcoal, blue panels and chrome. In frame this
+  is what makes the room look like cubicles rather than a mainframe hall.
+- **The ceiling blows out.** The top strip is near-white and featureless in both aspects, which is
+  what makes the portrait crop in particular look unfinished.
+- **Emoji render as `�` in the chat log.** She replies with 🧡 and the HUD shows a replacement
+  box. The text is *correct on disk* (verified `f0 9f a7 a1` = U+1F9E1 in the persisted transcript),
+  so this is purely a missing glyph in the Slate font — Roboto has no emoji coverage. Either strip
+  non-BMP characters before display or fall back to a font that has them.
 - **Wardrobe mismatch.** A white cocktail dress and heels in a 1970s machine room. Deliberate
   (it is Nia's shipped outfit) but it undercuts the premise.
-- **No period audio.** A machine room's defining quality is its NOISE — tape reels, card readers,
-  air handling. Silence is a large miss for a scene built on atmosphere.
+- ~~**No period audio.**~~ Room tone ships and is audible in the browser — it is the 0.017 RMS floor
+  the speech measurement sits on top of. Tape-reel and card-reader detail is still absent.
+
+Framing is the expensive one to iterate: the camera is authored into the map, so every attempt costs
+an author + cook cycle (~20 min). Re-derive the maths against `MaintainYFOV` **before** the next
+cook rather than dialling it in by eye.
 
 ## Ranked, by product value per unit of effort
 
-1. **Input path** — converts a demo into a product. Nothing else matters until this exists.
-2. **Verify audio over Pixel Streaming** — retires the biggest unknown; cheap, and its failure would
-   invalidate the current voice plan.
-3. **Gaze + emotion → face** — the rig is ready; highest perceived-aliveness return of anything here.
-4. **Long-term memory** — the difference between a chatbot with a face and a companion.
-5. **Observability** — you cannot operate what you cannot see, and today we read logs over SSH.
-6. **Prop materials + room audio** — finishes the world.
-7. **Auth and multi-session** — required before anyone outside the tailnet sees it.
+Items 1–4 of the original ranking are **done and verified on the live stream** (2026-08-06):
+
+1. ~~**Input path**~~ — ✅ text in, over the stream, no click needed. And the **mic button is now
+   actually connected**: `OnMicToggled` had been published to no subscriber since it was written, so
+   it toggled its own colour and did nothing else. Every piece either side of it had passing tests;
+   the wire between them was never a piece, which is how it survived a 300-spec suite.
+2. ~~**Verify audio over Pixel Streaming**~~ — ✅ and fixed. §2 above.
+3. ~~**Gaze + emotion → face**~~ — ✅ eyes move on the live stream (eye-region luma differs across
+   frames sampled a second apart; a welded stare is bit-identical there).
+4. ~~**Long-term memory**~~ — ✅ survives a container restart. §3 above.
+
+Remaining, re-ranked on what the captures actually show:
+
+1. **Framing.** The composed portrait call has never shipped — every viewer has seen the landscape
+   crop. This is now the single largest gap between the product as designed and the product as
+   served. §7.
+2. **Prop materials.** Issue #22. The room reads as cubicles, not a mainframe hall.
+3. **Observability** — you cannot operate what you cannot see, and today we read logs over SSH.
+4. **Identity, not just persistence.** Memory is one flat transcript per installation; two visitors
+   share it.
+5. **Auth and multi-session** — required before anyone outside the tailnet sees it.
 
 ## What I would NOT do next
 

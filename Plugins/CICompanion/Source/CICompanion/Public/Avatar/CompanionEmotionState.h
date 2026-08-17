@@ -49,6 +49,20 @@ struct CICOMPANION_API FCompanionEmotionState
 	// shorter than the hold, so releasing twice cannot keep an expression alive.
 	void Release(float HoldSeconds = DefaultHoldSeconds);
 
+	// Extends the lease to cover an utterance whose length is now KNOWN.
+	//
+	// DefaultSustainSeconds is a backstop sized for the case where nothing ever reports the end of
+	// speech, and 12s was chosen against that failure rather than against real replies. It is
+	// therefore too SHORT for a long one: an expression is set once per reply, so any utterance
+	// running past 12 seconds watched her face drain to neutral partway through the sentence it
+	// belonged to, and then stay neutral for the rest of it. Kokoro at ~150wpm reaches 12s at about
+	// thirty words, which is an ordinary paragraph, not an edge case.
+	//
+	// Max, not assignment: this can only ever lengthen a lease. Shortening is Release's job, and
+	// letting this shorten too would mean the arrival of a *longer* track could cut an expression
+	// off early depending on which call landed last.
+	void Sustain(float Seconds);
+
 	// Drops the expression instantly, with no blend. For teardown and the kill switch, where a
 	// half-second fade of something that should not be running at all is just a slower bug.
 	void Reset();

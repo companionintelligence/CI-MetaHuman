@@ -115,21 +115,53 @@ to a 430 px box now. This is the case for verifying UI with screenshots rather t
 | Opening line | ✅ Verbatim in chat + spoken |
 | Console renders | ✅ Screenshot; scene luma 110 |
 | LLM round trip | ✅ ~814 ms warm (`qwen3.6:27b` on beta-1) |
-| **Audio reaching a browser** | ❌ **Still unproven** |
+| **Audio reaching a browser** | ✅ **Proven 2026-08-06** — speech `peakRms` 0.0769 vs 0.0211 room-tone floor |
 
-That last row has been the oldest open item in the project. The stack synthesizes speech, decodes
-it, measures its duration and drives the mouth from that measurement — all verified — but nobody has
-confirmed a browser receives audible audio. The negotiated track can carry digital silence forever
-and look identical to success unless the track's *energy* is measured.
+That last row was the oldest open item in the project, and it is now closed — but the cause was not
+where anyone had been looking. UE was transmitting audio the whole time. The stock Pixel Streaming
+frontend builds the `<video>` element's MediaStream from the **video track only**, so the audio
+transceiver was negotiated, the receiver was live, the packets arrived, and the element that was
+supposed to play them was never handed the track.
+
+That is invisible from every direction the question had been asked from: signalling shows a
+negotiated audio track, UE logs `OnAudioTrackUpdate`, WebRTC internals show bytes received. It shows
+up only in `video.srcObject.getAudioTracks()`, which was empty. Measuring exactly that is what
+settled it.
+
+Fixed in `Deployment/pixelstreaming/player.html` (the page already mounted over the stock one).
+Measured with `Deployment/core2/bank_chat_audio.mjs`, same container, before and after:
+
+```
+before   {"error":"stream carries NO audio track"}
+after    peakRms 0.021611  meanRms 0.017165   <- room tone only, nobody speaking
+speech   peakRms 0.076937  meanRms 0.020096   <- 3.65x the room-tone floor
+```
+
+The ~0.017 floor is the machine-room tone looping. The 3.65x excursion is her actually talking.
+
+**A caution this cost half an hour:** the first speech measurement came back at exactly 1.00x
+baseline and looked like a flat failure. It was a *timing* artefact — a cold 27B model took 31s to
+first token and the 22s listening window had already closed before Kokoro synthesized anything. Warm
+the model before measuring, or listen longer than the cold-load time.
 
 ## 6. Risks
 
 1. **⏳ The Hana acquisition deadline — 2026-11-05, 97 days.** The only item here with an external
    clock. Unactioned, and it needs an Epic sign-in inside a 5.5 editor (see §9).
 2. **Audio unproven** (above). Several later features assume it.
-3. **`docker system prune --all` keeps destroying core-2's images** — five occurrences in shell
-   history. Each costs an 85 GB engine re-pull. `Deployment/core2/README.md` documents the archive
-   workaround; the prune itself is outside our control.
+3. ~~**`docker system prune --all` keeps destroying core-2's images**~~ — **mitigated 2026-08-06.**
+   It struck again mid-session, taking the engine image, the cooked app image and the signalling
+   image, and costing an 85 GB re-pull in the middle of a verification run. The archive workaround
+   the old note pointed at had itself been deleted, because nothing kept *it* alive either.
+
+   `Deployment/core2/pin-engine-image.sh` is a hard interlock instead of a remedy: `prune --all`
+   removes images "not used by at least one container" and never removes a RUNNING container, so
+   one idle `--restart=always` container built from the engine image makes that image unprunable by
+   any invocation short of an explicit `docker rmi -f`. Costs a sleeping process; needs no operator
+   to remember anything, which is the part every previous mitigation got wrong.
+
+   The prune itself is still outside our control — it comes from unrelated CI housekeeping on that
+   box, and unrelated images (traefik, rabbitmq, cloudflared) now appear alongside ours.
 4. **`fs.inotify.max_user_watches` reverts on reboot.** A cook exhausts the 65 536 default. Needs one
    line in `/etc/sysctl.d/`, which needs the owner's approval — that box runs other services.
 5. ~~Two stale branches~~ — deleted.

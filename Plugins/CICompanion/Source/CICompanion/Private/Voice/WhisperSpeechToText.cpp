@@ -22,7 +22,7 @@ FString UWhisperSpeechToText::MultipartContentType(const FString& Boundary)
 	return FString::Printf(TEXT("multipart/form-data; boundary=%s"), *Boundary);
 }
 
-TArray<uint8> UWhisperSpeechToText::BuildMultipartFormData(const TArray<uint8>& WavBytes, const FString& Boundary, const FString& FileName)
+TArray<uint8> UWhisperSpeechToText::BuildMultipartFormData(const TArray<uint8>& WavBytes, const FString& Boundary, const FString& FileName, const FString& Model)
 {
 	TArray<uint8> Body;
 
@@ -37,6 +37,15 @@ TArray<uint8> UWhisperSpeechToText::BuildMultipartFormData(const TArray<uint8>& 
 	AppendUtf8(Body, FString::Printf(TEXT("--%s\r\n"), *Boundary));
 	AppendUtf8(Body, TEXT("Content-Disposition: form-data; name=\"response_format\"\r\n\r\n"));
 	AppendUtf8(Body, TEXT("json\r\n"));
+
+	// model part — emitted ONLY when configured, so the whisper.cpp body stays byte-identical to
+	// what it has always been while the OpenAI shape gets the field it refuses requests without.
+	if (!Model.IsEmpty())
+	{
+		AppendUtf8(Body, FString::Printf(TEXT("--%s\r\n"), *Boundary));
+		AppendUtf8(Body, TEXT("Content-Disposition: form-data; name=\"model\"\r\n\r\n"));
+		AppendUtf8(Body, FString::Printf(TEXT("%s\r\n"), *Model));
+	}
 
 	// closing boundary
 	AppendUtf8(Body, FString::Printf(TEXT("--%s--\r\n"), *Boundary));
@@ -288,7 +297,7 @@ void UWhisperSpeechToText::TranscribeWav(const TArray<uint8>& WavBytes)
 	// A fixed boundary is fine — it just needs to be a token that does not appear in the
 	// payload; a WAV header never contains this ASCII string.
 	const FString Boundary = TEXT("----MetaHumanLLMWhisperBoundary7a1b");
-	const TArray<uint8> Body = BuildMultipartFormData(WavBytes, Boundary, TEXT("audio.wav"));
+	const TArray<uint8> Body = BuildMultipartFormData(WavBytes, Boundary, TEXT("audio.wav"), Settings->WhisperModel);
 
 	FHttpRequestRef Request = FHttpModule::Get().CreateRequest();
 	Request->SetURL(BaseUrl + Settings->WhisperEndpointPath);
@@ -311,6 +320,19 @@ void UWhisperSpeechToText::HandleTranscriptionComplete(FHttpRequestPtr Request, 
 		return;
 	}
 
+	// The response CODE was never checked, and the failure was logged at Verbose — which is off in a
+	// shipped build. A 400 from a server rejecting the request (a missing "model" field, say) was
+	// therefore completely indistinguishable from the user simply not having said anything: the mic
+	// button worked, the request went out, and nothing whatsoever happened. This is the line that
+	// turns "the mic is broken somehow" into a diagnosable fact.
+	const int32 Code = Response->GetResponseCode();
+	if (Code < 200 || Code >= 300)
+	{
+		UE_LOG(LogMetaHumanLLM, Warning, TEXT("WhisperSpeechToText: HTTP %d from '%s' — %s"),
+			Code, *Response->GetURL(), *Response->GetContentAsString().Left(200));
+		return;
+	}
+
 	FString Text;
 	if (ParseTranscriptionResponse(Response->GetContentAsString(), Text))
 	{
@@ -318,6 +340,9 @@ void UWhisperSpeechToText::HandleTranscriptionComplete(FHttpRequestPtr Request, 
 	}
 	else
 	{
-		UE_LOG(LogMetaHumanLLM, Verbose, TEXT("WhisperSpeechToText: empty or unparseable transcription"));
+		// Warning, not Verbose: a 200 whose body does not parse means this client and that server
+		// disagree about the wire format, which is a configuration error someone has to see.
+		UE_LOG(LogMetaHumanLLM, Warning, TEXT("WhisperSpeechToText: HTTP 200 but no usable transcription — %s"),
+			*Response->GetContentAsString().Left(200));
 	}
 }

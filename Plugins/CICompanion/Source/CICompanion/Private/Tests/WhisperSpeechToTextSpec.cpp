@@ -48,6 +48,24 @@ void FWhisperSpeechToTextSpec::Define()
 			TestTrue("declares wav content type", ContainsAscii(Body, "Content-Type: audio/wav"));
 			TestTrue("includes response_format field", ContainsAscii(Body, "name=\"response_format\""));
 			TestTrue("ends with closing boundary", ContainsAscii(Body, "--BOUNDARY123--\r\n"));
+			// No model configured: the field must be absent ENTIRELY, not empty. whisper.cpp hosts
+			// one model and an empty-valued part is not the same thing as no part at all.
+			TestFalse("omits the model field when none is configured", ContainsAscii(Body, "name=\"model\""));
+		});
+
+		It("emits the model field only when one is configured", [this]()
+		{
+			// The OpenAI shape that Lemonade serves REQUIRES this field and rejects the request
+			// without it, so omitting it made the entire STT path fail against the very server the
+			// deployment points at -- with the resulting 4xx logged at Verbose, i.e. invisible.
+			TArray<uint8> Wav = { 'R', 'I', 'F', 'F' };
+			const TArray<uint8> Body = UWhisperSpeechToText::BuildMultipartFormData(
+				Wav, TEXT("BOUNDARY123"), TEXT("audio.wav"), TEXT("Whisper-Base"));
+
+			TestTrue("declares the model field", ContainsAscii(Body, "name=\"model\""));
+			TestTrue("carries the configured value", ContainsAscii(Body, "Whisper-Base\r\n"));
+			// Still well-formed: the new part sits before the closing boundary, not after it.
+			TestTrue("still ends with the closing boundary", ContainsAscii(Body, "--BOUNDARY123--\r\n"));
 		});
 
 		It("embeds the exact wav payload bytes", [this]()

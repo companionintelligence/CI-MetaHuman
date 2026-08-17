@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "Avatar/CompanionEmotionState.h"
+#include "Avatar/CompanionGazeState.h"
 #include "Avatar/FaceProfile.h"
 #include "Voice/VisemePlanner.h"
 #include "CompanionFaceComponent.generated.h"
@@ -55,7 +56,7 @@ public:
 	int32 GetResolvedCurveCount() const { return ResolvedCurveCount; }
 
 	UFUNCTION(BlueprintPure, Category = "MetaHumanLLM|Face")
-	int32 GetProfileCurveCount() const { return Profile.AllCurves().Num(); }
+	int32 GetProfileCurveCount() const { return CachedAllCurves.Num(); }
 
 	// Cycles every viseme in turn, holding each for SecondsPerViseme. This is the milestone-1
 	// proof that the whole face path works end-to-end in a COOKED Linux build, before any TTS
@@ -127,6 +128,32 @@ public:
 	UFUNCTION(BlueprintPure, Category = "MetaHumanLLM|Face")
 	bool IsEmotionEnabled() const { return bEmotionEnabled; }
 
+	// Where the eyes point. Until this landed, FFaceProfile::GazeCurves were declared on both rigs,
+	// zeroed every single frame by the driver, and written by nothing — so the face could talk and
+	// emote while staring straight through the viewer. See FCompanionGazeState for why that is the
+	// most visible defect a video-call framing can have.
+	//
+	// Plain C++ rather than a UFUNCTION: EGazeMode is a nested enum class, which UHT cannot reflect,
+	// and this project has no Blueprints to call it from in any case (ARCHITECTURE.md §3).
+	void SetGazeMode(FCompanionGazeState::EGazeMode InMode);
+
+	FCompanionGazeState::EGazeMode GetGazeMode() const { return Gaze.GetMode(); }
+
+	// Current aim in normalised eye-space, X = her right, Y = up. Exposed for specs and the
+	// diagnostics line rather than for gameplay.
+	FVector2D GetGazeAim() const { return Gaze.GetAim(); }
+
+	// Pins the gaze RNG so a spec can assert on a real sequence instead of only on bounds.
+	void SetGazeSeed(int32 Seed) { Gaze.SetSeed(Seed); }
+
+	// Kill switch, resolved from MHLLM_GAZE at construction. Turning it off recentres the eyes
+	// rather than leaving them latched wherever the last saccade happened to land.
+	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM|Face")
+	void SetGazeEnabled(bool bEnabled);
+
+	UFUNCTION(BlueprintPure, Category = "MetaHumanLLM|Face")
+	bool IsGazeEnabled() const { return bGazeEnabled; }
+
 	// Advances every channel by one frame and returns the curve set they compose to: speech (or the
 	// self-test) underneath, blink and the emotional bias on top.
 	//
@@ -158,9 +185,30 @@ private:
 
 	FFaceProfile Profile;
 
+	// Profile.AllCurves() computed ONCE per profile rather than per frame.
+	//
+	// AllCurves builds a TSet and then flattens it to a TArray, and ApplyCurves calls it to zero the
+	// face on every write. That was tolerable while the idle path skipped the write entirely, but
+	// gaze moves the eyes continuously — so from now on there is essentially always something on the
+	// face and the write happens every single frame, forever. Rebuilding the set 60 times a second
+	// to produce a value that only changes when the profile does is pure waste on the game thread.
+	TArray<FName> CachedAllCurves;
+
 	int32 ResolvedCurveCount = 0;
 
 	bool bSelfTesting = false;
+
+	// Survival instrumentation: what ApplyCurves last wrote, checked a frame later by
+	// SampleSurvival() to see whether the mesh still holds it after its own animation ran.
+	void SampleSurvival();
+	// Output gain applied to every curve on the way to the mesh (see ApplyCurves). Env-tunable via
+	// MHLLM_FACE_GAIN so a rig with subtler or stronger morphs can be dialled without a rebuild,
+	// and bounded by r.MorphTarget.MaxBlendWeight so it can never ask for more blend than the
+	// renderer is configured to give.
+	float FaceGain = 1.0f;
+
+	FName LastWrittenCurve;
+	float LastWrittenWeight = 0.0f;
 	float SelfTestSecondsPerViseme = 0.4f;
 	float SelfTestElapsed = 0.0f;
 
@@ -175,6 +223,9 @@ private:
 
 	FCompanionEmotionState Emotion;
 	bool bEmotionEnabled = true;
+
+	FCompanionGazeState Gaze;
+	bool bGazeEnabled = true;
 
 	// Whether the last frame actually wrote curves. The idle path deliberately does not touch the
 	// mesh when there is nothing to show, so this exists to guarantee ONE final zeroing pass on the

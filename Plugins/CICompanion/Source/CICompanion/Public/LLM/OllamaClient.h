@@ -44,12 +44,15 @@ private:
 		FOnOllamaToken OnToken;
 		FOnOllamaComplete OnComplete;
 		FOnOllamaError OnError;
-		int32 LastProcessedLength = 0;
+		// BYTES consumed, not TCHARs. See CIStreamUtf8.h: a TCHAR offset into a repeatedly re-decoded
+		// buffer is not a stable cursor, because a character split across a chunk boundary changes
+		// length once the rest of it arrives.
+		int32 LastProcessedBytes = 0;
 	};
 
 	void HandleRequestProgress(FHttpRequestPtr Request, uint64 BytesSent, uint64 BytesReceived, FOllamaRequestHandle Handle);
 	void HandleRequestComplete(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful, FOllamaRequestHandle Handle);
-	void ConsumeNewBytes(FActiveRequest& Active, const FString& FullContentSoFar);
+	void ConsumeNewBytes(FActiveRequest& Active, const TArray<uint8>& FullContentSoFar);
 
 	TMap<FOllamaRequestHandle, TSharedPtr<FActiveRequest>> ActiveRequests;
 	FOllamaRequestHandle NextHandle = 1;

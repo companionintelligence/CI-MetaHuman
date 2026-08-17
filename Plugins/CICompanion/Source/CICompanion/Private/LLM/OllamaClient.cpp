@@ -1,4 +1,5 @@
 #include "LLM/OllamaClient.h"
+#include "LLM/CIStreamUtf8.h"
 #include "Settings/MetaHumanLLMSettings.h"
 #include "HttpModule.h"
 #include "Dom/JsonObject.h"
@@ -62,6 +63,12 @@ FOllamaRequestHandle UOllamaClient::SendChat(
 	Request->SetURL(Url);
 	Request->SetVerb(TEXT("POST"));
 	Request->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
+	// Without this a backend that accepts the connection and then goes quiet never completes and
+	// never errors, so the companion waits on it forever. Mirrors KokoroPhonemeAligner.
+	if (Settings->ChatRequestTimeoutSeconds > 0.0f)
+	{
+		Request->SetTimeout(Settings->ChatRequestTimeoutSeconds);
+	}
 	Request->SetContentAsString(Body);
 	Request->OnRequestProgress64().BindUObject(this, &UOllamaClient::HandleRequestProgress, Handle);
 	Request->OnProcessRequestComplete().BindUObject(this, &UOllamaClient::HandleRequestComplete, Handle);
@@ -91,15 +98,16 @@ void UOllamaClient::CancelRequest(FOllamaRequestHandle Handle)
 	}
 }
 
-void UOllamaClient::ConsumeNewBytes(FActiveRequest& Active, const FString& FullContentSoFar)
+void UOllamaClient::ConsumeNewBytes(FActiveRequest& Active, const TArray<uint8>& FullContentSoFar)
 {
-	if (FullContentSoFar.Len() <= Active.LastProcessedLength)
+	// Byte-diffed, and a trailing partial UTF-8 character is left for the next tick. See
+	// CIStreamUtf8.h for why diffing the decoded FString instead silently corrupted every reply
+	// containing a non-ASCII character.
+	const FString NewChunk = CIStreamUtf8::ConsumeCompleteUtf8(FullContentSoFar, Active.LastProcessedBytes);
+	if (NewChunk.IsEmpty())
 	{
 		return;
 	}
-
-	const FString NewChunk = FullContentSoFar.Mid(Active.LastProcessedLength);
-	Active.LastProcessedLength = FullContentSoFar.Len();
 
 	for (const FOllamaStreamParser::FParsedLine& Line : Active.Parser.Feed(NewChunk))
 	{
@@ -119,7 +127,23 @@ void UOllamaClient::HandleRequestProgress(FHttpRequestPtr Request, uint64 BytesS
 		return;
 	}
 
-	ConsumeNewBytes(**Found, Request->GetResponse()->GetContentAsString());
+	// Skipped entirely when the tick carries nothing new. This is not just a micro-optimisation:
+	// FHttpResponseCommon::GetContent() logs a LogHttp Warning ("Payload is incomplete. Response
+	// still processing") on EVERY call while a response is in flight -- which is every call we make,
+	// by definition, since we are reading a stream. GetContentAsString() has no such guard, so
+	// moving to bytes traded a silent correctness bug for a noisy log. Gating on BytesReceived keeps
+	// the read to ticks that actually advanced the payload.
+	//
+	// The residual noise is accepted deliberately: diffing the decoded string cannot be made correct
+	// (see CIStreamUtf8.h), and a warning that is merely wrong about severity is a better failure
+	// than silently corrupting every reply containing a non-ASCII character. An operator who wants
+	// it gone should raise LogHttp's threshold rather than have this code go back to being wrong.
+	if (BytesReceived <= static_cast<uint64>((*Found)->LastProcessedBytes))
+	{
+		return;
+	}
+
+	ConsumeNewBytes(**Found, Request->GetResponse()->GetContent());
 }
 
 void UOllamaClient::HandleRequestComplete(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful, FOllamaRequestHandle Handle)
@@ -151,7 +175,7 @@ void UOllamaClient::HandleRequestComplete(FHttpRequestPtr Request, FHttpResponse
 
 	// Catch any trailing bytes the progress delegate hadn't seen yet (fast/small responses
 	// can complete before a single progress tick fires).
-	ConsumeNewBytes(*Active, Response->GetContentAsString());
+	ConsumeNewBytes(*Active, Response->GetContent());
 
 	Active->OnComplete.ExecuteIfBound(Active->AccumulatedText);
 }

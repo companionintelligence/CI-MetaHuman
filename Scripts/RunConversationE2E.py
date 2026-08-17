@@ -160,6 +160,19 @@ def main():
     ap.add_argument("--turns", type=int, default=10)
     ap.add_argument("--min-similarity", type=float, default=0.60)
     ap.add_argument("--timeout", type=float, default=300.0)
+    # Exercise ONLY the cognition leg.
+    #
+    # The TTS and STT legs both go to Lemonade, which on the reference deployment lives on beta-1
+    # and reaches core-2 through an SSH tunnel. On any machine without that tunnel -- a developer
+    # laptop with a local Ollama, which is the ordinary case -- every turn failed at the TTS step
+    # and there was no command line that could make this script pass. That made the single most
+    # useful test in the repo (the one that found the WAV segfault) unrunnable exactly where someone
+    # is most likely to want it.
+    #
+    # Turns are still gated: the LLM assertions (non-empty reply, no leaked reasoning) are the ones
+    # that hold, and the voice columns simply read "-".
+    ap.add_argument("--llm-only", action="store_true",
+                    help="skip the TTS/STT legs and assert only the LLM turn (no Lemonade needed)")
     args = ap.parse_args()
 
     prompts = (DEFAULT_PROMPTS * ((args.turns // len(DEFAULT_PROMPTS)) + 1))[:args.turns]
@@ -168,10 +181,14 @@ def main():
     # one-shots -- context growth is itself a latency and correctness risk.
     history = [{"role": "system", "content": SYSTEM_PROMPT}]
 
-    print(f"Conversation E2E: {args.turns} turns")
+    print(f"Conversation E2E: {args.turns} turns" + (" (LLM only)" if args.llm_only else ""))
     print(f"  LLM  {args.model} @ {args.ollama}")
-    print(f"  TTS  {args.tts_model} @ {args.lemonade}")
-    print(f"  STT  {args.stt_model} @ {args.lemonade}\n")
+    if args.llm_only:
+        print("  TTS  skipped (--llm-only)")
+        print("  STT  skipped (--llm-only)\n")
+    else:
+        print(f"  TTS  {args.tts_model} @ {args.lemonade}")
+        print(f"  STT  {args.stt_model} @ {args.lemonade}\n")
 
     for i, prompt in enumerate(prompts, 1):
         row = {"n": i, "prompt": prompt}
@@ -191,6 +208,14 @@ def main():
             # A reasoning model leaking <think> into content would be spoken aloud verbatim.
             if "<think>" in reply.lower():
                 raise RuntimeError("reasoning leaked into spoken content")
+
+            if args.llm_only:
+                # The cognition assertions above have already run and are the whole gate here.
+                row["ok"] = True
+                rows.append(row)
+                print(f"[PASS] turn {i:>2}  llm={row['llm_ms']}ms (llm-only)")
+                print(f"        said: {reply[:96]}")
+                continue
 
             t0 = time.time()
             wav = post_bytes(f"{args.lemonade}/api/v1/audio/speech", {

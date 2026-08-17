@@ -62,6 +62,8 @@ void UCompanionRuntimeSubsystem::OnWorldBeginPlay(UWorld& InWorld)
 	}
 	Companion->SetActorHiddenInGame(true);
 	Companion->OnCompanionSpoke.AddDynamic(this, &UCompanionRuntimeSubsystem::HandleCompanionSpoke);
+	// Without this the HUD has no way to learn a turn FAILED, so it holds "thinking..." forever.
+	Companion->OnCompanionError.AddDynamic(this, &UCompanionRuntimeSubsystem::HandleCompanionError);
 
 	// Voice is opt-in on configuration alone: with no Kokoro URL the mouth still moves from planned
 	// text, so a missing speech service degrades to a silent talker rather than a dead face.
@@ -133,12 +135,18 @@ void UCompanionRuntimeSubsystem::OnWorldBeginPlay(UWorld& InWorld)
 	const FString Greeting = CICompanionEnv::Get(TEXT("MHLLM_GREETING"), TEXT("none"));
 	if (!Greeting.IsEmpty() && !Greeting.Equals(TEXT("none"), ESearchCase::IgnoreCase))
 	{
+		// CreateWeakLambda, not a bare lambda. This is the one timer in the subsystem that captures
+		// raw `this` on a handle Deinitialize cannot reach — it is a local, so there is nothing to
+		// clear — and it fires five seconds after BeginPlay. A world torn down inside that window
+		// (PIE stopped quickly, a level change, a failed load) would call into a destroyed
+		// subsystem. Every other binding here already uses CreateUObject and is safe by
+		// construction; this one predates that convention.
 		FTimerHandle Handle;
-		InWorld.GetTimerManager().SetTimer(Handle, [this, Greeting]()
+		InWorld.GetTimerManager().SetTimer(Handle, FTimerDelegate::CreateWeakLambda(this, [this, Greeting]()
 		{
 			UE_LOG(LogCompanionRuntime, Log, TEXT("Sending opening turn."));
 			SubmitUserText(Greeting);
-		}, 5.0f, false);
+		}), 5.0f, false);
 	}
 }
 
@@ -156,15 +164,18 @@ void UCompanionRuntimeSubsystem::CreateHud()
 	}
 
 	Hud = SNew(SCompanionHUD)
-		.OnTextSubmitted(FOnCompanionTextSubmitted::CreateUObject(this, &UCompanionRuntimeSubsystem::HandleHudTextSubmitted));
+		.OnTextSubmitted(FOnCompanionTextSubmitted::CreateUObject(this, &UCompanionRuntimeSubsystem::HandleHudTextSubmitted))
+		// The mic half of the same widget. Published by the HUD from the start and, until now,
+		// subscribed to by nobody — see HandleMicToggled.
+		.OnMicToggled(FOnCompanionMicToggled::CreateUObject(this, &UCompanionRuntimeSubsystem::HandleMicToggled));
 
 	// Added as viewport content so it renders into the SAME back buffer Pixel Streaming captures.
 	// That is what makes one implementation serve both targets: a native window draws it directly,
 	// and the streamed client sees it because it is part of the frame, with keystrokes travelling
 	// back over the existing input channel. A browser-only DOM overlay would have worked for the
 	// stream and left the native build with no way to type at all.
-	GEngine->GameViewport->AddViewportWidgetContent(
-		SNew(SWeakWidget).PossiblyNullContent(Hud.ToSharedRef()), 10000);
+	HudSlot = SNew(SWeakWidget).PossiblyNullContent(Hud.ToSharedRef());
+	GEngine->GameViewport->AddViewportWidgetContent(HudSlot.ToSharedRef(), 10000);
 
 	// The console rides in the SAME viewport layer as the chat box, for the same reason: it is
 	// captured into the streamed frame, so one implementation serves the browser and a native
@@ -175,6 +186,16 @@ void UCompanionRuntimeSubsystem::CreateHud()
 	Initial.LlmModel = CICompanionEnv::Get(TEXT("OLLAMA_MODEL"), Initial.LlmModel);
 	Initial.FaceProfile = CICompanionEnv::Get(TEXT("MHLLM_FACE_PROFILE"), Initial.FaceProfile);
 	Initial.bVoiceEnabled = !CICompanionEnv::Get(TEXT("KOKORO_SERVER_URL"), FString()).IsEmpty();
+	// Seeded from the SAME env var UCompanionFaceSubsystem reads, because otherwise the two
+	// disagree and this one wins. The face subsystem starts the self-test on MHLLM_FACE_SELFTEST=1
+	// and logs "Face self-test running."; ApplySettings then runs a moment later with
+	// bFaceSelfTest still at its `false` default and calls StopSelfTest(). The env var was
+	// therefore INERT in the shipped build while the log cheerfully claimed it was active -- and
+	// the one diagnostic that exists to prove the morph path works in a COOKED build was the one
+	// thing that could never run there. Found by capturing all 15 visemes and getting 15 identical
+	// closed mouths, which reads exactly like a dead face rather than a defeated flag.
+	Initial.bFaceSelfTest = CICompanionEnv::IsEnabled(TEXT("MHLLM_FACE_SELFTEST"))
+		|| FParse::Param(FCommandLine::Get(), TEXT("FaceSelfTest"));
 	Initial.Validate();
 
 	SettingsPanel = SNew(SCompanionSettingsPanel)
@@ -182,8 +203,8 @@ void UCompanionRuntimeSubsystem::CreateHud()
 		.OnSettingsChanged(FOnCompanionSettingsChanged::CreateUObject(
 			this, &UCompanionRuntimeSubsystem::ApplySettings));
 
-	GEngine->GameViewport->AddViewportWidgetContent(
-		SNew(SWeakWidget).PossiblyNullContent(SettingsPanel.ToSharedRef()), 10001);
+	SettingsPanelSlot = SNew(SWeakWidget).PossiblyNullContent(SettingsPanel.ToSharedRef());
+	GEngine->GameViewport->AddViewportWidgetContent(SettingsPanelSlot.ToSharedRef(), 10001);
 
 	// The console is hidden by default -- the opening is a brand moment, not a settings screen --
 	// but it then needs a way IN. Two, because they fail differently: MHLLM_CONSOLE=1 starts it
@@ -360,12 +381,18 @@ void UCompanionRuntimeSubsystem::HandleHudTextSubmitted(const FString& Text)
 		return;
 	}
 
+	AnnounceUserTurn(Text);
+	SubmitUserText(Text);
+}
+
+void UCompanionRuntimeSubsystem::AnnounceUserTurn(const FString& Text)
+{
 	if (Hud.IsValid())
 	{
 		Hud->AppendChatEntry(TEXT("You"), Text);
 		Hud->SetStatusText(TEXT("thinking..."));
 	}
-	// A typed turn must cut the scripted opening short: making someone wait out a camera move
+	// A user turn must cut the scripted opening short: making someone wait out a camera move
 	// after they have spoken is the rudest thing an assistant can do.
 	if (UWorld* World = GetWorld())
 	{
@@ -374,7 +401,39 @@ void UCompanionRuntimeSubsystem::HandleHudTextSubmitted(const FString& Text)
 			Stage->SkipToLive();
 		}
 	}
-	SubmitUserText(Text);
+}
+
+bool UCompanionRuntimeSubsystem::SubmitTranscribedText(const FString& Text)
+{
+	const FString Trimmed = Text.TrimStartAndEnd();
+
+	// Whisper answers a silent or non-speech clip in TWO ways, and both have to be caught here.
+	// An empty string is the obvious one. The other is a bracketed annotation -- "[BLANK_AUDIO]",
+	// "(silence)", "[ Music ]" -- which is a perfectly non-empty string describing the ABSENCE of
+	// speech. Passing that to the model makes her earnestly answer a question nobody asked, every
+	// time somebody opens the mic in a quiet room and thinks better of it.
+	//
+	// Checked here rather than in the Whisper client so the rule is STT-agnostic: any future
+	// transcription backend entering at this seam inherits it.
+	const bool bBracketedNonSpeech =
+		(Trimmed.StartsWith(TEXT("[")) && Trimmed.EndsWith(TEXT("]"))) ||
+		(Trimmed.StartsWith(TEXT("(")) && Trimmed.EndsWith(TEXT(")"))) ||
+		(Trimmed.StartsWith(TEXT("*")) && Trimmed.EndsWith(TEXT("*")));
+
+	if (Trimmed.IsEmpty() || bBracketedNonSpeech)
+	{
+		if (Hud.IsValid())
+		{
+			Hud->SetStatusText(TEXT("Didn't catch that — try the mic again"));
+		}
+		UE_LOG(LogCompanionRuntime, Log, TEXT("No turn submitted: transcription was %s."),
+			Trimmed.IsEmpty() ? TEXT("empty") : *FString::Printf(TEXT("non-speech (%s)"), *Trimmed.Left(40)));
+		return false;
+	}
+
+	UE_LOG(LogCompanionRuntime, Log, TEXT("Transcribed turn (%d chars): %s"), Trimmed.Len(), *Trimmed.Left(160));
+	AnnounceUserTurn(Trimmed);
+	return SubmitUserText(Trimmed);
 }
 
 bool UCompanionRuntimeSubsystem::SubmitUserText(const FString& Text)
@@ -386,8 +445,169 @@ bool UCompanionRuntimeSubsystem::SubmitUserText(const FString& Text)
 		return false;
 	}
 	UE_LOG(LogCompanionRuntime, Log, TEXT("SubmitUserText -> companion: %s"), *Text.Left(160));
+
+	// BARGE-IN, before the new turn goes anywhere. The character cancels its own in-flight request
+	// and stops the audio; everything this subsystem owns has to be torn down here or the previous
+	// reply keeps animating over the new one.
+	CancelUtterance();
+
+	// She looks away to think. This is the ONE gaze mode the face component cannot infer for itself:
+	// it knows when an utterance starts and ends, but not that a question is in flight — and the
+	// window between a question and the first audio is exactly where a warm 27B model still costs
+	// most of a second, and a cold one costs far more. Without this the whole latency is spent
+	// staring blankly at the viewer, which reads as a hang rather than as thought.
+	if (UCompanionFaceComponent* Face = ResolveFace())
+	{
+		Face->SetGazeMode(FCompanionGazeState::EGazeMode::Thinking);
+	}
+
 	Companion->SubmitUserText(Text);
 	return true;
+}
+
+void UCompanionRuntimeSubsystem::Deinitialize()
+{
+	if (UWorld* World = GetWorld())
+	{
+		FTimerManager& Timers = World->GetTimerManager();
+		Timers.ClearTimer(ChatFocusGuardHandle);
+		Timers.ClearTimer(AlignmentGraceHandle);
+	}
+
+	// Removed from the VIEWPORT, which the engine owns and which would otherwise keep these alive
+	// past the world that created them.
+	if (GEngine && GEngine->GameViewport)
+	{
+		if (HudSlot.IsValid())
+		{
+			GEngine->GameViewport->RemoveViewportWidgetContent(HudSlot.ToSharedRef());
+		}
+		if (SettingsPanelSlot.IsValid())
+		{
+			GEngine->GameViewport->RemoveViewportWidgetContent(SettingsPanelSlot.ToSharedRef());
+		}
+	}
+	HudSlot.Reset();
+	SettingsPanelSlot.Reset();
+	Hud.Reset();
+	SettingsPanel.Reset();
+
+	Super::Deinitialize();
+}
+
+void UCompanionRuntimeSubsystem::HandleCompanionError(const FString& Message)
+{
+	UE_LOG(LogCompanionRuntime, Warning, TEXT("Conversation error surfaced to the HUD: %s"), *Message);
+
+	if (Hud.IsValid())
+	{
+		// Shown in the log as a spoken-to line rather than only in the status bar. The status bar is
+		// one line that the next event overwrites; a visitor who looked away for three seconds would
+		// otherwise see a companion that simply never answered and no trace of why.
+		Hud->AppendChatEntry(TEXT("System"), FString::Printf(TEXT("I could not reach my model. %s"), *Message));
+		Hud->SetStatusText(TEXT("Model unreachable — check the backend, then try again"));
+	}
+
+	// Whatever she was about to say is not coming. Put the face back to a listening idle instead of
+	// leaving it in the thinking aversion until the 30s gaze backstop fires.
+	if (UCompanionFaceComponent* Face = ResolveFace())
+	{
+		Face->SetGazeMode(FCompanionGazeState::EGazeMode::Contact);
+		Face->ReleaseEmotion(0.0f);
+	}
+
+	// A failed turn owns no utterance, so tear down anything half-armed for it — otherwise a grace
+	// timer from the dead request can still fire and start a silent mouth.
+	CancelUtterance();
+}
+
+void UCompanionRuntimeSubsystem::CancelUtterance()
+{
+	// 1. The mouth. This is the call that had no callers anywhere in the repo, and its absence is
+	//    why an interrupted reply carried on being silently mouthed to the end of its track.
+	if (UCompanionFaceComponent* Face = ResolveFace())
+	{
+		Face->StopSpeaking();
+	}
+
+	// 2. The alignment that is still in flight for the reply nobody is going to hear.
+	if (Aligner)
+	{
+		Aligner->CancelPending();
+	}
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(AlignmentGraceHandle);
+	}
+
+	// 3. The latches. bMouthDriven is deliberately left TRUE rather than reset: it is the
+	//    idempotence guard that makes the three racing callers safe, and setting it false here
+	//    would re-open the window for a late callback belonging to the cancelled utterance to
+	//    drive the mouth. BeginUtterance clears it for the next real reply.
+	PendingUtteranceText.Empty();
+	PendingAlignment.Reset();
+	PendingAlignedSeconds = 0.0f;
+	PendingAudioSeconds = 0.0f;
+	bAlignmentResolved = true;
+	bAudioReady = false;
+	bMouthDriven = true;
+}
+
+void UCompanionRuntimeSubsystem::HandleMicToggled(bool bListening)
+{
+	if (!Companion)
+	{
+		if (Hud.IsValid())
+		{
+			Hud->SetMicListening(false);
+			Hud->SetStatusText(TEXT("Microphone unavailable: no companion running"));
+		}
+		UE_LOG(LogCompanionRuntime, Warning, TEXT("Mic toggled with no companion spawned."));
+		return;
+	}
+
+	if (!bListening)
+	{
+		Companion->StopListening();
+		if (Hud.IsValid())
+		{
+			Hud->SetStatusText(TEXT("Type to Eliza and press Enter"));
+		}
+		// The transcript arrives asynchronously and enters at SubmitUserText, which is where the
+		// thinking aversion is armed. Nothing to do for gaze here.
+		UE_LOG(LogCompanionRuntime, Log, TEXT("Mic off; transcription request sent if anything was captured."));
+		return;
+	}
+
+	// StartListening returns the backend's OWN view of whether it is recording -- it forwards to the
+	// component and then reports IsListening(), which the null backend answers false to and a real
+	// one answers false for if the device could not be opened. Trusting the call rather than the
+	// answer is exactly how a build ships that looks like it is listening and is not.
+	const bool bActuallyListening = Companion->StartListening();
+
+	if (Hud.IsValid())
+	{
+		Hud->SetMicListening(bActuallyListening);
+		Hud->SetStatusText(bActuallyListening
+			? TEXT("Listening... click the mic again to send")
+			: TEXT("No microphone available (set WHISPER_SERVER_URL and check the capture device)"));
+	}
+
+	if (bActuallyListening)
+	{
+		// She looks at whoever just started talking. This is the listening half of the dyadic gaze
+		// asymmetry and the cheapest possible signal that the mic really opened.
+		if (UCompanionFaceComponent* Face = ResolveFace())
+		{
+			Face->SetGazeMode(FCompanionGazeState::EGazeMode::Contact);
+		}
+		UE_LOG(LogCompanionRuntime, Log, TEXT("Mic on; capturing from the host device."));
+	}
+	else
+	{
+		UE_LOG(LogCompanionRuntime, Warning,
+			TEXT("Mic requested but the STT backend is not listening (null backend, or no capture device)."));
+	}
 }
 
 UCompanionFaceComponent* UCompanionRuntimeSubsystem::ResolveFace() const
@@ -683,7 +903,25 @@ void UCompanionRuntimeSubsystem::ApplySettings(const FCompanionSettingsModel& Ne
 	{
 		Cfg->KokoroVoice = NewSettings.TtsVoice;
 		Cfg->KokoroModel = NewSettings.TtsModel;
+		// BOTH model fields, not just the Ollama one. The console offers a single "model" box, but
+		// which setting the backend reads depends on BackendType -- so writing only OllamaModel made
+		// the control silently do nothing whenever the deployment was on the OpenAI-compatible path,
+		// which is every CI-hub, LM Studio and Lemonade configuration. An operator would change the
+		// model, see the box update, and get replies from the old one indefinitely.
 		Cfg->OllamaModel = NewSettings.LlmModel;
+		Cfg->OpenAIModel = NewSettings.LlmModel;
+		// The console's thinking toggle, which was also being read from the panel and dropped. On a
+		// reasoning model this is a ~20x latency term (qwen3.6:27b: 814ms off, 16-21s on), so an
+		// operator flipping it and seeing nothing change is a costly kind of nothing.
+		Cfg->bEnableThinking = NewSettings.bThinking;
+		// Both clients re-read GetDefault per request, so this lands on the next turn with no
+		// restart and no reconnect.
+		//
+		// Deliberately NOT SaveConfig(): console changes are SESSION-SCOPED. A kiosk operator
+		// tuning a live stream should not silently rewrite DefaultGame.ini on the deployment, and
+		// the next restart should come back up in the configured state rather than in whatever
+		// state the last visitor left it. Recorded here because "no SaveConfig" is otherwise
+		// indistinguishable from an oversight.
 	}
 
 	// FACE. Swapping the profile re-resolves every curve against the mesh, and the resolved count

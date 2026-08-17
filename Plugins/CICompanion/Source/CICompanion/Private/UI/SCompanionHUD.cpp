@@ -2,8 +2,11 @@
 #include "Framework/Application/SlateApplication.h"
 #include "Framework/Application/SlateUser.h"
 #include "Layout/WidgetPath.h"
+#include "UI/CIBrandStyle.h"
 #include "Widgets/Text/STextBlock.h"
 #include "Widgets/Input/SButton.h"
+#include "Widgets/Layout/SBorder.h"
+#include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/SBoxPanel.h"
 
@@ -24,37 +27,71 @@ void SCompanionHUD::Construct(const FArguments& InArgs)
 		SNew(SVerticalBox)
 		.Visibility(EVisibility::SelfHitTestInvisible)
 
+		// Status reads as a PILL rather than loose text. It is the only always-on chrome, so it has
+		// to be legible against whatever the camera happens to be pointing at, and bare glyphs over
+		// a lit 3D set are not.
 		+ SVerticalBox::Slot()
 		.AutoHeight()
-		.Padding(4.f)
+		.HAlign(HAlign_Left)
+		.Padding(12.f, 10.f, 12.f, 4.f)
 		[
-			SAssignNew(StatusTextBlock, STextBlock)
+			SNew(SBorder)
 			.Visibility(EVisibility::SelfHitTestInvisible)
-			.Text(FText::FromString(TEXT("Disconnected")))
+			.BorderImage(CIBrand::PillBrush())
+			.Padding(FMargin(9.f, 4.f))
+			[
+				SAssignNew(StatusTextBlock, STextBlock)
+				.Visibility(EVisibility::SelfHitTestInvisible)
+				.Font(CIBrand::StatusFont())
+				.ColorAndOpacity(FSlateColor(CIBrand::MutedFg()))
+				.Text(FText::FromString(TEXT("Disconnected")))
+			]
 		]
 
+		// The transcript is width-capped rather than full-bleed. She is centre-frame in a portrait
+		// composition, and a transcript spanning the whole viewport runs text straight across her
+		// face; 620px keeps a readable measure and leaves the subject clear.
 		+ SVerticalBox::Slot()
 		.FillHeight(1.f)
-		.Padding(4.f)
+		.HAlign(HAlign_Left)
+		.Padding(12.f, 2.f, 12.f, 4.f)
 		[
-			SAssignNew(ChatScrollBox, SScrollBox)
-			// Hit-testable ON PURPOSE, unlike its parents: the wheel has to reach it or there is no
-			// scrollback through the transcript. It is a defined region well clear of the input row,
-			// so it cannot intercept a click aimed at the text box.
-			.Visibility(EVisibility::Visible)
+			SNew(SBox)
+			.Visibility(EVisibility::SelfHitTestInvisible)
+			.WidthOverride(620.f)
+			[
+				SNew(SBorder)
+				.Visibility(EVisibility::SelfHitTestInvisible)
+				.BorderImage(CIBrand::ShellBrush())
+				.Padding(FMargin(8.f, 6.f))
+				[
+					SAssignNew(ChatScrollBox, SScrollBox)
+					// Hit-testable ON PURPOSE, unlike its parents: the wheel has to reach it or there
+					// is no scrollback through the transcript. It is a defined region well clear of
+					// the input row, so it cannot intercept a click aimed at the text box.
+					.Visibility(EVisibility::Visible)
+				]
+			]
 		]
 
 		+ SVerticalBox::Slot()
 		.AutoHeight()
-		.Padding(4.f)
+		.Padding(12.f, 4.f, 12.f, 12.f)
 		[
+			SNew(SBorder)
+			.Visibility(EVisibility::SelfHitTestInvisible)
+			.BorderImage(CIBrand::InputShellBrush())
+			.Padding(FMargin(8.f, 6.f))
+			[
 			SNew(SHorizontalBox)
 			.Visibility(EVisibility::SelfHitTestInvisible)
 
 			+ SHorizontalBox::Slot()
 			.FillWidth(1.f)
+			.VAlign(VAlign_Center)
 			[
 				SAssignNew(InputBox, SEditableTextBox)
+				.Font(CIBrand::InputFont())
 				// Explicit, not inherited: this is the one widget in the HUD that MUST take the
 				// pointer, and it sits inside three SelfHitTestInvisible parents.
 				.Visibility(EVisibility::Visible)
@@ -106,6 +143,7 @@ void SCompanionHUD::Construct(const FArguments& InArgs)
 				.TouchMethod(EButtonTouchMethod::Down)
 				.Text(FText::FromString(TEXT("Mic")))
 				.OnClicked(this, &SCompanionHUD::HandleMicClicked)
+			]
 			]
 		]
 	];
@@ -199,14 +237,52 @@ void SCompanionHUD::AppendChatEntry(const FString& Speaker, const FString& Text)
 
 	if (ChatScrollBox.IsValid())
 	{
+		// Compared against the VISITOR label rather than the companion's, because "You" is the only
+		// one of the two that is fixed. Hers is the persona name and moves with MHLLM_COMPANION, so
+		// testing for it positively would mislabel every line the moment somebody renamed her.
+		const bool bIsVisitor = Speaker.Equals(TEXT("You"), ESearchCase::IgnoreCase);
+
+		// ChatEntryWidgets keeps holding the TEXT block rather than the card, so TrimChatLog and
+		// every existing spec that reads entry text keep working untouched.
 		const TSharedRef<STextBlock> EntryWidget = SNew(STextBlock)
 			.AutoWrapText(true)
-			.Text(FText::FromString(FString::Printf(TEXT("%s: %s"), *Speaker, *Text)));
+			.Font(CIBrand::BodyFont())
+			.ColorAndOpacity(FSlateColor(bIsVisitor ? CIBrand::Foreground() : CIBrand::SecondaryFg()))
+			.Text(FText::FromString(Text));
 
 		ChatScrollBox->AddSlot()
-			.Padding(0.f, 2.f)
+			.Padding(0.f, 3.f)
 			[
-				EntryWidget
+				SNew(SBorder)
+				.Visibility(EVisibility::SelfHitTestInvisible)
+				// Her lines carry the teal hairline; the visitor's do not. One accent, used once, is
+				// what the guide means by "surfaces are neutral, teal carries identity" -- outlining
+				// both would spend the brand colour to say nothing.
+				.BorderImage(bIsVisitor ? CIBrand::EntryCardBrush() : CIBrand::CompanionCardBrush())
+				.Padding(FMargin(10.f, 7.f))
+				[
+					SNew(SVerticalBox)
+					.Visibility(EVisibility::SelfHitTestInvisible)
+
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0.f, 0.f, 0.f, 3.f)
+					[
+						SNew(STextBlock)
+						.Visibility(EVisibility::SelfHitTestInvisible)
+						.Font(CIBrand::SpeakerFont())
+						// Teal for her, muted for the visitor: the transcript should be scannable by
+						// colour alone, before a single word is read.
+						.ColorAndOpacity(FSlateColor(bIsVisitor ? CIBrand::MutedFg() : CIBrand::Primary()))
+						.Text(FText::FromString(Speaker.ToUpper()))
+					]
+
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					[
+						EntryWidget
+					]
+				]
 			];
 		ChatEntryWidgets.Add(EntryWidget);
 	}
