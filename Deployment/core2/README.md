@@ -131,10 +131,21 @@ something answered. The tunnels can be perfect and still serve `000` when the co
 them is stopped, which is how this last broke: `lemonade-trial` on beta-1 carries
 `RestartPolicy=no`, so once stopped it stays stopped until someone runs `docker start`.
 
-`kokoro-align` has no consumer in the shipped build. `FVisemePlanner::PlanFromAlignment` exists
-but nothing calls it over HTTP; the `Re-timed to audio` line comes from `PlanForDuration` against
-the audio length Kokoro reports, not from :13400. The tunnel is in place for when the aligner is
-wired up — it does not currently affect lip-sync.
+`kokoro-align` **is** consumed now; this section used to say it was not, and that is no longer
+true. `UKokoroPhonemeAligner` calls :13400 and `UCompanionRuntimeSubsystem` feeds the result to
+`FVisemePlanner::PlanBest`, which prefers real per-phoneme timing over both fallbacks. Observed in
+a cooked Win64 run against this deployment:
+
+```
+Lip-sync source=ALIGNMENT (measured phonemes): 118 phonemes -> 83 spans;
+    aligned 7.88s stretched onto measured 7.57s (104%), entered 1ms in.
+```
+
+`104%` is the two Kokoros disagreeing — the sidecar's ONNX build against whatever the voice service
+loaded — rescaled so the mouth ends when the audio does. An unreachable aligner is a **precision
+loss, not a failure**: `PlanBest` falls back to the spelling estimate rescaled to the measured clip
+length, which still ends on time but distributes the time by letter count. So the tunnel now
+affects lip-sync quality, and a dead :13400 downgrades it silently — check it by status code.
 
 ## Durability
 
