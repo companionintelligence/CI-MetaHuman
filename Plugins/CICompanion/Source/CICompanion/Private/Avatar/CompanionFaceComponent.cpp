@@ -21,6 +21,11 @@ UCompanionFaceComponent::UCompanionFaceComponent()
 	// toward the 5x ceiling Config/DefaultEngine.ini already grants the renderer.
 	FaceGain = FCString::Atof(*CICompanionEnv::Get(TEXT("MHLLM_FACE_GAIN"), TEXT("3.0")));
 	if (FaceGain <= 0.0f) { FaceGain = 1.0f; }
+	// Bounds the composed pose so overlapping visemes cannot stack past what the rig was sculpted
+	// for. 2.0 keeps the open vowels clearly open while removing the torn-lip frames gain 3.0
+	// produced on its own.
+	VisemePoseCap = FCString::Atof(*CICompanionEnv::Get(TEXT("MHLLM_FACE_POSE_CAP"), TEXT("2.0")));
+	if (VisemePoseCap <= 0.0f) { VisemePoseCap = 2.0f; }
 }
 
 void UCompanionFaceComponent::BeginPlay()
@@ -337,11 +342,35 @@ TMap<FName, float> UCompanionFaceComponent::ComposeFrame(float DeltaTime)
 	// so the useful range ends well below the engine's ceiling.
 	if (VisemeCurves.Num() > 0)
 	{
+		// BOUND THE COMPOSED POSE, not each curve on its own.
+		//
+		// FFaceProfile::Accumulate clamps every curve to 1.0 INDEPENDENTLY, so two overlapping
+		// visemes can each legitimately arrive at full strength and then both get multiplied by the
+		// gain. The result is a pose no one ever sculpted -- at gain 3.0 the sample utterance
+		// produced a stretched upper lip with torn corners about 1.9s in, which is the rig being
+		// asked for 3x of two contradictory shapes at once rather than any one shape being wrong.
+		//
+		// Scaling the whole set by a single factor keeps the RELATIONSHIP between the curves (which
+		// is what makes the shape read as a particular viseme) while bounding the peak. Lowering
+		// the gain instead would fix the distortion by going back to invisible, which is the
+		// failure this gain exists to correct.
+		float Peak = 0.0f;
+		for (const TPair<FName, float>& Pair : VisemeCurves)
+		{
+			Peak = FMath::Max(Peak, Pair.Value);
+		}
+
 		const float Gain = FMath::Max(0.1f, FaceGain);
+		// Effective gain never pushes the strongest curve past the cap. A quiet frame gets the full
+		// gain; a frame already near full travel gets only what is left.
+		const float Effective = (Peak > KINDA_SMALL_NUMBER)
+			? FMath::Min(Gain, VisemePoseCap / Peak)
+			: Gain;
+
 		for (const TPair<FName, float>& Pair : VisemeCurves)
 		{
 			float& Value = Curves.FindOrAdd(Pair.Key, 0.0f);
-			Value = FMath::Max(Value, Pair.Value * Gain);
+			Value = FMath::Max(Value, Pair.Value * Effective);
 		}
 	}
 

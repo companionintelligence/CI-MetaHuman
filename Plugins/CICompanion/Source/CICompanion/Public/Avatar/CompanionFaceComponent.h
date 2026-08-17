@@ -201,11 +201,15 @@ private:
 	// Survival instrumentation: what ApplyCurves last wrote, checked a frame later by
 	// SampleSurvival() to see whether the mesh still holds it after its own animation ran.
 	void SampleSurvival();
-	// Output gain applied to every curve on the way to the mesh (see ApplyCurves). Env-tunable via
-	// MHLLM_FACE_GAIN so a rig with subtler or stronger morphs can be dialled without a rebuild,
-	// and bounded by r.MorphTarget.MaxBlendWeight so it can never ask for more blend than the
-	// renderer is configured to give.
+	// Gain applied to the VISEME layer only (see ComposeFrame). Env-tunable via MHLLM_FACE_GAIN so
+	// a rig with subtler or stronger morphs can be dialled without a rebuild. Deliberately not
+	// applied to blink, gaze or emotion, whose weights are authored in their own ranges.
 	float FaceGain = 1.0f;
+
+	// Ceiling on the STRONGEST curve of a composed viseme pose, after gain. Overlapping visemes
+	// each clamp to 1.0 independently, so without this a two-viseme frame asks the rig for gain x
+	// two full shapes at once and tears. Tunable via MHLLM_FACE_POSE_CAP.
+	float VisemePoseCap = 2.0f;
 
 	FName LastWrittenCurve;
 	float LastWrittenWeight = 0.0f;
