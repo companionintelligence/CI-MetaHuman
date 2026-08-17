@@ -69,6 +69,43 @@ core-2 is `100.101.156.33` on the tailnet. With host networking, the OIDC proxy 
 Pixel Streaming player loads. For anything beyond a tailnet test, terminate TLS in front of
 `oidc-proxy` and set `cookie_secure = true` (see README).
 
+## Verifying the beta-1 forwards
+
+The model services do not run on core-2. They run on beta-1 and reach this box through one
+`--user` systemd SSH unit per port in [`core2/`](core2/). Replies and speech both cross those
+forwards, and a break anywhere along the chain reaches you only as an HTTP status in the log —
+spelled differently by each client, so there is no one string to grep for:
+`Kokoro: synthesis failed (HTTP %d)` (`KokoroTextToSpeech.cpp:117`), `Ollama returned HTTP %d`
+(`LLM/OllamaClient.cpp:172`), `OpenAI-compatible server returned HTTP %d`
+(`LLM/OpenAIChatClient.cpp:164`).
+
+The recorded instance is worth reading before assuming the forward is at fault. `HTTP 0` on the
+TTS path ([`../Docs/LEARNINGS.md`](../Docs/LEARNINGS.md), commit `4480553` *"supervise the voice
+tunnels, and stop trusting a listener"*) turned out **not** to be a dropped forward: that commit's
+own message records *"The tunnel was a symptom, not the cause… both voice containers were
+stopped."* The listener was healthy and the far end was gone — which is exactly why the check
+below is by status code and not by socket.
+
+The units carry `Restart=always` and SSH keepalives for that class of failure. The restart backoff
+is newer and is stated as intent rather than as a fix for a logged incident; the unit comments say
+so themselves.
+
+**Check a forward by status code, never by socket.** A forward whose far end is gone still shows a
+`LISTEN` socket owned by a live `ssh` pid, so `ss` cannot tell a working tunnel from a dead one —
+only a real status code can. And a `200` proves that *something* answered, not that the service
+behind the port is the one that answered.
+
+Two files already carry the exact probe commands; a third divergent copy is how a port and a
+path drift apart, so this section points at them instead of repeating them:
+
+- [`core2/README.md`](core2/README.md) § *Service tunnels* — one `%{http_code}` curl per port,
+  plus the failure that motivated the units. Treat this as the copy to edit if a port or a path
+  ever changes.
+- [`../Docs/TESTING.md`](../Docs/TESTING.md) § 5.4 — the same probes, filed under § 5 *The
+  verification discipline* alongside the pixel and audio-energy versions of the same idea.
+- [`../Docs/ARCHITECTURE.md`](../Docs/ARCHITECTURE.md) § 2.3 — the rule plus the two design
+  constraints it produced: one port per unit, and a listener is not a tunnel.
+
 ## Quick smoke test without a full cook
 
 To validate the **control plane** (signalling + TURN + OIDC) before the Linux build exists,

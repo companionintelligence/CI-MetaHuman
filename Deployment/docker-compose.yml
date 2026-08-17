@@ -96,11 +96,92 @@ services:
         RELEASE: "${UE_RELEASE}"
     init: true
     network_mode: "host"
+    # `.env` is the file the README quickstart tells operators to create (`cp .env.example .env`),
+    # and nothing handed it to THIS container: compose auto-loads `.env` for `${...}` interpolation
+    # only, so a documented key that no environment: entry below happened to name by hand reached
+    # nothing at all. Six app settings were in exactly that state — MHLLM_MAX_TURNS, MHLLM_MEMORY,
+    # MHLLM_MEMORY_PATH, MHLLM_GAZE, MHLLM_CHAT_TIMEOUT, WHISPER_MODEL — documented in
+    # .env.example, defaulted there, and delivered nowhere. (A seventh name, UE_RELEASE_SHORT, is
+    # also delivered nowhere, but it has no reader anywhere in the repo either, so it is dead
+    # rather than undelivered.) Handing the app the whole file is what
+    # stops that list growing again: a key added to .env.example now arrives without a second edit
+    # here, which is the failure mode enumeration has.
+    #
+    # `required: false` because a clean checkout has no `.env` (it is gitignored, .gitignore:24)
+    # and the control-plane smoke test in core-2-runbook.md brings the stack up before anyone
+    # writes one.
+    #
+    # Worth knowing rather than discovering: this gives the app container the WHOLE file, which
+    # includes CI_PORTAL_CLIENT_SECRET, OIDC_COOKIE_SECRET and TURN_PASSWORD — secrets only
+    # oidc-proxy and turnserver need. Splitting `.env` in two is the fix if that ever matters.
+    env_file:
+      - path: ".env"
+        required: false
+    # Every key below is ALSO in `.env`, deliberately. env_file reads the FILE and nothing else, so
+    # a key delivered only that way ignores the process environment entirely and
+    # `VAR=x docker compose up` silently does nothing for it. What is kept here is the set a
+    # one-off run actually flips — backend, hub endpoint/token/model, the two voice URLs, persona —
+    # because an interpolated environment: entry outranks the same key coming from env_file, so the
+    # shell still wins for these. The habit is in this repo's own instructions: README.md and
+    # core-2-runbook.md both write the build step as `PROJECT_DOCKERFILE=… docker compose …`.
     environment:
-      MHLLM_BACKEND: "openai"
-      CI_HUB_URL: "${CI_HUB_URL}"
+      # `openai` selects UOpenAIChatClient, aimed at CI_HUB_URL below — the OpenAI-shaped path,
+      # which is what the CI side of this deployment speaks. See the CI_HUB_URL block for what
+      # that URL actually points at.
+      #
+      # The default is spelled out here rather than left to the file, because .env.example ships a
+      # value for this key: with a bare "${MHLLM_BACKEND}" the quickstart's `cp .env.example .env`
+      # would decide the protocol, and README.md's quickstart never mentions MHLLM_BACKEND at all,
+      # so nobody following it would know a copied file had moved the base stack onto the native
+      # Ollama client. The `:-` also covers a missing or blank `.env`.
+      #
+      # docker-compose.ollama.yml pins the literal "ollama" and still wins — an override file's
+      # value replaces this one, not the other way round (checked with `docker compose config` on
+      # the merged pair, with a `.env` copied from .env.example).
+      MHLLM_BACKEND: "${MHLLM_BACKEND:-openai}"
+
+      # --- CI hub inference ---
+      # CI_HUB_URL is the OpenAI-compatible base URL up to and INCLUDING the version segment;
+      # UOpenAIChatClient appends "/chat/completions" to it (OpenAIChatClient.cpp:48).
+      #
+      # The default is NOT the Hub's own address, and that is the correction. The Hub does not
+      # proxy inference — its inference controller says so itself ("The Hub does NOT proxy
+      # inference requests. Apps talk to the Ollama container ... directly", CI-Hub
+      # packages/backend/src/modules/inference/inference.controller.ts) and this repo's
+      # Docs/COMPAT-AND-ECOSYSTEM-REVIEW.md §3 reached the same conclusion by enumerating all 190
+      # paths in the Hub's swagger.json and finding no /v1, no *chat*, no *completions*. Grepping
+      # that checkout's packages/backend/src for a `chat/completions` route or any `v1/…` route
+      # declaration returns nothing, which is the same answer from a third direction.
+      #
+      # An `/api/inference/v1` base does appear in
+      # CI-Server/docs/architecture/hub-inference-integration.md §2, and it is easy to mistake for
+      # current: that document is headed "Status: Design / proposal", and its §7 lists two hard
+      # prerequisites in CI-Hub that block it today. It describes a contract to build, not one to
+      # configure against.
+      #
+      # What the Hub actually distributes, over GET /api/inference/apps/<slug>/credentials(.env),
+      # is the backend's OWN OpenAI base — `${ollamaBaseUrl}/v1`, where ollamaBaseUrl resolves to
+      # host.docker.internal / 172.17.0.1 / localhost on :11434 (inference/backends/ollama.backend.ts).
+      # Every service here is network_mode: host, so on a box that also runs the Hub's Ollama that
+      # is the loopback address below. Point it elsewhere if Ollama is on another host.
+      #
+      # Note that CI-MetaHuman cannot fetch those credentials itself: the Hub's APP_ENV_KEYS table
+      # registers `hermes-agent` and `openclaw` and nothing else, so there is no slug for this app
+      # to ask under. Until one exists, this value is set by hand.
+      CI_HUB_URL: "${CI_HUB_URL:-http://127.0.0.1:11434/v1}"
       CI_HUB_TOKEN: "${CI_HUB_TOKEN}"
       CI_HUB_MODEL: "${CI_HUB_MODEL}"
+      # The same three values under the vendor-neutral names, so the mapping is visible in the
+      # manifest instead of only in C++. FMetaHumanLLMEnvConfig::Apply already assigns CI_HUB_URL
+      # to OpenAIBaseUrl, CI_HUB_TOKEN to OpenAIApiKey and CI_HUB_MODEL to OpenAIModel, then
+      # applies OPENAI_* afterwards — so an explicit OPENAI_* wins, and pointing this stack at a
+      # non-CI OpenAI-compatible server (LM Studio, vLLM, llama.cpp, Lemonade) is these three
+      # variables and nothing else. Set to the CI_HUB_* value when unset, so they agree by
+      # construction and cannot drift into two different endpoints.
+      OPENAI_BASE_URL: "${OPENAI_BASE_URL:-${CI_HUB_URL:-http://127.0.0.1:11434/v1}}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-${CI_HUB_TOKEN}}"
+      OPENAI_MODEL: "${OPENAI_MODEL:-${CI_HUB_MODEL}}"
+
       WHISPER_SERVER_URL: "${WHISPER_SERVER_URL}"
       PIPER_SERVER_URL: "${PIPER_SERVER_URL}"
       MHLLM_SYSTEM_PROMPT: "${MHLLM_SYSTEM_PROMPT}"

@@ -45,6 +45,29 @@ services:
       OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://127.0.0.1:11435}"
       OLLAMA_MODEL: "${OLLAMA_MODEL:-qwen3.6:27b}"
 
+      # The same beta-1 Ollama spelled for the OTHER backend, because this file did not pick one.
+      # The base stack selects MHLLM_BACKEND=openai, which reads OPENAI_* and ignores the two lines
+      # above entirely -- so `-f docker-compose.yml -f docker-compose.face.yml` set a 27B model on
+      # beta-1 and then talked to whatever OPENAI_BASE_URL happened to be, which with no .env was
+      # the C++ default of a local 127.0.0.1:11434. That is not hypothetical, and the size of the
+      # gap is why it got noticed: Docs/audit-2026-08-16/README.md section 3 ("Verified working")
+      # records an LLM median of 1324 ms on beta-1 against 31 155 ms from what it calls a run that
+      # accidentally used the laptop's local Ollama -- a 24x difference, in that document's words.
+      #
+      # Pointing both at the same place fixes it without this file quietly choosing a backend for
+      # the whole stack -- deciding that here is what would make `-f face` mean something different
+      # from the base stack it is layered onto. Ollama serves its native /api/chat and its
+      # OpenAI-compatible shim on one port: MetaHumanLLMSettings.h:70-74 names
+      # "http://127.0.0.1:11434/v1" as the shim's base, and 127.0.0.1:11434 is the native default
+      # at :53. So the two pairs describe one server and either backend reaches beta-1.
+      OPENAI_BASE_URL: "${OPENAI_BASE_URL:-http://127.0.0.1:11435/v1}"
+      OPENAI_MODEL: "${OPENAI_MODEL:-qwen3.6:27b}"
+      # Ollama's /v1 does not validate the bearer token, but a literal is carried rather than
+      # nothing because UOpenAIChatClient guards the header on a non-empty key
+      # (OpenAIChatClient.cpp:62) -- an empty value sends no Authorization header at all, which is
+      # a different request shape from one carrying an ignored token.
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-ollama}"
+
       # Chain-of-thought off. qwen3.6:27b answers in ~814ms without it and 16-21s with it, and
       # Ollama returns the reasoning in a separate field that never reaches the mouth.
       MHLLM_THINKING: "${MHLLM_THINKING:-0}"
@@ -114,3 +137,11 @@ services:
       # /inference, hence the explicit path override.
       WHISPER_SERVER_URL: "${WHISPER_SERVER_URL:-http://127.0.0.1:13305}"
       WHISPER_ENDPOINT_PATH: "${WHISPER_ENDPOINT_PATH:-/api/v1/audio/transcriptions}"
+      # Pinned here as well, because the same OpenAI shape that needs the path above also needs
+      # the multipart `model` field: UWhisperSpeechToText::BuildMultipartFormData only writes that
+      # part when the string is non-empty, and Docs/CONFIGURATION.md §4 records a blank one as a
+      # 4xx on every transcription against Lemonade. whisper.cpp hosts one model and ignores the
+      # field, so setting it costs that path nothing. This variable was in .env.example and in no
+      # compose file at all until now, and its C++ default is the empty string
+      # (MetaHumanLLMSettings.h:167) — so unset was the failing case, not a neutral one.
+      WHISPER_MODEL: "${WHISPER_MODEL:-Whisper-Base}"

@@ -75,12 +75,12 @@ Applied strictly in this order, each overwriting the last when non-empty:
 | `OLLAMA_BASE_URL` | `http://127.0.0.1:11435` | `http://127.0.0.1:11434` | `:11435` is the SSH tunnel to beta-1. Client appends `/api/chat` |
 | `OLLAMA_MODEL` | `qwen3.6:27b` | `llama3.2` | Measured: `qwen3.6:27b` **814 ms**, `qwen3:8b` **262 ms** (both beta-1, thinking off); `gemma4:e2b` ~12 s on core-2 |
 | `MHLLM_THINKING` | `0` | `false` | `1` re-enables chain-of-thought. **~20× latency** (814 ms → 16–21 s) for reasoning nobody reads — Ollama returns it in a separate `thinking` field that never reaches the mouth |
-| `CI_HUB_URL` | `https://hub.companionintelligence.com/v1` (base compose) | `http://127.0.0.1:11434/v1` | OpenAI-compatible base URL, up to and including `/v1`. ⚠️ CI-Hub **does not proxy inference** — see [`COMPAT-AND-ECOSYSTEM-REVIEW.md`](COMPAT-AND-ECOSYSTEM-REVIEW.md) §3 |
-| `CI_HUB_TOKEN` | `change-me-hub-token` / historically the literal `__NEEDS__` | empty | Bearer token |
+| `CI_HUB_URL` | `http://127.0.0.1:11434/v1` (base compose) | `http://127.0.0.1:11434/v1` | OpenAI-compatible base URL, up to and including `/v1`. Not the Hub's own address: CI-Hub **does not proxy inference**, it distributes the backend's address over `/api/inference/apps/<slug>/credentials` — see [`COMPAT-AND-ECOSYSTEM-REVIEW.md`](COMPAT-AND-ECOSYSTEM-REVIEW.md) §3 |
+| `CI_HUB_TOKEN` | `ollama` / historically `change-me-hub-token` and the literal `__NEEDS__` | empty | Bearer token. Ollama's `/v1` validates nothing, so the literal is a placeholder that works |
 | `CI_HUB_MODEL` | `llama3.2` | `llama3.2` | Hub model id |
-| `OPENAI_BASE_URL` | — | — | Vendor-neutral alias, applied **after** `CI_HUB_*` so an explicit value wins over an inherited one |
-| `OPENAI_MODEL` | — | `llama3.2` | |
-| `OPENAI_API_KEY` | — | empty | Header sent only when non-empty |
+| `OPENAI_BASE_URL` | `http://127.0.0.1:11435/v1` (face) / derived from `CI_HUB_URL` (base) | — | Vendor-neutral alias, applied **after** `CI_HUB_*` so an explicit value wins over an inherited one. The face stack sets it because the base stack selects the `openai` backend, which ignores `OLLAMA_*` |
+| `OPENAI_MODEL` | `qwen3.6:27b` (face) / derived from `CI_HUB_MODEL` | `llama3.2` | |
+| `OPENAI_API_KEY` | `ollama` (face) / derived from `CI_HUB_TOKEN` | empty | Header sent only when non-empty |
 | `LMSTUDIO_BASE_URL` | — | — | Setting it alone selects the OpenAI path and forces the key to `lm-studio` if none is set — LM Studio ignores the key but 401s without a header |
 | `LMSTUDIO_MODEL` | — | — | |
 | `MHLLM_SYSTEM_PROMPT` | the Eliza persona | a generic companion prompt | **Must agree with `MHLLM_OPENING_LINE`** or her first two sentences introduce two different characters |

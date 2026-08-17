@@ -11,7 +11,17 @@
 services:
   project:
     environment:
+      # A LITERAL, not "${MHLLM_BACKEND:-ollama}", and that is the whole point of this line. The
+      # base file now carries `${MHLLM_BACKEND:-openai}` and hands the app `.env` wholesale via
+      # env_file, so the backend could otherwise be decided by whatever an operator's `.env` says.
+      # A literal in a later -f file replaces the base value outright and outranks env_file, so
+      # naming this override on the command line is what selects Ollama — nothing else has to
+      # agree with it.
       MHLLM_BACKEND: "ollama"
+      # These two stay interpolated: a smoke test wants `OLLAMA_MODEL=x docker compose … up`. Note
+      # the fallbacks only apply when the variable is unset or EMPTY, and compose reads `.env` for
+      # interpolation too — so a filled-in OLLAMA_BASE_URL in `.env` silently replaces the default
+      # below. .env.example ships both blank for that reason.
       OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://127.0.0.1:11434}"
       OLLAMA_MODEL: "${OLLAMA_MODEL:-gemma4:e2b}"
 
