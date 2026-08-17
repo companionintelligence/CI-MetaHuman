@@ -2,6 +2,13 @@
 # Spec suite headlessly via UnrealEditor-Cmd and reports pass/fail by scanning the log
 # for failure markers (UnrealEditor-Cmd's process exit code does not reliably reflect
 # automation test pass/fail across engine versions).
+#
+# Returns 0 for a green suite and 1 for anything else. NOTHING in here may write to the success
+# stream: PowerShell hands the caller every object a function emitted, not just the one named by
+# `return`, and the wrappers turn that value into the process exit code. One unredirected native
+# command is therefore enough to make a red suite exit 0 -- see the Build.bat call below, which
+# did exactly that. Redirect anything that prints: `| Out-Null` to discard it, or
+# `| ForEach-Object { Write-Host $_ }` to keep it on screen without returning it.
 function Invoke-MetaHumanLLMTests {
     param(
         [Parameter(Mandatory = $true)][string]$TestFilter,
@@ -44,7 +51,22 @@ function Invoke-MetaHumanLLMTests {
         # Coding is active" -- a message that reads as if THIS project were open, which it is not.
         # Without the flag the suite cannot be run at all on a box where any 5.8 editor is up, which
         # is the normal state of a developer machine.
-        & $BuildBat MetaHumanLocalLLMEditor Win64 Development "-project=$ProjectPath" -waitmutex -NoHotReloadFromIDE
+        #
+        # The ForEach-Object/Write-Host is load-bearing, not cosmetic. Build.bat writes a dozen-plus
+        # lines to stdout ("Using bundled DotNet SDK version: 10.0 win-x64", "Running
+        # UnrealBuildTool: ...", "Total execution time: 0.63 seconds" -- 17 of them on a measured
+        # run), and while this call was unredirected every one of them became part of what this
+        # function RETURNS. Measured against a planted failing log: the suite correctly printed
+        # "FAILED - 1 of 2 test(s) failed" and returned @('Using bundled DotNet SDK...', ..., 1) --
+        # an Object[], and `exit <Object[]>` cannot convert to Int32, so PowerShell exits 0 without
+        # a warning. Every guard in this file fired and CI still went green. Piping to Write-Host
+        # also puts the build chatter back on screen: capturing the return value at the call site
+        # had been swallowing it, so a failed build showed its exit code and none of the compiler
+        # errors that explained it. Only stdout needs this -- native stderr goes to PowerShell's
+        # error stream, not the success stream -- and $LASTEXITCODE still reflects Build.bat through
+        # the pipe (verified: a bogus target gives 8), which the next check depends on.
+        & $BuildBat MetaHumanLocalLLMEditor Win64 Development "-project=$ProjectPath" -waitmutex -NoHotReloadFromIDE |
+            ForEach-Object { Write-Host $_ }
         if ($LASTEXITCODE -ne 0) {
             Write-Error "Build FAILED (exit $LASTEXITCODE) - not running tests against a stale binary."
             return 1

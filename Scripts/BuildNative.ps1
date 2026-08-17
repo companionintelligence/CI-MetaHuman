@@ -24,8 +24,18 @@
     Win64 (default), Linux, or Mac.
 
 .PARAMETER Engine
-    Engine root. Defaults to UE_5.5 because that is the version the deployment cooks against;
-    5.8 also works since Target.cs uses BuildSettingsVersion.Latest.
+    Engine root. Defaults to UE_5.8, which is the only version that can cook this project.
+
+    This default used to be UE_5.5, on the belief that 5.5 was the version the deployment cooks
+    against. The C++ half of that belief is true, and is why it survived so long: the plugin
+    genuinely compiles on 5.5, and RunCompatMatrix.ps1 re-proves it on every run. The CONTENT half
+    is not. Every git-tracked package under Content/ is UE5 package version 1018, and UE 5.5.4
+    reads at most 1013. Package serialisation is forward-only, so a 5.5 cook cannot open this
+    project's assets at all -- it fails at LOAD, never at compile, which is precisely why a
+    compile-only check kept reporting that 5.5 was fine.
+
+    -Engine UE_5.5 is still accepted, and the 5.8-only plugin strip further down exists for it,
+    but it will not produce a working cook while the content is at 1018.
 
 .PARAMETER SkipAuthoring
     Cook whatever Content/Maps/CompanionStage.umap happens to be on disk instead of authoring a
@@ -53,7 +63,7 @@
 param(
     [ValidateSet('Win64', 'Linux', 'Mac')]
     [string]$Platform = 'Win64',
-    [string]$Engine = 'C:\Program Files\Epic Games\UE_5.5',
+    [string]$Engine = 'C:\Program Files\Epic Games\UE_5.8',
     [string]$Config = 'Development',
     [string]$Archive = '',
     [switch]$SkipAuthoring,
