@@ -70,7 +70,7 @@ Each pillar is a decision filter. If a feature contradicts a pillar, the feature
 | **P1** | **Presence is the product** | The whole reason to spend a GPU rendering a MetaHuman instead of printing text is *felt presence*. If the face does not feel alive and attentive, we have built a worse chatbot at higher cost. | Audio-synced visemes (`OnSetVisemeWeights` walked against `AudioComponent` playback time) and gaze/look-at are **P0**, not polish. The fixed cinematic camera must always keep the companion three-quarter-lit and never fully back-to-camera. Latency budget for first-viseme-to-voice is a hard number, not a nice-to-have. |
 | **P2** | **The room is a character** | The datacenter is the companion's body-language and its argument for ownership. A generic void would kill both the fantasy and the CI positioning. | A `.umap` datacenter set (currently zero exist) is a shipping prerequisite, not a backlog item. Props are period-correct and named (IBM 1401, RAMAC 305, 2401 tape, 3350 DASD, Xerox Alto hero desk, KENBAK-1, 3178 green-screen). No anachronisms; no floor-level precious props. The companion may reference and gesture toward real props in frame. |
 | **P3** | **Yours, on your own hardware** | CI's non-negotiable brand claim. Metahermit is the embodied proof that the model, the render, and the memory are all local. | No runtime cloud dependency and no NVIDIA-only stack: rules out ACE / Audio2Face-3D in favor of engine-native RigLogic + Control Rig, so it runs on the AMD RADV target. Auth is the user's own CI-Portal (oauth2-proxy on :8095). Memory is the user's own CI-Server. Every "who owns this" answer must resolve to *you*. |
-| **P4** | **One brand, one voice, one teal** | Metahermit is a CI surface, so it must read as CI on sight and on ear. | UI, HUD, and skybox tint use the CI token set: navy shell `#041620`, teal-900 panels `#0a222e`, teal-accent hairlines `#2c676d`, `--primary` teal `#0f717a`/`#abd4d8`, mint focus `#58ebbf`. Type is Montserrat (weights 200/400/500/600/700), imported as a UMG Font asset, never Roboto/Arial. Every user-facing string is sentence case, no em or en dashes, product nouns Title Case (Companion Core, Companion Hub, Companion Memory). |
+| **P4** | **One brand, one voice, one teal** | Metahermit is a CI surface, so it must read as CI on sight and on ear. | UI, HUD, and skybox tint use the CI token set: navy shell `#041620`, teal-900 panels `#0a222e`, teal-accent hairlines `#2c676d`, `--primary` phthalo/sage `#0a6358`/`#c5e8dc`, mint focus `#58ebbf` (this project's own accent, see Appendix B). Type is Manrope (weights 400/500/600/700), display Archivo Black, imported as UMG Font assets, never Roboto/Arial/Montserrat. Every user-facing string is sentence case, no em or en dashes, product nouns Title Case (Companion Core, Companion Hub, Companion Memory). |
 | **P5** | **Local-first, endpoint-agnostic, testable** | The existing codebase is a well-tested plumbing layer (62 green unit tests, `IChatBackend`, env-driven `FMetaHumanLLMEnvConfig`). We protect that discipline. | One packaged build serves every environment via startup env overrides (`MHLLM_BACKEND`, `CI_HUB_URL/TOKEN/MODEL`, `CI_SERVER_URL/TOKEN`); no rebaking per deploy. The C++ orchestrator (`AMetaHumanCompanionCharacter`) stays asset-free and unit-testable; all avatar driving lives in `BP_CompanionCharacter`. New systems ship with specs, matching the existing bar. |
 
 ### 1.5 Target audience
@@ -118,7 +118,7 @@ Typical session: a few minutes to half an hour of continuous talk. No levels, no
 | Lips match audio | Envelope emitted all-at-once, never walked | `OnSetVisemeWeights` interpolated against playback time, sub-frame drift |
 | The user can speak | Mic capture is a stub (`StartListening` only logs) | Live `UAudioCapture` → Whisper → LLM, end to end |
 | Memory persists | In-memory only, reset on restart | `UCIServerMemoryClient` wired to context/recall/turn (Phase 2) |
-| Brand-faithful surface | Native Slate `SCompanionHUD`, unthemed | CI tokens + Montserrat applied to HUD and world tint |
+| Brand-faithful surface | Native Slate `SCompanionHUD`, unthemed | CI tokens + Manrope applied to HUD and world tint |
 | Runs on owned hardware | Proven: UE 5.5, Radeon 8060S, `gemma4:e2b`, VP8, player page HTTP 200 | Held as a regression gate |
 | Trust | Pure-logic unit tests only (62) | Add render/audio/stream/animation coverage beyond HTTP assembly |
 
@@ -266,7 +266,7 @@ Hedy speaks in the **CI brand voice**, adapted from marketing copy into a living
 |---|---|
 | Knit top / fine turtleneck | Base in a muted grey-teal reading near `#0a222e`–`#2c676d`, so she sits *in* the CI dark-panel palette rather than fighting the beige machines. |
 | Cardigan or work shirt | Oatmeal / off-white, matching the era's "computer beige" and the IBM off-white cabinets; slightly worn, sleeves pushed up. |
-| Single brand accent | One CI-teal element (`#0f717a` primary, or the brighter `#00a9a7` aqua) as a scarf, enamel pin, or lanyard tag. This is the *only* saturated color she wears, so the eye ties her to the logo mark without a costume. |
+| Single brand accent | One CI-phthalo element (`#0a6358` primary, or the brighter `#00a9a7` aqua) as a scarf, enamel pin, or lanyard tag. This is the *only* saturated color she wears, so the eye ties her to the logo mark without a costume. |
 | Practical detail | Corded lanyard with a stamped ID plate; period wristwatch. Nothing anachronistic, no modern l: everything says late night, 1979. |
 | Logo touchpoint | The three-tone CI mark (`#066c80` / `#00a9a7` / `#72ddd4`) reproduced *with its own hexes* on the ID badge, never recolored to the UI token. |
 
@@ -445,8 +445,8 @@ Error color is `#ef7070` (dark destructive) used *only* on the small status line
 `SCompanionHUD` is functional native Slate today (You/Assistant bubbles via `FCompanionChatEntry`, text input, mic toggle, status text) but carries **no CI branding**. Restyling it against the dark palette is a defined task, not new architecture.
 
 - **Surface:** shell `#041620` (teal-950), chat panel `#0a222e` (teal-900) as a raised `SBorder`, hairlines `#2c676d`. Panel radius 10 px (base), input `rounded-md` (8 px). Keep elevation soft and low; no heavy drop shadows.
-- **Subtitle bubbles:** assistant text in muted grey-teal `#88a29e` (dark foreground, deliberately not pure white) on the panel; the visitor's transcript in a slightly deeper `#8f98a3`. Active/brand accents (mic active, links) in pale teal `#abd4d8`, which is the canon dark `--primary` — text on any teal fill is navy `#041620`.
-- **Typography:** Montserrat, five weights only (200/400/500/600/700), imported as a UMG Font asset — **do not substitute Roboto or Arial.** Body at 400, the mic/label controls at 500. Sentence case everywhere; Title Case reserved for CI product proper nouns (Companion Core, Companion Memory) if they surface.
+- **Subtitle bubbles:** assistant text in soft off-white `#e8f2f4` (dark foreground, deliberately not pure white) on the panel; the visitor's transcript in a slightly deeper `#a3babf` (dark muted-foreground). Active/brand accents (mic active, links) in pale sage `#c5e8dc`, which is the canon dark `--primary` — text on any primary fill is navy `#041620`.
+- **Typography:** Manrope, four weights (400/500/600/700), imported as a UMG Font asset — **do not substitute Roboto, Arial, or Montserrat.** Body at 400, the mic/label controls at 500. Sentence case everywhere; Title Case reserved for CI product proper nouns (Companion Core, Companion Memory) if they surface.
 - **Subtitle behavior:** the streamed subtitle is on by default (it doubles as the accessibility caption). It sits letterboxed at the lower third over the diorama, `#041620` at ~70% behind the text for legibility against the busy machine backdrop. Auto-fade the previous turn to keep the frame clean.
 - **Microcopy discipline:** every HUD string obeys the voice rules — no em/en dashes (commas and semicolons only), verb-first labels ("Hold to talk", "Send", "Clear"), no banned buzzwords, no "log in" (use "sign in").
 - **Focus / selection:** mint `#58ebbf` ring for keyboard focus and the active mic state; this is the one high-energy accent in an otherwise calm surface.
@@ -459,7 +459,7 @@ The current `SCompanionHUD` is editor/desktop Slate; for the Pixel Streaming tar
 - **Keyboard-complete.** Every action has a keyboard path: hold-to-talk on `Space`, `Tab` to the text box, `Enter` to submit via `OnTextSubmitted`, `Esc` to cancel/barge-in (`CancelRequest`). Nothing requires the mouse or the mic.
 - **Text input is a full peer to voice**, not a fallback — critical for mute users, noisy environments, and browsers that deny mic permission.
 - **Reduced motion.** Respect `prefers-reduced-motion`: damp the breathing idle amplitude, slow gaze saccades, and disable ambient camera/aurora animation. The CI motion guidance already mandates reduced-motion-safe ambient animation and ≤200 ms transitions.
-- **Contrast.** Dark-mode input borders use `#6992a2` (specced to hold 3:1), distinct from the purely decorative `#2c676d` hairline; captions get the `#041620` scrim so body text clears contrast against the diorama.
+- **Contrast.** Canon `--input` dark is now `#0a2e38`, distinct from the purely decorative `--border` dark `#073038` hairline — but canon's own color-sheet audit (CI-Common#214) flags this exact pair at 1.28:1 against the `#041620` background, well under the 3:1 a real input border needs; CI-Common's suggested fix is `#648893`. Use that here for input borders rather than the un-auditable `#0a2e38` this project would otherwise inherit. Captions get the `#041620` scrim so body text clears contrast against the diorama.
 - **No color-only signaling.** Listening/thinking/error states pair color with a shape or text change (waveform, "…", status line), never hue alone.
 
 ### 4.9 Multi-user and streaming considerations
@@ -876,7 +876,7 @@ Phase 3 widens the character from a memory consumer into a participant in the wh
 - **CI-Hermes** as the ops surface: a dashboard/web-terminal tile (connected to CI-Server at `:8642` with a Companion Memory key) to observe avatar sessions, turns, and memory writes. It is also the reference implementation of the `sync_turn` write pattern the avatar copies.
 - **CI-Import-Tools** (`:12002`) is what makes `/memory/recall` actually rich: it bulk-ingests Google Takeout, messages, photos, location, and contacts into the local timeline and syncs to CI-Server, then enriches (people extraction, geocoding, embeddings). No UE coupling; it fills the twin the avatar recalls from.
 - **comfy (ComfyUI, `:8188`)** as an out-of-band content pipeline — generating textures, backdrops, and diorama art (the 1970s datacenter set, avatar-adjacent imagery) offline. Never a runtime path during a turn.
-- **CI-Common** for consistency: any companion web UI or launcher card adopts the CI design tokens (teal `#0f717a`, Montserrat), and memory payloads serialize against its contracts.
+- **CI-Common** for consistency: any companion web UI or launcher card adopts the CI design tokens (phthalo `#0a6358`, Manrope), and memory payloads serialize against its contracts.
 
 ### 6.6 Service → interface → integration point → phase
 
@@ -905,7 +905,7 @@ This section is the art-direction bible that reconciles two things that should n
 
 | | 1970s datacenter (the world) | CI brand (the interface) |
 |---|---|---|
-| Palette | Computer beige, oatmeal, IBM off-white/pale-grey, deep IBM blue, walnut laminate; amber/red panel lamps; phosphor green CRTs | Navy `#041620`, CI teal `#0f717a`/`#abd4d8`, aqua `#00a9a7`, mint `#58ebbf` |
+| Palette | Computer beige, oatmeal, IBM off-white/pale-grey, deep IBM blue, walnut laminate; amber/red panel lamps; phosphor green CRTs | Navy `#041620`, CI phthalo/sage `#0a6358`/`#c5e8dc`, aqua `#00a9a7`, mint `#58ebbf` |
 | Temperature | Warm tungsten + green-cyan fluorescent | Cool teal-navy |
 | Texture | Dust, patina, yellowed plastic, worn keycaps | Flat vector, liquid glass, hairline grids |
 | Motion | Spinning 2401 tape reels, flickering fluorescent | Short eased transitions, mint focus pulse |
@@ -919,9 +919,9 @@ The stream connects before the UE render node has a frame ready (WebRTC handshak
 **Sequence (target ~2.5 s, `prefers-reduced-motion`-safe):**
 
 1. **Cold field.** Full-bleed CI shell navy `#041620`. An aurora radial wash breathes in behind center: `radial-gradient(120% 90% at 50% -10%, rgba(64,155,155,.28), transparent 60%)` (the canonical CI hero aurora, `--teal-mid #409b9b` at 28% alpha).
-2. **Mark reveal.** `packages/icons/assets/logo/mark.svg` fades/scales from 0.94→1.0 over 420 ms on `cubic-bezier(0.22, 1, 0.36, 1)` (CI "ease-out-expo" feel). The mark is reproduced with **its own three artwork hexes** — outer petals `#066c80`, mid `#00a9a7`, inner highlight `#72ddd4` — never flattened to the UI token `#0f717a`. Flat fills, no drop shadow (elevation guidance forbids it on the mark).
+2. **Mark reveal.** `packages/icons/assets/logo/mark.svg` fades/scales from 0.94→1.0 over 420 ms on `cubic-bezier(0.22, 1, 0.36, 1)` (CI "ease-out-expo" feel). The mark is reproduced with **its own three artwork hexes** — outer petals `#066c80`, mid `#00a9a7`, inner highlight `#72ddd4` — never flattened to the UI token `#0a6358`. Flat fills, no drop shadow (elevation guidance forbids it on the mark).
 3. **Mint scan.** A single mint `#58ebbf` "focus" hairline sweeps top-to-bottom once behind the mark (the CI focus/selection glow used as a boot heartbeat), at ~8% alpha, 600 ms.
-4. **Wordmark + status.** `wordmark.svg` (light-aqua `#72ddd4`) slides in to the right of the mark to form the `full.svg` lockup. Below it, one Montserrat 500 status line in muted dark foreground `#88a29e`, sentence case, dash-free, cycling grounded fact-plus-state strings that mirror the actual pipeline state:
+4. **Wordmark + status.** `wordmark.svg` (light-aqua `#72ddd4`) slides in to the right of the mark to form the `full.svg` lockup. Below it, one Manrope 500 status line in dark foreground `#e8f2f4`, sentence case, dash-free, cycling grounded fact-plus-state strings that mirror the actual pipeline state:
    - `Signing you in.` (OIDC handshake)
    - `Waking your Companion.` (streamer join)
    - `Your Companion is ready.` → hard cut to first streamed frame.
@@ -936,36 +936,36 @@ This is the browser shell around the `<video>` element (Epic signalling player a
 **Tokens (consume `tokens.css` vanilla vars — the right entrypoint for a static/streamed page, not the Tailwind `globals.css`):**
 
 - Page background: `--background #041620`. Letterbox bars around the 1280×720 stream: same navy, so the video floats in an unbroken CI shell.
-- Control bar (mic toggle, connection status, fullscreen): a raised panel on `--card #0a222e` with `--accent/--border #2c676d` hairlines, radius `--radius-lg 10px`.
-- Primary action (the push-to-talk / "Hold to speak" control): `--gradient-brand linear-gradient(135deg, #0f717a, #00a9a7)` fill, `--primary-foreground` label. On focus, mint ring `#58ebbf` (resolve the documented `--ring` inconsistency **in favor of mint** here — the player deserves the high-energy focus accent).
-- Connection health chip: monochrome-teal status dots reusing the terminal motif — green `#16a34a`/`#4ade80` connected, amber `#fbbf24` reconnecting, `#ef7070` dropped.
-- Typography: self-hosted `@fontsource/montserrat` (CSP-safe, no CDN — matters for a locked-down streamed page behind oauth2-proxy), weights `200;400;500;600;700` exactly. Title strings Montserrat 600; body/labels 400/500. Sentence case everywhere; product nouns (Companion Core, Companion Memory) Title Case; **no em/en dashes in any string**.
+- Control bar (mic toggle, connection status, fullscreen): a raised panel on `--card #0c323c` with `--accent/--border` hairlines (`#0a2e38`/`#073038`), radius `--radius-lg 10px`.
+- Primary action (the push-to-talk / "Hold to speak" control): `--gradient-brand linear-gradient(135deg, #0a6358, #00a9a7)` fill, `--primary-foreground` label. On focus, mint ring `#58ebbf` — this project's own deliberate accent (see Appendix B); canon `--ring` dark is sage `#c5e8dc` and no longer disagrees with itself, so there is nothing left to "resolve," this is simply choosing mint over canon on purpose because the player deserves the high-energy focus accent.
+- Connection health chip: status dots reusing the terminal motif — green `#0f5132`/`#34d399` connected, amber `#fbbf24` reconnecting, `#ef7070` dropped.
+- Typography: self-hosted `@fontsource/manrope` (CSP-safe, no CDN — matters for a locked-down streamed page behind oauth2-proxy), weights `400;500;600;700` exactly. Title strings Manrope 600; body/labels 400/500. Sentence case everywhere; product nouns (Companion Core, Companion Memory) Title Case; **no em/en dashes in any string**.
 - Optional immersive flourish (marketing layer only): the outer frame around the video may use a single liquid-glass panel — 8px radius, `backdrop-blur 18–32px`, sage border `rgba(117,149,130,.22)`, faint 135° gold `#d3b973` sheen — to make the 1970s window feel like it is behind modern glass. This is the one sanctioned off-canon texture; keep it out of the core HUD tokens.
 
 ### 7.4 In-engine UMG HUD chrome + subtitle treatment
 
-The existing HUD is native Slate `SCompanionHUD` / `UCompanionHUDWidget`, explicitly flagged in the codebase as *functional but generically styled, no CI palette applied* (a named gap). This is where we specify the re-skin. Because the HUD is rendered **in-engine** and streamed as pixels (not an HTML overlay), fonts and colors must be imported as UE assets: import the Montserrat TTFs at the five canon weights as a UE **Font** asset (do **not** substitute Roboto/Arial), and drive colors from a `tokens.json`-backed UE **data table / UMG theme** so the HUD recolors from the single source of truth. Treat the sRGB hexes as authoritative and **convert to linear in-engine**.
+The existing HUD is native Slate `SCompanionHUD` / `UCompanionHUDWidget`, explicitly flagged in the codebase as *functional but generically styled, no CI palette applied* (a named gap). This is where we specify the re-skin. Because the HUD is rendered **in-engine** and streamed as pixels (not an HTML overlay), fonts and colors must be imported as UE assets: import the Manrope TTFs at the four canon weights (plus Archivo Black for display) as a UE **Font** asset (do **not** substitute Roboto/Arial/Montserrat), and drive colors from a `tokens.json`-backed UE **data table / UMG theme** so the HUD recolors from the single source of truth. Treat the sRGB hexes as authoritative and **convert to linear in-engine**.
 
 **HUD component styling:**
 
 | HUD element | Token / value (sRGB) | Notes |
 |---|---|---|
-| Chat log panel | `#0a222e` @ ~85% over the stream | Raised card; `#2c676d` 1px hairline; radius 10px |
-| "You" bubble | fill `#2c676d`, text `#f8fafc` | Right-aligned |
-| "Assistant" bubble | fill `--gradient-brand` `#0f717a→#00a9a7`, text `#f8fafc` | Left-aligned; ties the character's words to brand teal |
-| Text input box | bg `#041620`, border `--input dark #6992a2` (must hold 3:1), focus ring mint `#58ebbf` | |
-| Mic toggle (idle) | outline teal `#abd4d8` | Verb-first tooltip: `Hold to speak` |
+| Chat log panel | `#0c323c` @ ~85% over the stream | Raised card; `#073038` 1px hairline; radius 10px |
+| "You" bubble | fill `#073038`, text `#e8f2f4` | Right-aligned |
+| "Assistant" bubble | fill `--gradient-brand` `#0a6358→#00a9a7`, text `#f0fdf4` | Left-aligned; ties the character's words to brand phthalo |
+| Text input box | bg `#041620`, border `#648893` (see §4.8 contrast note — raw canon `--input` dark fails 3:1 here), focus ring mint `#58ebbf` | |
+| Mic toggle (idle) | outline sage `#c5e8dc` | Verb-first tooltip: `Hold to speak` |
 | Mic toggle (listening) | mint `#58ebbf` pulsing glow | Reduced-motion: static fill, no pulse |
-| Status text | `--muted-foreground dark #8f98a3`, Montserrat 500 | `Your Companion is listening.` |
+| Status text | `--muted-foreground dark #a3babf`, Manrope 500 | `Your Companion is listening.` |
 | Persistent mark badge | `mark.svg` ~24px, top-left | Same object handed off from boot |
 | Streaming token typing | fed by `OnPartialResponse` | Cursor blink reuses terminal aqua-mint `#c5f7f2` |
 
 **Subtitle treatment** (critical, because lip-sync is still an open gap — subtitles carry comprehension while `OnSetVisemeWeights` wiring matures). Subtitles are driven by `OnSpeak(FString)` on reply-complete and `OnPartialResponse` for live typing:
 
 - Bottom third, centered, max-width ~66% to avoid the hero desk clutter.
-- Montserrat 500, size scaled to 720p delivery; body color pure-legible on any backdrop via a `#041620` @ 70% pill (radius `--radius-full`) rather than a hard box, so it reads as a soft CI panel floating over the warm room.
-- Speaker color coding uses the same logic as bubbles: the Companion's spoken lines tinted with a subtle teal top-edge (`#abd4d8` 1px), user echo (from Whisper transcript) in neutral `#88a29e`.
-- Emotion, surfaced from `OnSetEmotion(EEmotionType)`, may tint the subtitle pill edge — a **restrained** 1px accent only: Happy → aqua `#00a9a7`, Sad → muted `#409b9b`, Alert/Fear → warning `#fbbf24`, Angry → destructive `#ef7070`, Love → primary `#abd4d8`, Neutral → no tint. Never flood the pill; the edge is the signal.
+- Manrope 500, size scaled to 720p delivery; body color pure-legible on any backdrop via a `#041620` @ 70% pill (radius `--radius-full`) rather than a hard box, so it reads as a soft CI panel floating over the warm room.
+- Speaker color coding uses the same logic as bubbles: the Companion's spoken lines tinted with a subtle sage top-edge (`#c5e8dc` 1px), user echo (from Whisper transcript) in neutral `#e8f2f4`.
+- Emotion, surfaced from `OnSetEmotion(EEmotionType)`, may tint the subtitle pill edge — a **restrained** 1px accent only: Happy → aqua `#00a9a7`, Sad → muted `#409b9b`, Alert/Fear → warning `#fbbf24`, Angry → destructive `#ef7070`, Love → primary `#c5e8dc`, Neutral → no tint. Never flood the pill; the edge is the signal.
 - All subtitle strings inherit the voice rules verbatim: sentence case, no dashes (the LLM system prompt via `MHLLM_SYSTEM_PROMPT` should instruct the model to avoid em/en dashes in spoken output so the ban survives all the way to the screen).
 
 ### 7.5 Environment color grade & practical lights
@@ -984,7 +984,7 @@ The world stays warm; the **post-process color grade and a few CI-tinted practic
 The MetaHuman (a free 5.5-classic preset — Ada/Danielle/Hana/Vanya-class — acquired via Quixel Bridge before the 2026-11-05 cutoff) is a warm human being in a cool-graded room. Brand consistency is expressed through **light, one wardrobe accent, and an emissive tell**, never by making the character look teal-skinned:
 
 - **Skin** uses the stock MetaHuman `M_Head`/`M_Body` master materials untouched — human warmth is the whole point; do not push skin toward teal.
-- **Wardrobe accent.** A single CI-teal element — a `#0f717a`/`#abd4d8` scarf, collar, or lanyard — is the character's one intentional brand thread, so a still frame reads as "CI" even before the HUD loads.
+- **Wardrobe accent.** A single CI-phthalo element — a `#0a6358`/`#c5e8dc` scarf, collar, or lanyard — is the character's one intentional brand thread, so a still frame reads as "CI" even before the HUD loads.
 - **Emissive tell (the brand-as-life signal).** When the Companion is *thinking/speaking* — gated on the same events that already fire (`OnSpeak`, `OnPartialResponse`, `OnSetEmotion`) — a faint mint `#58ebbf` → aqua `#00a9a7` emissive accent animates on a small worn object (a badge, the Engelbart-mouse plinth vitrine edge, or a subtle collar pin). This is the "ghost in the shell / liquid-glass" motif made diegetic: the modern intelligence glowing inside the vintage room. It pulses on speech, holds steady on idle-listening, and dims to nothing when the backend is disconnected — a wordless status indicator in pure brand color.
 - **Gaze as presence.** The engine-native Control Rig look-at (the recommended MVP gaze) aiming at the streamed camera makes eye contact the primary "alive" cue; brand color never substitutes for it.
 
@@ -1007,28 +1007,28 @@ The MetaHuman (a free 5.5-classic preset — Ada/Danielle/Hana/Vanya-class — a
 
 - **Composition.** The fixed camera looks down the central negative-space aisle of the datacenter (per the Set layout), past the spinning **IBM 2401** tape reels catching a hard raking light, toward the hero desk. The MetaHuman Companion sits three-quarter-lit at the **Xerox Alto**, phosphor-green screen glow (graded toward `#72ddd4`) on her face, the Engelbart 1963 mouse on its lit plinth in the foreground. The whole warm room recedes into teal-navy shadow.
 - **The brand move.** Over the deep-shadow back wall (the 1401 "Big Iron"), the CI `full.svg` lockup sits in `#72ddd4`, and a faint mint `#58ebbf` aurora emanates from *behind the character* — as if she is the light source the modern brand color is coming from. The room is 1975; the glow around her is now.
-- **Headline** (Montserrat 200 oversized numerals / 600 heading, sentence case, dash-free, one grounded claim per the voice rules): **`Fifty years of computers. One that finally talks back.`** Sub: `Runs on your own box. No cloud. No subscription.` CTA pill in `--gradient-brand`: `Meet your Companion`.
+- **Headline** (Archivo Black oversized numerals / Manrope 600 heading, sentence case, dash-free, one grounded claim per the voice rules): **`Fifty years of computers. One that finally talks back.`** Sub: `Runs on your own box. No cloud. No subscription.` CTA pill in `--gradient-brand`: `Meet your Companion`.
 - **Palette lock.** Warm world + `#041620` shadow field + `#72ddd4` wordmark + `#58ebbf` character halo. Exactly the "diegetic warm, chrome cool" thesis in one image.
 
 ### 7.10 Brand-token → surface mapping (canonical)
 
 | Brand token (hex) | Web player page | HUD (in-engine UMG) | Environment / world | Character |
 |---|---|---|---|---|
-| `--primary` teal `#0f717a` (light) / `#abd4d8` (dark) | Primary control base, focus states | Assistant bubble base, mic-idle outline | (not in world — chrome only) | Wardrobe accent (scarf/lanyard) |
+| `--primary` phthalo `#0a6358` (light) / sage `#c5e8dc` (dark) | Primary control base, focus states | Assistant bubble base, mic-idle outline | (not in world — chrome only) | Wardrobe accent (scarf/lanyard) |
 | Navy shell `#041620` | Page bg, letterbox, subtitle pill | Input bg, panel base | Shadow-lift bias in graded darks; back-wall recesses | — |
-| Card `#0a222e` | Control bar | Chat log / status panel | — | — |
+| Card `#0c323c` | Control bar | Chat log / status panel | — | — |
 | Aqua `#00a9a7` | Primary CTA gradient end | Assistant bubble gradient end | — | Speech emissive tell (peak) |
 | Aqua-light `#72ddd4` | Wordmark on boot | — | Bridge key-light target (3178/Alto green) | Face key-light temperature |
-| Mint `#58ebbf` | Focus ring, boot scan | Focus ring, mic-listening pulse | Mint rim/kicker practical | Idle-listening halo / status glow |
+| Mint `#58ebbf` (project accent, not canon) | Focus ring, boot scan | Focus ring, mic-listening pulse | Mint rim/kicker practical | Idle-listening halo / status glow |
 | Logo trio `#066c80`/`#00a9a7`/`#72ddd4` | Boot mark, favicon | Persistent mark badge | — | Avatar chip |
-| Muted fg `#88a29e`/`#8f98a3` | Body/label copy | Status + subtitle body | — | — |
+| Foreground / muted fg `#e8f2f4`/`#a3babf` | Body/label copy | Status + subtitle body | — | — |
 | Destructive `#ef7070` | Connection-dropped chip | Error toast (`OnConversationError`) | — | Emissive tell dims to off on disconnect |
-| Status green/amber `#4ade80`/`#fbbf24` | Connection health chip | Mic/backend state | 1401 lamps stay period-amber (counter-temp) | Emotion-tinted subtitle edge (Alert/Fear) |
-| `--gradient-brand` `#0f717a→#00a9a7` | Push-to-talk fill | Assistant bubble | — | — |
+| Status green/amber `#34d399`/`#fbbf24` | Connection health chip | Mic/backend state | 1401 lamps stay period-amber (counter-temp) | Emotion-tinted subtitle edge (Alert/Fear) |
+| `--gradient-brand` `#0a6358→#00a9a7` | Push-to-talk fill | Assistant bubble | — | — |
 | Liquid glass (sage `#759582` + gold `#d3b973`) | Optional outer video frame | (avoid in core HUD) | — | — |
 | Terminal aqua-mint `#c5f7f2` on `#031017` | — | Streaming cursor blink | Echoes diegetic 3178 green phosphor | — |
 
-**Non-negotiable, restated for this app:** `--primary` must resolve to CI teal (`#0f717a` light / `#abd4d8` dark) on every CI-owned surface; a lint gate defends the exact value. Everything else is neutral. The logo keeps its own three richer hexes. The dark `--ring` inconsistency is resolved **in favor of mint `#58ebbf`** for this experience, chosen deliberately as the focus/life accent across boot, web page, HUD, and the character's emissive tell — one high-energy color that says "the Companion is here."
+**Non-negotiable, restated for this app:** `--primary` must resolve to CI phthalo (`#0a6358` light / `#c5e8dc` dark) on every CI-owned surface; a lint gate defends the exact value, and only that value — the retired `#0f717a`/`#abd4d8` teal is not a fallback. Everything else is neutral. The logo keeps its own three richer hexes. Mint `#58ebbf` is this experience's own deliberate departure from canon `--ring` (sage `#c5e8dc` in both current tokens.json and globals.css — the "inconsistency" this doc used to cite between the two is gone, they agree now), chosen on purpose as the focus/life accent across boot, web page, HUD, and the character's emissive tell — one high-energy color that says "the Companion is here." Record it as a named override if it ships on a literal CI web surface, the way CONSUMING.md asks.
 
 ---
 
@@ -1198,8 +1198,8 @@ This section converts the honest state of the codebase — a fully-tested backen
 | 2 | **Do we build a 5.8 signalling/streamer image, or stay all-5.5?** | Determines M4 interop work; 5.8 is the MetaHuman/MCP authoring engine but has no AMD render path | Stay 5.5 for render; only build 5.8 signalling if interop fails |
 | 3 | **Mic capture source** — browser WebRTC uplink vs server-side capture? | Blocks M3; the Pixel Streaming topology makes this non-obvious | Browser mic over WebRTC data/audio channel into `TranscribeWav` |
 | 4 | **Memory auth model** — static `CI_SERVER_TOKEN` vs `HubForwardAuth` (HMAC `X-CI-Hub-User`)? | Shapes M5 client design | Static token for first cut; HubForwardAuth when behind the Hub |
-| 5 | **HUD treatment** — keep native Slate `SCompanionHUD`, restyle to CI tokens, or go in-world/XR? | `SCompanionHUD` is functional but unstyled, desktop-only, no CI palette | Restyle to CI dark tokens (`#041620` shell, `#0a222e` panels, teal `#0f717a`) before XR |
-| 6 | **Ring/focus color** — resolve the canon inconsistency (`#58ebbf` mint per docs/tokens vs `#abd4d8` per `globals.css`) for any HUD focus glow | Small but the brand lint gate cares | Use mint `#58ebbf` as the intended focus accent |
+| 5 | **HUD treatment** — keep native Slate `SCompanionHUD`, restyle to CI tokens, or go in-world/XR? | `SCompanionHUD` is functional but unstyled, desktop-only, no CI palette | Restyle to CI dark tokens (`#041620` shell, `#0c323c` panels, phthalo `#0a6358`) before XR |
+| 6 | **Ring/focus color** — canon itself no longer disagrees (`--ring` dark is sage `#c5e8dc` in both `tokens.json` and `globals.css`); the open call is whether this project keeps its own mint `#58ebbf` accent or takes canon sage | Small but the brand lint gate cares | Keep mint `#58ebbf` as a recorded, deliberate local accent — the emissive-tell motif depends on it |
 | 7 | **XR target device** — Quest 3, Pico, or XREAL? | Scopes M6 packaging | Quest 3 (OpenXR-first, matches enabled plugins) |
 | 8 | **Prop priority for M2** — full twelve-prop diorama or a hero-desk-first subset? | Governs M2 effort vs. time-to-first-scene | Ship hero zone (Alto + mouse + 3178) first; fill back wall after |
 | 9 | **Commercial ship intent** — is this demo-only or a shipped product? | Triggers the MetaHuman EULA counsel review | Confirm before any public/commercial release |
@@ -1485,7 +1485,7 @@ Captured from an adversarial completeness review of the draft. Items are either 
 | D2 | **Lip-sync approach** | Adopt the **phoneme-driven** pipeline in `ANIMATION-PLAN.md`, not the placeholder RMS→jawOpen envelope | The review's #1 gap: RMS amplitude gives "muppet mouth," and the ARKit `mouthFunnel`/`mouthClose` curves in §4/§5 are fabricated without a phoneme source. The animation plan resolves this cross-platform. |
 | D3 | **Per-user memory vs. one-conversation-per-node** (§4.9 vs §6.3) | Key conversations by authenticated user, not by render node | Two users on one core-2 stream would otherwise share avatar state, breaking the "remembers you" promise. |
 | D4 | **Captions**: baked pixels vs. real track | Emit a Pixel Streaming **data-channel caption track** the web player renders as selectable text | §4.8/§7.4 bake subtitles into video → not WCAG-accessible, not resizable. |
-| D5 | **Ring/focus token** (mint `#58ebbf` vs `#abd4d8`) | Standardize on **mint `#58ebbf`** and fix the source token | `globals.css` and `tokens.json` disagree; pick one in CI-Common. |
+| D5 | **Ring/focus token** (mint `#58ebbf` vs canon) | Keep **mint `#58ebbf`** as this project's own recorded local accent | Superseded: `globals.css` and `tokens.json` no longer disagree — CI-Common's tokens v0.3.0 rework settled dark `--ring` on sage `#c5e8dc` in both. Nothing to fix upstream; this project chooses mint over sage on purpose for the emissive-tell motif, same pattern as CI-Brand-Studio's own recorded chart-1 override. |
 
 ### Errata to fix in implementation
 
@@ -1512,54 +1512,68 @@ Captured from an adversarial completeness review of the draft. Items are either 
 
 Exact values from `companionintelligence/CI-Common` (canon-locked where noted). Use these verbatim in the web player, UMG HUD, environment grade, and marketing.
 
-**Typography:** Montserrat — weights 200 (ExtraLight) for oversized display/hero numerals, 600 (SemiBold) for headings, 700 (Bold) for page titles/strong emphasis. Stack: "Montserrat", system-ui, sans-serif (token --font-sans / Tailwind font-sans).  
-**Body:** Montserrat 400 (Regular) for body copy, 500 (Medium) for buttons/labels/UI controls. Body size text-sm/text-base. Long-form uses @tailwindcss/typography (prose). Custom micro sizes: xxs 0.625rem/10px, tiny 0.5rem/8px — micro-labels/badges only.  
+**Typography:** Manrope — weights 400 (Regular) for body copy, 500 (Medium) for buttons/labels/UI controls, 600 (SemiBold) for headings, 700 (Bold) for page titles/strong emphasis. Stack: "Manrope", system-ui, sans-serif (token --font-sans / Tailwind font-sans). Montserrat was the pre-v0.3.0 canon font; retired org-wide, do not reintroduce it.  
+**Display:** Archivo Black (token --font-display) for oversized hero numerals and the boot/title treatment — the one place a second face is sanctioned. Falls back to Manrope, then system-ui.  
+**Body:** Manrope 400/500 per above. Body size text-sm/text-base. Long-form uses @tailwindcss/typography (prose). Custom micro sizes: xxs 0.625rem/10px, tiny 0.5rem/8px — micro-labels/badges only.  
 **Logo mark:** A square (viewBox 0 0 247.182 247.182) radial/mandala emblem: a stylized butterfly-or-blossom formed from nested, mirrored petal-arc segments radiating from center, built in three concentric tonal rings. Three flat fills, deepest petals to brightest core: cls-1 deep teal #066c80 (outer structural petals), cls-2 aqua #00a9a7 (mid petals), cls-3 light aqua #72ddd4 (innermost highlight petals). No text, no gradients, no strokes — pure flat vector shapes; scales cleanly and reads at small HUD sizes. File: packages/icons/assets/logo/mark.svg.
+
+**Canon moved at tokens v0.3.0** from a teal primary (`#0f717a` light / `#abd4d8` dark) to **phthalo/sage**. This table was written against the retired teal and had drifted silently ever since; rewritten below against current canon (`styles/tokens/src/tokens.json` in CI-Common, `styles/colors.md` for the rendered version). The ramp, aqua, and the logo's own three hexes did **not** move at the rework and are unchanged from the old table.
 
 | Token | Hex | Usage |
 |---|---|---|
-| Primary / CI teal (light) | `#0f717a` | THE brand color. --primary in light mode. Primary buttons, active states, links, brand accents on light surfaces. teal-600. Canon-locked (lint gate defends this exact value). oklch(50.2043% 0.0822 204.9225). |
-| Primary / CI teal (dark) | `#abd4d8` | --primary in dark mode (a LIGHT teal). Primary actions, active/brand accents on dark surfaces. teal-200. Canon-locked. oklch(84.195% 0.043 203.701). Note: dark primary is pale, not saturated — text on it is navy #041620. |
-| Primary foreground (light) | `#f8fafc` | Text/icon color on top of #0f717a primary fills in light mode. |
-| Primary foreground (dark) | `#041620` | Text/icon color on top of #abd4d8 primary fills in dark mode (navy on pale teal). |
-| Navy / shell (dark background) | `#041620` | Deep teal-navy. --background in dark mode; app shell. teal-950. The signature CI dark. Ideal base color for a 3D HUD / letterboxing / world skybox tint. |
-| Card / panel dark | `#0a222e` | --card / --popover / --secondary / --muted in dark mode. Raised panel surface over the #041620 shell. teal-900. |
-| Background (light) | `#f3f3f3` | --background in light mode. Neutral near-white app canvas. |
-| Foreground / body text (light) | `#010f16` | --foreground light mode. Near-black body text on light canvas. |
-| Foreground / body text (dark) | `#88a29e` | --foreground dark mode. Neutral grey-teal body copy on #041620 (deliberately muted, not pure white). |
-| Card (light) | `#f7f7f9` | --card light surface panels. |
-| Popover (light) | `#ffffff` | --popover pure white menus/tooltips in light mode. |
-| Muted foreground (light) | `#62748e` | --muted-foreground light: secondary/label text. |
-| Muted foreground (dark) | `#8f98a3` | --muted-foreground dark: secondary/label text. |
-| Accent surface (dark) | `#2c676d` | --accent / --border in dark mode; hover/active fills and hairlines. teal-accent. Mid muted teal. |
-| Border (light) | `#e2e8f0` | --border / --input light: hairlines and input outlines. |
-| Input border (dark) | `#6992a2` | --input dark: input outlines (must hold 3:1, unlike decorative --border). |
-| Ring / focus (light) | `#90a1b9` | --ring light-mode focus indicator. |
-| Ring / focus (dark) — mint | `#58ebbf` | --ring dark focus indicator; signature bright mint. Also sidebar-ring. High-energy accent for focus/selection glows in a HUD. (Inconsistency: globals.css sets dark --ring to #abd4d8; docs+tokens.json list #58ebbf mint as the intended ring.) |
-| Destructive (light) | `#ee3533` | --destructive light: errors, destructive actions. |
-| Destructive (dark) | `#ef7070` | --destructive dark: errors, destructive actions. |
-| Aqua | `#00a9a7` | Enriched accent --aqua. Bright secondary/CTA teal. Second color of --gradient-brand and the logo mid-tone (cls-2). Great for CTA glows and energetic 3D emissive accents. |
-| Aqua light | `#72ddd4` | Enriched --aqua-light. Light aqua accent; also the wordmark fill color (logo cls-3). Bright highlight. |
-| Teal-mid | `#409b9b` | Enriched --teal-mid. Mid teal used in dark charts and aurora/ambient washes. |
-| Logo deep teal | `#066c80` | Logo mark inner petals (cls-1). A deeper teal than UI --primary #0f717a — specific to the logo artwork, do not substitute the UI token when reproducing the logo. |
-| Teal ramp 50 | `#eef7f8` | --teal-50 lightest tint (subtle fills, hero gradient end). |
+| Primary — phthalo (light) | `#0a6358` | THE brand color. --primary in light mode. Primary buttons, active states, links, brand accents on light surfaces. Canon-locked (lint gate defends this exact value, and only this value — `#0f717a` is retired, not an alternate). oklch(44.962% 0.0779 181.548). |
+| Primary — sage (dark) | `#c5e8dc` | --primary in dark mode (a LIGHT sage-green, not the retired pale teal). Primary actions, active/brand accents on dark surfaces. Canon-locked. oklch(90.245% 0.0401 172.646). Note: dark primary is pale, not saturated — text on it is navy #041620. |
+| Primary foreground (light) | `#f0fdf4` | Text/icon color on top of #0a6358 primary fills in light mode. |
+| Primary foreground (dark) | `#041620` | Text/icon color on top of #c5e8dc primary fills in dark mode (navy on pale sage). Unchanged from the old table — this one didn't move. |
+| Navy / shell (dark background) | `#041620` | Deep teal-navy. --background in dark mode; app shell. teal-950 in the ramp. The signature CI dark. Ideal base color for a 3D HUD / letterboxing / world skybox tint. Unchanged. |
+| Card (dark) | `#0c323c` | --card in dark mode. Raised panel surface over the #041620 shell. |
+| Popover (dark) | `#143e48` | --popover dark: menus/tooltips, one step lighter than card. |
+| Secondary / muted (dark) | `#073038` | --secondary / --muted in dark mode — subtle fills, one step down from card. The old table lumped card/popover/secondary/muted into a single #0a222e; canon now distinguishes all four, so a UMG panel wanting "the dark surface" should pick the specific slot, not one shared hex. |
+| Background (light) | `#f3faf7` | --background in light mode. Warm-white mist, not neutral grey — the old table's #f3f3f3 was itself already off by the time it was written. |
+| Foreground / body text (light) | `#0a222e` | --foreground light mode. Near-black-navy body text on the mist canvas. |
+| Foreground / body text (dark) | `#e8f2f4` | --foreground dark mode. Soft off-white body copy on #041620 (deliberately muted, not pure white). |
+| Card (light) | `#f0f9f5` | --card light surface panels. |
+| Popover (light) | `#f4fdfa` | --popover light: menus/tooltips. |
+| Muted foreground (light) | `#3a524b` | --muted-foreground light: secondary/label text. |
+| Muted foreground (dark) | `#a3babf` | --muted-foreground dark: secondary/label text. |
+| Accent surface (dark) | `#0a2e38` | --accent dark: hover/active fills. |
+| Border (dark) | `#073038` | --border dark: hairlines. |
+| Border / input (light) | `#dfece6` | --border / --input light: hairlines and input outlines. |
+| Input border (dark) | `#0a2e38` | --input dark: input outlines. Raw canon value; only 1.28:1 against `#041620` per CI-Common's own color-sheet audit (#214), under the 3:1 a real border needs. Use `#648893` (that audit's suggested fix) wherever this project draws a visible input border — see §4.8. |
+| Ring / focus (light) | `#0a6358` | --ring light-mode focus indicator — canon now equals --primary in both modes; there is no separate light-ring hue the way the old #90a1b9 implied. |
+| Ring / focus (dark), canon | `#c5e8dc` | --ring dark focus indicator — equals --primary (sage), not mint. **The "mint vs. teal" inconsistency this doc tried to resolve (Appendix A's D5, §8.10 open question 6) no longer exists in CI-Common: canon settled on sage uniformly.** Mint below is this project's own deliberate departure, not an unresolved canon question — see the Mint entry. |
+| Mint — project accent (not canon) | `#58ebbf` | Used throughout this GDD as the "emissive tell" / focus-glow motif (boot scan, mic-listening pulse, character halo). Not a `@companionintelligence/tokens` value in current canon — keep it, but as a named, deliberate local override (same pattern CI-Brand-Studio records for its own chart-1 override), not as "the canon ring." If this ships as a literal CI surface (the web player, a UMG HUD reusing shadcn-style tokens), record the override with a comment naming this doc, the way CONSUMING.md asks. |
+| Destructive (light) | `#ee3533` | --destructive light: errors, destructive actions. Unchanged. |
+| Destructive (dark) | `#ef7070` | --destructive dark: errors, destructive actions. Unchanged. |
+| Aqua | `#00a9a7` | Enriched accent --aqua. Bright secondary/CTA teal. Second color of --gradient-brand and the logo mid-tone (cls-2). Great for CTA glows and energetic 3D emissive accents. Unchanged. |
+| Aqua light | `#72ddd4` | Enriched --aqua-light. Light aqua accent; also the wordmark fill color (logo cls-3). Bright highlight. Unchanged. |
+| Teal-mid | `#409b9b` | Enriched --teal-mid. Mid teal used in dark charts and aurora/ambient washes. Unchanged. |
+| Logo deep teal | `#066c80` | Logo mark inner petals (cls-1). Its own artwork hex, not the UI --primary token before or after the rework — do not substitute either primary when reproducing the logo. |
+| Teal ramp 50 | `#eef7f8` | --teal-50 lightest tint (subtle fills, hero gradient end). Ramp is unchanged by the rework. |
 | Teal ramp 100 | `#d3e9ec` | --teal-100. |
-| Teal ramp 300 | `#7fbcc2` | --teal-300. Dark chart-1; ghost easter-egg glow color. |
+| Teal ramp 200 | `#abd4d8` | --teal-200 — this is the retired dark primary, now correctly *just* a ramp step. Fine to use as a ramp step (a light hover tint, a border); do not reach for it as --primary. |
+| Teal ramp 300 | `#7fbcc2` | --teal-300. Ghost easter-egg glow color, if still wanted — no longer the dark chart-1 (see Chart series below). |
 | Teal ramp 400 | `#4c9aa3` | --teal-400. |
 | Teal ramp 500 | `#1c8791` | --teal-500. |
-| Teal ramp 700 | `#0d5f67` | --teal-700 (hover/pressed step below primary). |
+| Teal ramp 600 | `#0f717a` | --teal-600 — this is the retired light primary, now correctly *just* a ramp step (a hover/pressed shade near primary). Fine to use as a ramp step; do not reach for it as --primary. |
+| Teal ramp 700 | `#0d5f67` | --teal-700. |
 | Teal ramp 800 | `#0e4a52` | --teal-800 (deep fills/borders). |
-| Success (light) | `#16a34a` | --success light (dark: #4ade80). Healthy/confirmed status. |
-| Warning (light) | `#d97706` | --warning light (dark: #fbbf24). Caution status. |
-| Info (light) | `#0284c7` | --info light (dark: #38bdf8). Neutral notice status. |
-| Chart series (light) | `#f54900` | --chart-1..5 light: #f54900, #009689, #104e64, #ffb900, #fe9a00. Data-viz series (warm-to-teal mix). |
-| Chart series (dark) | `#7fbcc2` | --chart-1..5 dark: #7fbcc2, #409b9b, #079d99, #70a6af, #2c676d. All-teal monochrome series for dark HUD graphs. |
-| Sidebar-primary (light) navy | `#0f172b` | --sidebar-primary stays NAVY in light mode (only teal #abd4d8 in dark) — intentional canon, do not 'fix' to teal. |
-| Gradient — brand (start) | `#0f717a` | --gradient-brand = linear-gradient(135deg, #0f717a, #00a9a7). Primary CTA/emissive gradient (teal to aqua). |
-| Gradient — hero (start) | `#e8f9f8` | --gradient-hero = linear-gradient(135deg, #e8f9f8, #abd4d8). Soft light hero wash. |
-| Marketing sage (chimera layer) | `#759582` | Marketing-only 'liquid glass' layer: sage-green border #759582, gold reflection #d3b973, CTA gradient #125e5b→#186b56→#00a9a7. Off-canon website texture, NOT core UI tokens — marketing/immersive surfaces only. |
+| Success (light) | `#0f5132` | --success light. Deep green, not a saturated Tailwind green — healthy/confirmed status. |
+| Success (dark) | `#34d399` | --success dark. |
+| Warning (light) | `#855500` | --warning light. Deep amber, not Tailwind's #d97706. |
+| Warning (dark) | `#fbbf24` | --warning dark. Unchanged from the old table. |
+| Info (light) | `#0284c7` | --info light. Unchanged from the old table. |
+| Info (dark) | `#38bdf8` | --info dark. Unchanged from the old table. |
+| Chart series (light) | `#ff3f00` `#0a6358` `#066c80` `#ffb900` `#00a9a7` | --chart-1..5 light. chart-1 aliases --heat (below) rather than sitting in the teal family, so series 1 is a deliberate warm break against an otherwise teal-and-aqua set; chart-4 (amber) and chart-5 (aqua) are unchanged from the old table. |
+| Chart series (dark) | `#c5e8dc` `#409b9b` `#079d99` `#70a6af` `#066c80` | --chart-1..5 dark. chart-1 stays sage (equals --primary dark) even though light chart-1 is warm — heat itself never flips with theme. chart-2/3/4 are unchanged from the old table. |
+| Heat — rare accent | `#ff3f00` | --heat, theme-stable (does not flip between light/dark). Voice-orb / one-CTA-per-view territory in the wider CI product line — reserved, not a general accent. Not in the old table at all; listed because it's now where light chart-1 comes from. |
+| Sidebar-primary (light) | `#0a6358` | --sidebar-primary now equals --primary in light mode. The old table's "#0f172b navy, do not fix to teal" guidance is gone — that was true of the old shadcn-default sidebar scheme, not of current canon. |
+| Sidebar-primary (dark) | `#c5e8dc` | --sidebar-primary dark — equals --primary dark (sage), not the retired #abd4d8. |
+| Gradient — brand (start) | `#0a6358` | --gradient-brand = linear-gradient(135deg, #0a6358, #00a9a7). Primary CTA/emissive gradient (phthalo to aqua) — same aqua endpoint as before, only the start moved with primary. |
+| Gradient — hero (start) | `#f3faf7` | --gradient-hero = linear-gradient(135deg, #f3faf7, #abd4d8). Soft light hero wash — mist to teal-200 ramp step (ramp didn't move, so only the start hex changed to match the new light background). |
+| Marketing sage (chimera layer) | `#759582` | Marketing-only 'liquid glass' layer: sage-green border #759582, gold reflection #d3b973, CTA gradient #125e5b→#186b56→#00a9a7. Off-canon website texture, NOT core UI tokens — marketing/immersive surfaces only. Unaffected by the primary rework; left as the old table had it. |
 
-**Motifs:** Deep teal-navy #041620 shell with muted-teal panels (#0a222e) and teal-accent hairlines (#2c676d) — the signature CI 'dark, calm, technical-authority' surface; ideal base for a 3D HUD and world tint.; Teal→aqua brand gradient linear-gradient(135deg, #0f717a, #00a9a7) for primary CTAs and emissive/glow accents; hero wash linear-gradient(135deg, #e8f9f8, #abd4d8) for light surfaces.; Aurora radial wash behind hero/HUD content: radial-gradient(120% 90% at 50% -10%, rgba(64,155,155,.28), transparent 60%) in dark; subtle teal top-lift on the shell (radial from 50% -20%).; Mint focus/selection glow (#58ebbf) and teal-tinted elevation shadows (light: rgba(15,113,122,.08–.14); dark: black) — soft, low, never heavy drop shadows.; Liquid-glass panels (marketing/spatial): 8px radius, backdrop blur 18–32px, translucent white fill, sage-green border rgba(117,149,130,.22), faint gold 135deg reflection sheen — glassmorphism for immersive/3D surfaces.; Ambient technical backdrops: 24px grid overlays, thin horizontal 'beam' light lines, cyberpunk comparison matrices in mono caps — a restrained sci-fi 'ghost in the shell' texture (there is even a literal rare drifting-ghost easter egg).; Terminal/code motif: near-black #031017 window with red/amber/green traffic dots, mono type, aqua-mint body text #c5f7f2, blinking cursor — for developer-empowerment surfaces.; Rounded geometry system: base radius 0.625rem/10px, scale 6/8/10/14/20px, pills rounded-full; controls default rounded-md/lg. Marketing uses a tighter 8px radius.; Monochrome-teal data viz in dark mode (chart series all teal: #7fbcc2/#409b9b/#079d99/#70a6af/#2c676d) so graphs recolor with the theme.; lucide-react iconography only, size-4 (16px) default / size-5 prominent, currentColor inherit — consistent thin-line icon language; do not mix icon sets.
+**Motifs:** Deep teal-navy #041620 shell with panels (#0c323c card / #143e48 popover) and dark accent fills (#0a2e38) — the signature CI 'dark, calm, technical-authority' surface; ideal base for a 3D HUD and world tint.; Phthalo→aqua brand gradient linear-gradient(135deg, #0a6358, #00a9a7) for primary CTAs and emissive/glow accents; hero wash linear-gradient(135deg, #f3faf7, #abd4d8) for light surfaces.; Aurora radial wash behind hero/HUD content: radial-gradient(120% 90% at 50% -10%, rgba(64,155,155,.28), transparent 60%) in dark; subtle teal top-lift on the shell (radial from 50% -20%) — this wash's own rgba values are unaffected by the primary rework.; Mint focus/selection glow (#58ebbf, this project's own accent, not a canon token — see the Mint row above) and phthalo-tinted elevation shadows (light: rgba(10,99,88,.05–.08); dark: black) — soft, low, never heavy drop shadows.; Liquid-glass panels (marketing/spatial): 8px radius, backdrop blur 18–32px, translucent white fill, sage-green border rgba(117,149,130,.22), faint gold 135deg reflection sheen — glassmorphism for immersive/3D surfaces, unaffected by the primary rework.; Ambient technical backdrops: 24px grid overlays, thin horizontal 'beam' light lines, cyberpunk comparison matrices in mono caps — a restrained sci-fi 'ghost in the shell' texture (there is even a literal rare drifting-ghost easter egg).; Terminal/code motif: near-black #031017 window with red/amber/green traffic dots, mono type, aqua-mint body text #c5f7f2, blinking cursor — for developer-empowerment surfaces, unaffected by the primary rework.; Rounded geometry system: base radius 0.625rem/10px, scale 6/8/10/14/20px, pills rounded-full; controls default rounded-md/lg. Marketing uses a tighter 8px radius.; Data viz in dark mode (chart series #c5e8dc/#409b9b/#079d99/#70a6af/#066c80 — sage-and-teal, not the old all-#7fbcc2-family monochrome) so graphs recolor with the theme.; lucide-react iconography only, size-4 (16px) default / size-5 prominent, currentColor inherit — consistent thin-line icon language; do not mix icon sets.
 
 **Brand voice — tone:** CI speaks like someone who already left the cloud and wants to tell you exactly why: specific, slightly impatient with surveillance capitalism, genuinely excited about owning your own stack. In-product this reads as plain, confident, and never corporate — the interface should sound like it belongs to YOU, because the machine does. Peer-to-peer, plainspoken, grounded; empowering, never fearful; earns every claim with a number instead of an adjective.
 
@@ -1604,7 +1618,7 @@ The 12 staged props (in `scene/extracted/`, all now UE-import-ready FBX + textur
 | CI-OpenClaw | A containerized build of OpenClaw (an autonomous browser/agent runtime) hardened for the CI marketplace — API-key setup UI, headless-browser sandbox, gateway-token management, Homebrew tool install. Per its README it is an agent runtime, not infrastructure the avatar depends on: a peer autonomous agent sharing CI memory and Hub tools. | Runs behind the CI app proxy; bundles a companionintelligence memory plugin routing to CI-Server via CI_SERVER_URL + CI_SERVER_TOKEN, and gets Hub MCP tool access via a native mcp.servers.ci-hub entry (Streamable HTTP) from injected HUB_URL / HUB_MCP_API_KEY. | Phase-3. Shared substrate rather than an API the UE app calls: (1) both consume CI-Server /memory/* identically, so an OpenClaw task becomes context the avatar can recall; (2) both reach tools through the same Hub MCP endpoint. A future avatar-driven action could be delegated to an OpenClaw run and surfaced back through shared memory. |
 | CI-Import-Tools | Bulk personal-data importer: ingests archives (Google Takeout, Meta, messages, photos, location, contacts) into a local SQLite timeline, syncs to CI-Server, then triggers enrichment (people extraction, linking, geocoding, embeddings). Wizard + REST + MCP on port 12002. | Its own REST/MCP; downstream it POSTs CI-Server's bulk-ingest plane (/v1/events 1–1000/req, /v1/communications\|contents\|inventory\|browser-activity\|positions via NDJSON or {records} envelope, then /v1/ingest/finish + poll /v1/ingest/status). | Phase-3, no direct UE coupling. It populates the digital twin the avatar recalls from — what makes /memory/recall actually rich. Relevant only as the data-loading front of the same CI-Server. |
 | comfy (ComfyUI) | ComfyUI image/asset-generation app packaged for CI-OS-Hub (app id comfyui, port 8188, AI/Development). | ComfyUI HTTP API / web UI on :8188, installed as a Hub Docker app. | Phase-3, content-pipeline only — no runtime path into the UE app. Potential use: generating textures, backdrops, scene/diorama art (e.g. the 1970s datacenter level) and avatar-adjacent imagery, invoked out-of-band, not during a conversation turn. |
-| CI-Common | Shared-systems monorepo (design tokens, UI kit, contracts, auth, config, fonts). Not a runtime service the avatar calls, but the canonical source for cross-repo contracts and the auth model. | npm packages: @companionintelligence/auth (Portal-as-OIDC-IdP, PKCE, token verification), @companionintelligence/contracts (Zod source-of-truth, JSON Schema emitted for non-TS repos), @companionintelligence/tokens (teal #0f717a / Montserrat design system). | Reference/consistency only for a C++/UE app. The auth package confirms the Portal OIDC model the oauth2-proxy config already follows; contracts (JSON Schema) is where CaptureEvent / memory-turn shapes are defined — the schema a future UCIServerMemoryClient should serialize against. Any web companion UI/launcher card would adopt its tokens for brand parity. |
+| CI-Common | Shared-systems monorepo (design tokens, UI kit, contracts, auth, config, fonts). Not a runtime service the avatar calls, but the canonical source for cross-repo contracts and the auth model. | npm packages: @companionintelligence/auth (Portal-as-OIDC-IdP, PKCE, token verification), @companionintelligence/contracts (Zod source-of-truth, JSON Schema emitted for non-TS repos), @companionintelligence/tokens (phthalo #0a6358 / Manrope design system). | Reference/consistency only for a C++/UE app. The auth package confirms the Portal OIDC model the oauth2-proxy config already follows; contracts (JSON Schema) is where CaptureEvent / memory-turn shapes are defined — the schema a future UCIServerMemoryClient should serialize against. Any web companion UI/launcher card would adopt its tokens for brand parity. |
 
 **End-to-end data flow:** End-to-end turn for the embodied MetaHuman avatar (Pixel Streaming, headless UE on core-2):  1. AUTH/EDGE (once per viewer): browser -> oauth2-proxy :8095 (CI-Portal OIDC, generic oidc provider) -> on success proxies the player page and the signalling WebSocket to the internal signalling server (:8090 player, :8888 streamer). The UE app has no auth code; identity is passed upstream via pass_access_token/set_xauthrequest.  2. SESSION SEED (once): AMetaHumanCompanionCharacter calls GET {CI_SERVER_URL:8642}/memory/context (x-api-key = CI_SERVER_TOKEN) -> {block} markdown injected into the system prompt alongside MHLLM_SYSTEM_PROMPT. [Phase 2, new client.]  3. SPEECH IN: user mic audio -> UWhisperSpeechToText posts to WHISPER_SERVER_URL (whisper.cpp server) -> transcript text.  4. MEMORY RETRIEVAL: POST /memory/recall {query: transcript, maxResults} (x-api-key) -> hybrid keyword/semantic hits with entity hydration, folded into the prompt as retrieved context. [Phase 2.]  5. INFERENCE: UOpenAIChatClient POSTs /v1/chat/completions (SSE) to CI_HUB_URL with Bearer CI_HUB_TOKEN and model CI_HUB_MODEL — CI-Hub's OpenAI-compatible Ollama. Tokens stream back. (Phase 0 alternative: UOllamaClient -> OLLAMA_BASE_URL /api/chat.)  6. SPEECH OUT + LIP SYNC: response text -> UPiperTextToSpeech posts to PIPER_SERVER_URL -> WAV -> FWavAudioReader + FVisemeEnvelope compute RMS->jawOpen; CICompanion fires OnSetVisemeWeights / OnSetEmotion to drive the MetaHuman face; audio+video encode (VP8 software, or VAAPI H.264 on core-2's Radeon 8060S) and stream over WebRTC (coturn :3478 relay) back to the authenticated browser.  7. MEMORY WRITE-BACK: POST /memory/turn {sessionId, platform:\"metahuman\", messages:[user,assistant]} (dedup by SHA-256 UUIDv8) persists the exchange into the digital twin — the same afterTurn/sync_turn pattern CI-OpenClaw and CI-Hermes use, so all three share one memory brain. Background /memory/compact consolidates over time. [Phase 2.]  Steps 1, 3, 5, 6 exist today; steps 2, 4, 7 (the CI-Server memory calls) are the net-new Phase-2 work.
 
