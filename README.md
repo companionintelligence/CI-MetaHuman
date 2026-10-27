@@ -1,6 +1,9 @@
-# CI Metahuman — a locally-hosted embodied companion
+<h1 align="center">CI Metahuman — a locally-hosted embodied companion</h1>
 
-> 📖 **Start with [`Docs/ARCHITECTURE.md`](Docs/ARCHITECTURE.md)**, indexed from
+<p align="center"><strong>📖 Start with Docs/ARCHITECTURE.md, indexed from</strong></p>
+
+<p align="center"><a href="docs/README.md">Documentation</a></p>
+
 > [`Docs/README.md`](Docs/README.md). This file is the orientation; that one is the spine.
 >
 > Rewritten 2026-08-02. The previous version described an earlier design (UE 5.8, a MetaHuman
