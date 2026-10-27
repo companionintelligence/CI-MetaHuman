@@ -109,3 +109,16 @@ Nia's Character Creator licence states *"Allows usage with AI: No."* The user ha
 is handled; it is recorded here because this is a document about an AI-driven character. MetaHuman
 assets may be rendered and animated but **not** used to train or enhance models. Flag to counsel
 before any commercial ship.
+
+<!-- companion-hub-readme-deep-review -->
+
+## Build and runtime reference
+
+| Stage | Platform | Entry point |
+|---|---|---|
+| Build and test | Windows | Follow the project build/test commands below |
+| Configure | Local environment | Use the checked-in configuration template and provide local credentials separately |
+| Deploy | Target runtime described in this repository | Review the known-gaps section before relying on unfinished behavior |
+
+This project distinguishes the character's intended role from the parts that are currently implemented. Treat the [Known gaps](#known-gaps) section as the source of truth for incomplete integrations, and do not commit secrets or private voice/persona data in configuration files.
+
