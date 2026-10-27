@@ -1,4 +1,4 @@
-# CI MetaHermit — a locally-hosted embodied companion
+# CI Metahuman — a locally-hosted embodied companion
 
 > 📖 **Start with [`Docs/ARCHITECTURE.md`](Docs/ARCHITECTURE.md)**, indexed from
 > [`Docs/README.md`](Docs/README.md). This file is the orientation; that one is the spine.
