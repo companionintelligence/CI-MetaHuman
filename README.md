@@ -2,7 +2,7 @@
 
 <p align="center"><strong>📖 Start with Docs/ARCHITECTURE.md, indexed from</strong></p>
 
-<p align="center"><a href="docs/README.md">Documentation</a></p>
+<p align="center"><a href="docs/README.md">Documentation</a> · <a href="https://docs.ci.computer/docs/reference/open-source-systems">Systems map</a></p>
 
 > [`Docs/README.md`](Docs/README.md). This file is the orientation; that one is the spine.
 >
