@@ -1,6 +1,44 @@
-# CI Metahuman — a locally-hosted embodied companion
+<h1 align="center">CI Metahuman — a locally-hosted embodied companion</h1>
 
-> 📖 **Start with [`Docs/ARCHITECTURE.md`](Docs/ARCHITECTURE.md)**, indexed from
+<p align="center"><strong>A locally hosted embodied companion built with Unreal Engine.</strong></p>
+
+[![release](https://img.shields.io/badge/release-not%20published-757575?style=flat-square)](https://github.com/companionintelligence/CI-MetaHuman/releases)
+[![platform](https://img.shields.io/badge/platform-Windows%20%C2%B7%20Linux%20Pixel%20Streaming-0a6358?style=flat-square)](https://github.com/companionintelligence/CI-MetaHuman)
+[![License](https://img.shields.io/badge/license-Commercial%20Standard-8a5a00?style=flat-square)](LICENSE.md)
+[![Discord](https://img.shields.io/badge/chat-Discord-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.com/invite/yQp9hwpzAa)
+
+<p align="center"><a href="docs/README.md">Documentation</a> · <a href="https://docs.ci.computer/docs/reference/open-source-systems">Systems map</a></p>
+
+<p align="center">
+  <a href="#build-and-test-windows"><img src="https://img.shields.io/badge/Build%20and%20run-Build%20and%20run-0a6358?style=for-the-badge&logo=windows&logoColor=white" alt="Build and run" height="30"></a>
+</p>
+
+
+## How it fits together
+
+Unreal C++ subsystems connect the chat backend to cognition, speech, emotion and face animation; the same authored project can run natively or stream from a Linux host.
+
+```mermaid
+flowchart LR
+  Browser[Text or microphone input] --> Backend[Chat and cognition backend]
+  Backend --> Voice[STT and TTS]
+  Backend --> Emotion[Emotion and response state]
+  Voice --> Face[Phoneme-timed facial animation]
+  Emotion --> Face
+  Face --> Unreal[Unreal avatar]
+  Unreal --> Delivery[Windows app or Pixel Streaming]
+```
+
+
+## Features
+
+| Feature | What it provides |
+|---|---|
+| **Conversation** | Use an interchangeable chat backend for local or OpenAI-compatible inference. |
+| **Voice** | Connect speech recognition and synthesis to phoneme-timed lip-sync. |
+| **Embodied behavior** | Coordinate cognition, emotion and facial animation in Unreal C++ subsystems. |
+| **Delivery** | Run natively on Windows or stream a Linux container with Pixel Streaming. |
+
 > [`Docs/README.md`](Docs/README.md). This file is the orientation; that one is the spine.
 >
 > Rewritten 2026-08-02. The previous version described an earlier design (UE 5.8, a MetaHuman
@@ -106,3 +144,16 @@ Nia's Character Creator licence states *"Allows usage with AI: No."* The user ha
 is handled; it is recorded here because this is a document about an AI-driven character. MetaHuman
 assets may be rendered and animated but **not** used to train or enhance models. Flag to counsel
 before any commercial ship.
+
+<!-- companion-hub-readme-deep-review -->
+
+## Build and runtime reference
+
+| Stage | Platform | Entry point |
+|---|---|---|
+| Build and test | Windows | Follow the project build/test commands below |
+| Configure | Local environment | Use the checked-in configuration template and provide local credentials separately |
+| Deploy | Target runtime described in this repository | Review the known-gaps section before relying on unfinished behavior |
+
+This project distinguishes the character's intended role from the parts that are currently implemented. Treat the [Known gaps](#known-gaps) section as the source of truth for incomplete integrations, and do not commit secrets or private voice/persona data in configuration files.
+
