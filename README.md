@@ -4,7 +4,7 @@
 
 [![release](https://img.shields.io/badge/release-not%20published-757575?style=flat-square)](https://github.com/companionintelligence/CI-MetaHuman/releases)
 [![platform](https://img.shields.io/badge/platform-Windows%20%C2%B7%20Linux%20Pixel%20Streaming-0a6358?style=flat-square)](https://github.com/companionintelligence/CI-MetaHuman)
-[![License](https://img.shields.io/badge/license-Commercial%20Standard-8a5a00?style=flat-square)](LICENSE.md)
+[![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-0a6358?style=flat-square)](LICENSE)
 [![Discord](https://img.shields.io/badge/chat-Discord-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.com/invite/yQp9hwpzAa)
 
 <p align="center"><a href="docs/README.md">Documentation</a> · <a href="https://docs.ci.computer/docs/reference/open-source-systems">Systems map</a></p>
@@ -139,6 +139,8 @@ SSH), **head motion and gesture**, **tool calling**, and **auth** — the OIDC g
 and `:8090` is open on the tailnet.
 
 ## Licensing
+
+CI-MetaHuman's first-party code is free for noncommercial use under the [PolyForm Noncommercial License 1.0.0](LICENSE). See the [License FAQ](Docs/License-FAQ.md). Epic Games Unreal Engine and MetaHuman assets are **not** covered by this license; they remain under Epic's EULA terms (see [NOTICE.md](NOTICE.md)).
 
 Nia's Character Creator licence states *"Allows usage with AI: No."* The user has stated licensing
 is handled; it is recorded here because this is a document about an AI-driven character. MetaHuman

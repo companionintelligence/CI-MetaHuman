@@ -14,7 +14,24 @@ licence (MIT, Apache-2.0, ISC, BSD or similar).
 
 Except as noted above, the contents of this repository are
 Copyright © LifeScope INC, DBA Companion Intelligence (<https://ci.computer>),
-licensed under the terms in [LICENSE](LICENSE) / [LICENSE.md](LICENSE.md).
+licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE).
+
+Required Notice: Copyright LifeScope INC, DBA Companion Intelligence (https://ci.computer)
+
+## Epic Games Unreal Engine and MetaHuman assets (not covered)
+
+The PolyForm Noncommercial License 1.0.0 applies to Companion Intelligence's own
+code and content only. It does **not** cover Epic Games' Unreal Engine, Unreal
+Engine source or tools, MetaHuman characters, or any other Epic Games or
+Fab/Marketplace assets used or referenced by this project. Those remain under
+the Epic Games End User License Agreement and the applicable Unreal Engine /
+MetaHuman terms, and you must obtain and comply with them yourself. Third-party
+content in `Content/` (for example the KhaosMDF492 clothing assets) remains under
+its own licence. Nothing here grants any right in Epic's or any third party's
+materials.
+
+_Flagged for legal review: confirm the Epic EULA and MetaHuman terms permit the
+intended distribution of the `.uasset` content in this repository._
 
 ---
 
