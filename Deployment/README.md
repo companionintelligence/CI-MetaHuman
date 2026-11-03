@@ -80,6 +80,10 @@ cp .env.edge.example .env.edge   # the two oauth2-proxy secrets; the login proxy
 openssl rand -base64 32          # value for OAUTH2_PROXY_COOKIE_SECRET in .env.edge
 ```
 
+The Pixel Streaming render defaults to 1280x720 (`STREAM_RES_X`/`STREAM_RES_Y`). Override both values
+in `.env` when a host can sustain a larger frame; 1920x1080 saturated the preview RTX 4080 and
+produced a low, unstable frame rate during a long browser session.
+
 [`.env.example`](.env.example) and [`.env.edge.example`](.env.edge.example) **are the reference for
 every key** — each carries its own comment, its default, and (where it matters) why it ships blank.
 There is deliberately no second copy of that list here. The values with no usable default are
