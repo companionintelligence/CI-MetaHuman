@@ -1,4 +1,5 @@
-# NVIDIA override — Vulkan render + NVENC hardware encode.
+# NVIDIA override — Vulkan rendering on NVIDIA, with the tested software VP8 stream fallback.
+# Set PIXEL_STREAMING_ENCODER_CODEC=H264 only after NVENC has been verified from this image.
 #
 #   docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up
 #
@@ -7,7 +8,26 @@
 # in ~/.config/cdi/nvidia.yaml without changing or restarting the daemon.
 
 services:
+  kokoro-align:
+    image: ci/kokoro-align:local
+    build:
+      context: ./kokoro-align
+      dockerfile: Dockerfile
+    command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "13401"]
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - kokoro-align-models:/root/.cache/huggingface
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:13401/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+
   project:
+    depends_on:
+      kokoro-align:
+        condition: service_healthy
     command:
       - "-RenderOffscreen"
       - "-Vulkan"
@@ -15,7 +35,7 @@ services:
       - "-ResX=1920"
       - "-ResY=1080"
       - "-PixelStreamingUrl=${PIXEL_STREAMING_URL:-ws://127.0.0.1:8888}"
-      - "-PixelStreamingEncoderCodec=${PIXEL_STREAMING_ENCODER_CODEC:-H264}"
+      - "-PixelStreamingEncoderCodec=${PIXEL_STREAMING_ENCODER_CODEC:-VP8}"
       - "-Unattended"
       - "-StdOut"
       - "-FullStdOutLogOutput"
@@ -24,3 +44,7 @@ services:
     environment:
       VK_ICD_FILENAMES: "/etc/vulkan/icd.d/nvidia_icd.json"
       NVIDIA_DRIVER_CAPABILITIES: "all"
+      KOKORO_ALIGNER_URL: "http://127.0.0.1:13401"
+
+volumes:
+  kokoro-align-models:

@@ -45,11 +45,14 @@ ports 8090, 8888, and 8889 published only on `127.0.0.1`; oauth2-proxy is the on
 1. **Epic image access** — link your GitHub account to Epic Games and accept the UE EULA,
    then `docker login ghcr.io`. Grants access to `ghcr.io/epicgames/unreal-engine:*` and the
    signalling-server image.
-2. **GPU host** — a Linux host that can render (Vulkan) and hardware-encode video. Two paths:
+2. **GPU host** — a Linux host that can render (Vulkan) and encode video. Two GPU paths:
    - **NVIDIA** — GPU with Vulkan and NVENC. Use the default `Dockerfile` +
-     `docker-compose.nvidia.yml` and NVIDIA Container Toolkit CDI. For rootless Docker, generate the
-     user-scoped spec with `nvidia-ctk cdi generate --output="$HOME/.config/cdi/nvidia.yaml"`;
-     this does not require changing or restarting the Docker daemon.
+     `docker-compose.nvidia.yml` and NVIDIA Container Toolkit CDI. The default stream codec is VP8:
+     this was verified on the RTX 4080 preview because Unreal's H.264/NVENC encoder failed to
+     initialize in the runtime container even though NVENC worked on the host. For rootless Docker,
+     generate the user-scoped spec with `nvidia-ctk cdi generate --output="$HOME/.config/cdi/nvidia.yaml"`;
+     this does not require changing or restarting the Docker daemon. Set
+     `PIXEL_STREAMING_ENCODER_CODEC=H264` only after validating NVENC in the app container.
    - **AMD** (e.g. core-2, a Strix Halo APU) — GPU render via `/dev/dri`; encode is **VP8 in
      software**, since PixelStreaming supports NVENC and AMF and neither works on RADV/Linux. Use
      `Dockerfile.amd` + `docker-compose.amd.yml`. The current UE 5.8 MetaHuman build cooks but
@@ -127,7 +130,7 @@ The override files, each documented in its own header comment:
 
 | File | What it adds |
 |---|---|
-| `docker-compose.nvidia.yml` | NVIDIA Vulkan render + NVENC H.264 through the `nvidia.com/gpu=all` CDI device |
+| `docker-compose.nvidia.yml` | NVIDIA Vulkan render through `nvidia.com/gpu=all` CDI; VP8 is the default stream codec until NVENC initializes in the app container; starts the CPU-only Kokoro alignment sidecar beside the renderer |
 | `docker-compose.amd.yml` | GPU render + `/dev/dri` device plumbing (`RENDER_GID`/`VIDEO_GID`, `LIBVA_DRIVER_NAME`). Encode stays **VP8 in software** — PixelStreaming's hardware paths are NVENC and AMF, neither of which exists on RADV/Linux, so the file selects VP8 explicitly rather than let a doomed probe run |
 | `docker-compose.ollama.yml` | pins `MHLLM_BACKEND: ollama`; `OLLAMA_BASE_URL`/`OLLAMA_MODEL` defaults |
 | `docker-compose.face.yml` | the companion/face stack: pins `ollama`, the beta-1 model and voice endpoints, persona, opening shot |
@@ -249,10 +252,19 @@ comments explain each case.
 - **Pixel Streaming 2** is the plugin enabled in the `.uproject`
   (`-PixelStreamingUrl=ws://127.0.0.1:8888`). For the legacy Pixel Streaming plugin, substitute
   `-PixelStreamingIP`/`-PixelStreamingPort`.
+- **Encoder and player codec must match.** The mounted `pixelstreaming/player.html` selects VP8 unless
+  the URL explicitly sets `PreferredCodec`; the NVIDIA and AMD previews use VP8 when H.264 hardware
+  encoder initialization is unavailable. This avoids the misleading state where WebRTC connects
+  and audio flows, but the browser waits forever for video.
 - **Runtime validation.** On 2026-11-02 the Linux build and cook completed on core-2; the UE 5.8
   renderer then aborted in RADV, so core-2 is not a supported renderer for these assets. A stable
   preview is now running on the Razer RTX 4080 over Tailscale: Vulkan sees the GPU, the face driver
   resolves all 42 curves, Pixel Streaming joins, and the opening response is generated and spoken.
-  Kokoro phoneme alignment is unavailable on the beta-1 host, so lip motion uses the app's
-  rescaled timing fallback. SSO redirects to CI Portal; finishing passkey sign-in is a browser-side
-  step. See [`core-2-runbook.md`](core-2-runbook.md).
+  The player initially negotiated WebRTC and audio but no video because the UE H.264/NVENC encoder
+  could not initialize in the container; matching the tested VP8 codec in the app and player now
+  streams the 1920x1080 scene in the Codex browser. On NVIDIA previews, the same compose override
+  runs Kokoro alignment locally on port 13401; live speech returned measured phoneme timing aligned
+  to the generated voice clip. The static conversation camera is 300cm back at 28-degree FOV, with
+  the look point lowered and shifted slightly to give her more room beside the chat HUD. SSO
+  redirects to CI Portal; passkey completion remains a browser-side step. See
+  [`core-2-runbook.md`](core-2-runbook.md).

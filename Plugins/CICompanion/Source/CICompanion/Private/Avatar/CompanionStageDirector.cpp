@@ -136,7 +136,7 @@ void UCompanionStageDirector::OnWorldBeginPlay(UWorld& InWorld)
 	}
 	if (UCameraComponent* Cam = Camera->GetCameraComponent())
 	{
-		Cam->SetFieldOfView(21.0f);
+		Cam->SetFieldOfView(28.0f);
 		// Portrait needs BOTH the resolution and this: a CameraComponent constrains its aspect
 		// ratio by default, which letterboxes a 16:9 image inside the 9:16 canvas.
 		Cam->SetConstraintAspectRatio(false);
@@ -253,10 +253,16 @@ void UCompanionStageDirector::BuildPath(const FVector& Subject, float EyeZ)
 {
 	// The move: begin deep in the hall looking down the rank of machines, sweep forward and
 	// around, and arrive at the call framing. The final key MUST match the framing solved for the
-	// static shot (160cm back, aimed 22cm below the eyeline) or the shot would jump at handover.
-	const float FinalDist = 160.0f;
+	// static shot (300cm back, 28-degree FOV, aimed below and just left of the eyeline) or the
+	// shot would jump at handover.
+	// The closer 160cm shot made the resident dominate the 16:9 frame and left too little of the
+	// room visible around her. The moderate FOV and small look-point offset leave space for the
+	// persistent chat HUD without turning the resident into a distant background figure.
+	const float FinalDist = 300.0f;
 	const FVector Settle(Subject.X - FinalDist, Subject.Y, EyeZ - 8.0f);
-	const FVector SettleLook(Subject.X, Subject.Y, EyeZ - 12.0f);	// must match author_diorama LOOK_AT
+	const FVector SettleLook(Subject.X, Subject.Y - 18.0f, EyeZ - 25.0f);
+	UE_LOG(LogCompanionStage, Log, TEXT("Call framing measured: %.0fcm from subject, FOV 28 degrees."),
+		FVector::Dist(Settle, FVector(Subject.X, Subject.Y, EyeZ)));
 
 	Path.Reset();
 	// Wide, high, deep in the hall — establishes the room before it establishes her.
