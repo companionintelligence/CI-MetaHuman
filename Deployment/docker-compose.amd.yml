@@ -32,7 +32,7 @@ services:
       # AMD VAAPI driver for the video encoder.
       LIBVA_DRIVER_NAME: "radeonsi"
       # AMD RADV hardware Vulkan ICD (exact filename is radeon_icd.json on Mesa 26).
-      VK_ICD_FILENAMES: "/usr/share/vulkan/icd.d/radeon_icd.json"
+      VK_ICD_FILENAMES: "${VK_ICD_FILENAMES:-/usr/share/vulkan/icd.d/radeon_icd.json}"
       # ACO+SM5 still SIGABRT's in the SkyLight cubemap capture on Strix Halo. Under SM5 the
       # LLVM backend has no mesh-shader gate (that only blocked it under SM6), so it can init
       # the RHI AND uses different codegen that may dodge the ACO crash. Last software lever.

@@ -175,7 +175,7 @@ revision, which is the exact failure this script exists to stop"*.
 | symbol | `SCompanionHUD.cpp` ∋ `EButtonClickMethod::MouseDown` | Send fires on press |
 | symbol | `CompanionRuntimeSubsystem.cpp` ∋ `RearmChatFocus` | the focus timer is present |
 | grep | `docker-compose.face.yml` ∋ `MHLLM_OPENING_LINE` | the compose carries the opening line |
-| grep | `author_diorama.py` ∋ `CAM_DIST = 160` | the solved framing survived staging |
+| grep | `author_diorama.py` ∋ `CAM_DIST = 106.0` | the solved framing survived staging |
 
 ```
 [ "$FAIL" -eq 0 ] || { echo "STAGE_FAILED — refusing to cook a stale tree"; exit 1; }

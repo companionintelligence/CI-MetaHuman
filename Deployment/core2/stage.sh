@@ -13,7 +13,7 @@ cd "$REPO"
 tar czf /tmp/proj-src.tgz \
   --exclude='*/Binaries/*' --exclude='*/Intermediate/*' \
   --exclude='*/Saved/*' --exclude='*/DerivedDataCache/*' \
-  Source Plugins Config Scripts Deployment MetaHumanLocalLLM.uproject
+  Source Plugins Config Scripts Deployment MetaHumanLocalLLM.uproject .dockerignore
 
 # The canonical name. Do NOT invent a second one: m2_clean.sh reads exactly this.
 scp -q /tmp/proj-src.tgz "$HOST:/home/ci/proj-src.tgz"
@@ -26,7 +26,9 @@ scp -q Deployment/core2/cap_burst.mjs "$HOST:/home/ci/shots/cap_burst.mjs" 2>/de
 ssh "$HOST" "docker run --rm --user root -v /home/ci:/host --entrypoint sh alpine:latest -c '
   rm -rf /host/cook-clean/Source /host/cook-clean/Plugins /host/cook-clean/Config \
          /host/cook-clean/Scripts /host/cook-clean/Deployment /host/cook-clean/MetaHumanLocalLLM.uproject
-  mkdir -p /host/cook-clean && tar xzf /host/proj-src.tgz -C /host/cook-clean'"
+  mkdir -p /host/cook-clean && tar xzf /host/proj-src.tgz -C /host/cook-clean && \
+  find /host/cook-clean -type f -name ._\\* -delete
+  find /host/cook-clean -type f -name .DS_Store -delete'"
 
 echo '--- verifying staged sources ---'
 FAIL=0
@@ -41,6 +43,7 @@ check_symbol() {  # path-in-cook-tree, pattern, human name -- a file can be pres
   if ssh "$HOST" "grep -q '$2' /home/ci/cook-clean/$1"; then echo "  OK   $3"; else echo "  MISS $3"; FAIL=1; fi
 }
 check_file "Plugins/CICompanion/Source/CICompanion/Private/Avatar/CompanionStageDirector.cpp" "stage director"
+if ssh "$HOST" "find /home/ci/cook-clean -type f -name '._*' -print -quit | grep -q ."; then echo "  MISS macOS metadata sidecars removed"; FAIL=1; else echo "  OK   macOS metadata sidecars removed"; fi
 check_file "Plugins/CICompanion/Source/CICompanion/Private/Avatar/CompanionRuntimeSubsystem.cpp" "companion runtime"
 check_file "Plugins/CICompanion/Source/CICompanion/Private/Voice/KokoroTextToSpeech.cpp" "kokoro tts"
 check_symbol "Plugins/CICompanion/Source/CICompanion/Private/UI/SCompanionHUD.cpp" "RestoreInputFocusIfLost" "hud: focus guard"
@@ -57,6 +60,6 @@ check_symbol "Plugins/CICompanion/Source/CICompanion/Private/Avatar/CompanionRun
 check_symbol "Plugins/CICompanion/Source/CICompanion/Private/Avatar/CompanionRuntimeSubsystem.cpp" "GetTextToSpeech" "runtime: one voice, adopted from the companion"
 check_grep "docker-compose.face.yml" "MHLLM_OPENING_LINE" "compose: opening line"
 check_grep "docker-compose.face.yml" "KOKORO_ALIGNER_URL" "compose: aligner url"
-check_grep "stage-out/author_diorama.py" "CAM_DIST = 160" "author: solved framing"
+check_grep "stage-out/author_diorama.py" "CAM_DIST = 106.0" "author: solved framing"
 [ "$FAIL" -eq 0 ] || { echo "STAGE_FAILED — refusing to cook a stale tree"; exit 1; }
 echo "STAGE_OK"

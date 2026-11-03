@@ -31,7 +31,22 @@ RUN /home/ue4/UnrealEngine/Engine/Build/BatchFiles/RunUAT.sh BuildCookRun \
 # ---- Runtime image ---------------------------------------------------------------------
 FROM ghcr.io/epicgames/unreal-engine:runtime-pixel-streaming
 
+# Headless Vulkan through NVIDIA's container driver needs the EGL/GLVND loader and X11
+# compatibility libraries even when no display server is used. Without these, nvidia-smi sees
+# the GPU but the Vulkan loader rejects libGLX_nvidia.so.0 with VK_ERROR_INCOMPATIBLE_DRIVER.
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libegl1 \
+        libgl1 \
+        libx11-6 \
+        libx11-xcb1 \
+        libxext6 \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=builder --chown=ue4:ue4 /home/ue4/project-src/dist/Linux /home/ue4/project
+
+USER ue4
 
 # The packaged launch script. Runtime flags (Pixel Streaming URL, resolution, env-driven
 # CI-hub config) are supplied by docker-compose.yml so one image serves every environment.

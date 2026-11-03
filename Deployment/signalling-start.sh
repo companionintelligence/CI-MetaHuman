@@ -4,7 +4,7 @@
 # PATCHED for ci-metahermit: this is the stock SignallingWebServer start.sh with two changes:
 #   - "--https_redirect" removed from SERVER_ARGS (it binds port 80, which is already taken on
 #     core-2), and
-#   - explicit "--http_port=8090 --streamer_port=8888" added.
+#   - explicit "--player_port=8090 --streamer_port=8888" added.
 # Everything else — the common.sh sourcing, parse_args, setup (npm install/link/build),
 # set_public_ip, setup_turn_stun, and start_wilbur (npm start) — is verbatim stock, so the
 # build/link/run path is exactly Epic's (my earlier hand-rolled launcher skipped setup's
@@ -15,7 +15,11 @@ SCRIPT_DIR="$(cd -P -- "$(dirname -- "$0")" && pwd -P)"
 
 parse_args $@
 setup $@
-set_public_ip
+# Compose pins this to the tailnet address for a private deployment. Keep the stock public-IP
+# discovery only for standalone deployments that did not set PUBLIC_IP.
+if [[ -z "${PUBLIC_IP:-}" ]]; then
+    set_public_ip
+fi
 setup_turn_stun "bg"
 
 SERVER_ARGS+=" --serve --player_port=8090 --streamer_port=8888 --public_ip=${PUBLIC_IP}"

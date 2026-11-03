@@ -7,8 +7,8 @@
 #   project (packaged UE app, GPU)  ── streamer ws ──────────┘
 #                                  └── chat ──▶ CI-hub Ollama (OpenAI-compatible, via env)
 #
-# All services use host networking (lowest WebRTC latency, per Epic's guidance). Only the
-# OIDC proxy's :8095 should be exposed publicly; keep the signalling HTTP port internal.
+# The Unreal app and coturn use host networking. The signalling server runs in bridge mode with
+# its ports published on loopback only; the OIDC proxy is the only browser entry point.
 # (:8095, not :8080 — :8080 is already in use on core-2 by the CI marketplace stack.)
 
 services:
@@ -31,8 +31,8 @@ services:
       - "--no-dtls"
       - "--no-tls"
 
-  # Epic's Pixel Streaming signalling server. Player HTTP on 8090 (kept internal, fronted by
-  # the OIDC proxy); streamer WebSocket on 8888 for the UE app.
+  # Epic's Pixel Streaming signalling server. Bind host ports only to loopback: player HTTP on
+  # 8090 sits behind the OIDC proxy, and the UE app reaches streamer WebSocket on localhost:8888.
   # Epic only publishes this image up to :5.5 (newer versions live in the open-source
   # EpicGamesExt/PixelStreamingInfrastructure repo). :5.5 interoperates with a 5.8
   # PixelStreaming2 streamer in practice; if the streamer fails to register, build the
@@ -40,19 +40,20 @@ services:
   signalling:
     image: "${SIGNALLING_IMAGE:-ghcr.io/epicgames/pixel-streaming-signalling-server:5.5}"
     init: true
-    network_mode: "host"
-    command:
-      - "--publicIp=${PUBLIC_IP}"
-      - "--HttpPort=8090"
-      - "--StreamerPort=8888"
-      - >-
-        --peerConnectionOptions={
-            "iceServers":[
-              { "urls":["stun:stun.l.google.com:19302"] },
-              { "urls":["turn:${PUBLIC_IP}:3478"], "username":"${TURN_USER}", "credential":"${TURN_PASSWORD}" }
-            ]
-          }
+    entrypoint: ["bash", "/SignallingWebServer/platform_scripts/bash/start.sh", "--nosudo"]
+    command: []
+    environment:
+      PUBLIC_IP: "${PUBLIC_IP}"
+      STUN_SERVER: "stun.l.google.com:19302"
+      TURN_SERVER: "${PUBLIC_IP}:3478"
+      TURN_USER: "${TURN_USER}"
+      TURN_PASS: "${TURN_PASSWORD}"
+    ports:
+      - "127.0.0.1:8090:8090/tcp"
+      - "127.0.0.1:8888:8888/tcp"
+      - "127.0.0.1:8889:8889/tcp"
     volumes:
+      - "./signalling-start.sh:/SignallingWebServer/platform_scripts/bash/start.sh:ro"
       # The stock player page defaults to the LOCKED-MOUSE control scheme, which makes every click
       # over the stream arrive at a virtual cursor position instead of the point the viewer clicked
       # -- measured landing at (0,640) and (720,1280) for clicks at (300,1269) and (657,1269). That
@@ -210,7 +211,7 @@ services:
       # What the Hub actually distributes, over GET /api/inference/apps/<slug>/credentials(.env),
       # is the backend's OWN OpenAI base — `${ollamaBaseUrl}/v1`, where ollamaBaseUrl resolves to
       # host.docker.internal / 172.17.0.1 / localhost on :11434 (inference/backends/ollama.backend.ts).
-      # Every service here is network_mode: host, so on a box that also runs the Hub's Ollama that
+      # The project container uses host networking, so on a box that also runs the Hub's Ollama that
       # is the loopback address below. Point it elsewhere if Ollama is on another host.
       #
       # Note that CI-MetaHuman cannot fetch those credentials itself: the Hub's APP_ENV_KEYS table
@@ -239,8 +240,8 @@ services:
       - "-ForceRes"
       - "-ResX=1920"
       - "-ResY=1080"
-      - "-PixelStreamingUrl=ws://127.0.0.1:8888"
-      - "-PixelStreamingEncoderCodec=VP8"
+      - "-PixelStreamingUrl=${PIXEL_STREAMING_URL:-ws://127.0.0.1:8888}"
+      - "-PixelStreamingEncoderCodec=${PIXEL_STREAMING_ENCODER_CODEC:-VP8}"
       - "-Unattended"
       - "-StdOut"
       - "-FullStdOutLogOutput"
