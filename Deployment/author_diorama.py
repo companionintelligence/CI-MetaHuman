@@ -575,17 +575,17 @@ try:
     # the frame edge -- the shot read as an empty room. The reference photographs work because
     # the cabinets are CLOSE and TALL enough to fill the background behind a person.
     #
-    # A real 1401 aisle was roughly 3m; these banks sit ~1.6m either side of the centre line and
-    # begin ~0.9m behind her, so the nearest cabinets flank her shoulders and the rank converges
-    # into frame as it recedes.
+    # The live NVIDIA stream is 1920x1080. Keep the near banks within the camera's horizontal
+    # coverage so their machine faces read behind the resident; the second rank adds depth.
+    CAM_DIST = 180.0
     HALL = []
     for i, x in enumerate((420, 600, 780, 980, 1200, 1440)):
-        HALL.append((("ibm2401", "ibm3350", "ibm1401cpu")[i % 3], x, -155,  90, (183, 150, 170)[i % 3]))
-        HALL.append((("ibm1401", "ibm2401", "ibm3350")[i % 3],    x,  195, -90, (170, 183, 150)[i % 3]))
+        HALL.append((("ibm2401", "ibm3350", "ibm1401cpu")[i % 3], x, -105,  90, (183, 150, 170)[i % 3]))
+        HALL.append((("ibm1401", "ibm2401", "ibm3350")[i % 3],    x,  110, -90, (170, 183, 150)[i % 3]))
     for i, x in enumerate((520, 760, 1020, 1300)):
         # Second rank behind the first, giving depth past the near cabinets.
-        HALL.append((("ibm2401", "ibm3350")[i % 2], x, -430,  90, (183, 150)[i % 2]))
-        HALL.append((("ibm3350", "ibm2401")[i % 2], x,  470, -90, (150, 183)[i % 2]))
+        HALL.append((("ibm2401", "ibm3350")[i % 2], x, -300,  90, (183, 150)[i % 2]))
+        HALL.append((("ibm3350", "ibm2401")[i % 2], x,  310, -90, (150, 183)[i % 2]))
     # A far rank across the end of the hall, closing the vista.
     HALL.append(("ramac305", 1690, -120, 180, 170))
     HALL.append(("ibm1401",  1690,  160, 180, 170))
@@ -635,12 +635,13 @@ try:
                 reel_meshes.append(unreal.load_asset(str(a.package_name)))
         w("729: body=%s reels=%d" % (t_body is not None, len(reel_meshes)))
 
-        # The exported reel meshes are centered at their object origins. Place each hub 25cm along
-        # the cabinet's local -Y front face so the StaticMeshActor pivot stays on the hub for
-        # TapeReelSpinner; rotating the cabinet toward the aisle then carries the reels with it.
+        # The Blender model's open bay faces -Y. In the live Unreal capture, aiming that side at
+        # the camera showed the solid back, so the imported mesh's visible bay is Unreal-local +Y.
+        # Keep both reel hubs on that front face so the StaticMeshActor pivot stays on the hub for
+        # TapeReelSpinner.
         reel_offsets = {
-            "Reel_Supply": (-16.0, -25.0, 126.0),
-            "Reel_Takeup": (17.0, -25.0, 126.0),
+            "Reel_Supply": (-16.0, 25.0, 126.0),
+            "Reel_Takeup": (17.0, 25.0, 126.0),
         }
 
         placed729 = 0
@@ -648,10 +649,10 @@ try:
         for name, bx, bank_y, face, _tgt in HALL:
             if name != "ibm2401":
                 continue
-            # The legacy hall placeholder's yaw points along the aisle, but a 729's open bay is
-            # on local -Y. Turn the custom cabinets diagonally toward the resident camera and
-            # centre aisle so both banks show their reel bays in the shot.
-            tape_yaw = 225.0 if bank_y < 0 else -45.0
+            # The legacy hall placeholder's yaw points along the aisle. After GLTF axis conversion
+            # a 729's open bay is on Unreal-local +Y, so aim +Y at the live camera on each station.
+            camera_x, camera_y = 330.0 - CAM_DIST, 20.0
+            tape_yaw = math.degrees(math.atan2(bx - camera_x, camera_y - bank_y))
             if t_body:
                 a = spawn(unreal.StaticMeshActor, (bx, bank_y, 0), yaw=tape_yaw)
                 a.static_mesh_component.set_static_mesh(t_body)
@@ -1071,47 +1072,17 @@ try:
     # camera wins until the pawn spawn is understood.
     # TRADE-OFF: an auto-activated CameraActor becomes the view target, so player input moves
     # the pawn invisibly — free-look will stay dead until this is solved properly.
-    # PORTRAIT FRAMING — this is a video call, not a wide establishing shot.
-    #
-    # The brief is a FaceTime/Zoom call into an early-70s mainframe room, so the camera sits at
-    # the resident's eye level, close, on a long-ish lens, in a 9:16 frame (-ResX=720 -ResY=1280
-    # in docker-compose.amd.yml — the two must be changed together or the framing is meaningless).
-    #
-    # Geometry, so this can be re-derived rather than re-guessed. UE's field_of_view is
-    # HORIZONTAL and the aspect constraint keeps X FOV, so in portrait the vertical angle is the
-    # WIDER one: vFOV = 2*atan(tan(hFOV/2) / aspect), aspect = 720/1280 = 0.5625.
-    #   hFOV 18deg -> vFOV ~31.4deg -> at 2.0m that frames ~1.12m of her, head to upper chest.
-    # Centring on z=150 puts her eyeline in the upper third, which is where a face belongs in a
-    # portrait crop. Camera and subject share y, so she is dead-centre horizontally and the aisle
-    # recedes symmetrically past both shoulders.
+    # LANDSCAPE FRAMING — Razer's NVIDIA Pixel Streaming stream is 1920x1080. The previous
+    # 21-degree lens at 106cm produced a tight portrait crop in this landscape stream. A 65-degree
+    # lens at 180cm gives roughly 230cm horizontal and 129cm vertical coverage at the resident,
+    # while the computer banks sit wider than the centre aisle instead of crowding the foreground.
     #
     # She stands at (330, 20, 0) facing -X (actor yaw 90, see NIA_YAW), so the camera must be on
-    # the -X side of her to see a face rather than the back of her head.
-    # Eyeline comes from the measured mesh (NIA_EYE_Z above); the literal is only a fallback for
-    # the Seo path, where no measurement was taken.
+    # the -X side of her to see a face rather than the back of her head. Eyeline comes from the
+    # measured mesh (NIA_EYE_Z above); the literal is only a fallback for the Seo path.
     EYE_Z = float(globals().get("NIA_EYE_Z", 165.0))
-    # Distance is SOLVED for a target framing, not dialled in by eye, and the constant below is
-    # MEASURED off a shipped 720x1280 frame rather than derived -- the analytic version
-    #   coverage = 2*d*tan(vFOV/2),  vFOV = 2*atan(tan(hFOV/2)/(9/16))
-    # predicts 0.659*d, the render actually gives 0.6125*d (a 7% overestimate). Measured wins.
-    #
-    # DEAD TARGET, do not resurrect: earlier revisions of this comment aimed for "head to hips
-    # with the aisle visible past both shoulders". That framing does not exist at ANY distance.
-    # AspectRatioAxisConstraint=AspectRatio_MaintainYFOV holds the vertical, so horizontal is
-    # always aspect x vertical -- at 9:16, 0.5625x. Aisle past both shoulders needs ~120cm
-    # horizontal, which forces ~213cm vertical: head to knees. Chasing it is what produced the
-    # 160cm setup, whose 98cm of coverage put the CHEST at ~27% of frame area and made it the
-    # subject of the shot. For a product that opens with "Welcome to Companion Intelligence,
-    # I'm Eliza. How can I help you?", that is the wrong subject.
-    #
-    # A video call is a face against a soft background. Accept the hall as backdrop, not as
-    # side margin, and frame for the face:
-    #   coverage 65cm -> frame 141-206cm -> crop at mid-chest, 13cm headroom, eyes 40% from top
-    #   d = 65 / 0.6125 = 106cm
-    CAM_DIST = 106.0
     CAM_POS = (330.0 - CAM_DIST, 20.0, EYE_Z - 8.0)
-    # Frame centre wants 173.5cm to land 141-206. Camera sits at EYE_Z-8 (just under eye level,
-    # which is where a call camera sits), so this is a ~0.8deg lift rather than the old dip.
+    # Camera sits just under eye level, with a slight lift to centre the face.
     LOOK_AT = (330.0, 20.0, EYE_Z - 6.5)
     dx, dy, dz = (LOOK_AT[0]-CAM_POS[0], LOOK_AT[1]-CAM_POS[1], LOOK_AT[2]-CAM_POS[2])
     cam_yaw = math.degrees(math.atan2(dy, dx))
@@ -1120,17 +1091,14 @@ try:
     cam.set_actor_label("StageCamera")
     cam.set_editor_property("auto_activate_for_player", unreal.AutoReceiveInput.PLAYER0)
     try:
-        cam.camera_component.set_editor_property("field_of_view", 21.0)
-        # CRITICAL for portrait: a CameraComponent defaults to CONSTRAINING its aspect ratio, so
-        # a 16:9 camera rendered into a 9:16 viewport is letterboxed — the first attempt produced
-        # a wide strip of image with black bars filling most of a 720x1280 frame. Releasing the
-        # constraint lets the render fill the portrait viewport.
+        cam.camera_component.set_editor_property("field_of_view", 65.0)
+        # Let the camera fill the configured 16:9 stream without letterboxing.
         cam.camera_component.set_editor_property("constrain_aspect_ratio", False)
-        cam.camera_component.set_editor_property("aspect_ratio", 720.0 / 1280.0)
+        cam.camera_component.set_editor_property("aspect_ratio", 1920.0 / 1080.0)
     except Exception as e:
         w("fov warn " + str(e))
     spawn(unreal.PlayerStart, CAM_POS, yaw=cam_yaw, pitch=cam_pitch)
-    w("StageCamera ok (portrait 9:16, yaw=%.1f pitch=%.1f fov=21) — known issue: free-look input inert" %
+    w("StageCamera ok (landscape 16:9, yaw=%.1f pitch=%.1f fov=65) — known issue: free-look input inert" %
       (cam_yaw, cam_pitch))
 
     ok = les.save_current_level()

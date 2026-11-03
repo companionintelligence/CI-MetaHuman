@@ -52,9 +52,6 @@ TRIM_X = 0.40                       # chrome uprights stand 2cm proud of the she
 TRIM_FRONT, TRIM_BACK = -0.405, 0.3774
 
 REEL_R, REEL_T = 0.135, 0.045       # 10.5-inch reel, 4.5cm across the flange
-REEL_Z = 1.26                       # hub height: the bay sits at chest height on the real machine
-REEL_Y = -0.25                      # inside the cabinet, in front of the dark backing
-SUPPLY_X, TAKEUP_X = -0.16, 0.17    # not symmetric: the take-up side carries the capstan
 HUB_R, HUB_T = 0.045, 0.030         # chrome hub caps, part of the BODY -- they do not turn
 
 GLASS_X, GLASS_Z0, GLASS_Z1 = 0.3496, 0.81, 1.638     # dark backing behind the open reel bay
@@ -238,7 +235,7 @@ def build(mats):
     # Open-spoke transport reels, with both mesh geometry and object origin at the hub. Exporting
     # the node at the origin keeps Unreal's imported StaticMesh pivot on that hub; the Unreal
     # authoring script applies the measured cabinet offset exactly once when it spawns the actor.
-    for name, _x, mat in (("Reel_Supply", SUPPLY_X, REEL_A), ("Reel_Takeup", TAKEUP_X, REEL_W)):
+    for name, mat in (("Reel_Supply", REEL_A), ("Reel_Takeup", REEL_W)):
         half = REEL_T / 2.0
         parts = [(*disc(0.0, 0.0, 0.0, 0.098, 0.010, segments=48), 1),
                  (*annulus(REEL_R, 0.116, -half, -half + 0.009), 0),
