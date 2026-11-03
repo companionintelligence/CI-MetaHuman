@@ -59,8 +59,14 @@
     var url = new URL(window.location.href);
     if (!url.searchParams.has('HoveringMouse')) {
       url.searchParams.set('HoveringMouse', 'true');
-      window.history.replaceState(null, '', url.toString());
     }
+    // Match the app container's tested VP8 fallback. The signaling server can negotiate a peer
+    // while delivering audio only if the player insists on H.264 and the UE runtime cannot create
+    // its NVENC encoder. Keep an explicit URL choice available for testing or a later H.264 fix.
+    if (!url.searchParams.has('PreferredCodec')) {
+      url.searchParams.set('PreferredCodec', 'VP8');
+    }
+    window.history.replaceState(null, '', url.toString());
   } catch (e) { /* never let this stop the player from loading */ }
 })();
 (function () {
