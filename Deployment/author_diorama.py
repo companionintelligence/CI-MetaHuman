@@ -61,7 +61,6 @@ PROPS = [
     # down the aisle is the composition, so nothing may stand in it.
     ("ibm1401cpu", "ibm-1401-cpu.glb",      ( 490, -300, 0),    4, 170),
     ("ibm3350",    "ibm-3350-disk.glb",     ( 490,  210, 0),    7, 150),
-    ("ibm2401",    "ibm-2401-tape.glb",     ( 460,  370, 0),   20, 183),
     ("kenbak1",    "kenbak-1.glb",          ( 110, -330, 74), -29,  48),
     ("mouse63",    "engelbart-mouse.glb",   (  85, -285, 74), -11,  15),
     ("plugboard",  "plugboard.glb",         ( 155, -355, 74), -34,  90),
@@ -77,7 +76,7 @@ try:
     les = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
     eas = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
 
-    # ---------- import all 12 props (GLB via Interchange; materials+textures come with) ----------
+    # ---------- import all 11 props (GLB via Interchange; materials+textures come with) ----------
     def import_prop(name, glb):
         task = unreal.AssetImportTask()
         task.filename = GLB_DIR + "/" + glb
@@ -474,7 +473,7 @@ try:
     desk.set_actor_scale3d(unreal.Vector(1.6,1.4,0.12))   # 160x140cm top at ~72cm
     w("desk ok")
 
-    # ---------- the 12 props: measure -> normalize scale -> ground -> place ----------
+    # ---------- the 11 props: measure -> normalize scale -> ground -> place ----------
     # One placement routine, used both for the hero props and for the repeated hall behind them,
     # so a duplicated cabinet is normalized and grounded by exactly the same rules as the original.
     def place_prop(name, pos, yaw, target_cm, label=None):
@@ -592,6 +591,11 @@ try:
 
     hall = 0
     for name, hx, hy, hyaw, tgt in HALL:
+        # The 729 tape units are the custom, animated replacement for these legacy IBM 2401
+        # placeholders. Do not stack both assets at the same station: that made the reels look
+        # detached from their cabinets and produced overlapping silhouettes in the streamed shot.
+        if name == "ibm2401":
+            continue
         if place_prop(name, (hx, hy, 0), hyaw, tgt, label="hall_%s_%d_%d" % (name, hx, hy)):
             hall += 1
     w("machine hall: %d repeated cabinets" % hall)
@@ -608,7 +612,7 @@ try:
 
 
     # ---------- IBM 729 tape units (authored in Blender, not scavenged) ----------
-    # The scavenged props had no tape machine in them, so the hall was 20 featureless slabs. This
+    # The 729 replaces the old IBM 2401 placeholder at each tape-machine station in HALL. This
     # GLB is modelled to real 729 proportions (0.76 x 0.74 x 1.80m) with the reference palette.
     # Its two reels are SEPARATE objects with their own origins: that is the whole point, because a
     # reel baked into the shell looks identical in a still and can never turn. Spinning tape is the
@@ -627,37 +631,48 @@ try:
                 reel_meshes.append(unreal.load_asset(str(a.package_name)))
         w("729: body=%s reels=%d" % (t_body is not None, len(reel_meshes)))
 
+        # Interchange imports each GLB node mesh as its own StaticMesh asset. The node's
+        # translation is not retained when that mesh is later assigned to a new actor, so
+        # spawning both reel meshes at the cabinet origin strands two bare discs beside the
+        # machine (the obvious loose circles in the stream). Restore the measured node offsets
+        # from make_ibm729.py here. Blender's exported GLB coordinates resolve to Unreal cm as
+        # (x, -y, z): the reel hubs are 16/17cm off-centre, 25cm behind the front, and 126cm high.
+        # The cabinet faces down local -Y before its aisle yaw is applied.
+        reel_offsets = {
+            "Reel_Supply": (-16.0, -25.0, 126.0),
+            "Reel_Takeup": (17.0, -25.0, 126.0),
+        }
+
         placed729 = 0
-        for bank_y, face in ((-155.0, 90.0), (195.0, -90.0)):
-            for i in range(6):
-                bx = 560.0 + i * 190.0
-                if t_body:
-                    a = spawn(unreal.StaticMeshActor, (bx, bank_y, 0), yaw=face)
-                    a.static_mesh_component.set_static_mesh(t_body)
-                    a.set_actor_label("IBM729_%s_%d" % ("L" if bank_y < 0 else "R", i))
-                    placed729 += 1
-                # Reels ride as their own actors at the same transform, tagged for the spinner.
-                for rm in reel_meshes:
-                    r = spawn(unreal.StaticMeshActor, (bx, bank_y, 0), yaw=face)
-                    # MOVABLE, set BEFORE the mesh assignment. spawn() leaves a StaticMeshActor
-                    # at its default STATIC mobility, and UE refuses to transform a Static
-                    # component at runtime -- so UTapeReelSpinner rotated NOTHING while the log
-                    # filled with one
-                    #     "Mobility of ... has to be 'Movable' if you'd like to move"
-                    # per reel PER TICK: 24 actors x every frame = 29,342 warnings in a single
-                    # ~1-minute run, which also buries every real error above it. The runtime
-                    # still cheerfully logs "Tape reels spinning: 24", because the spinner counts
-                    # what it FOUND by tag, not what actually turned.
-                    # The reels are separate actors precisely so they CAN turn (see the note
-                    # above the import), so Static mobility silently defeats the entire reason
-                    # this GLB is modelled with detached reel objects. Ordered before
-                    # set_static_mesh for the same reason documented further down this file:
-                    # assigning a mesh to a Static-mobility component has its own caveats.
-                    r.static_mesh_component.set_editor_property("mobility", MOVABLE)
-                    r.static_mesh_component.set_static_mesh(rm)
-                    r.tags = ["TapeReel"]
-                    r.set_actor_label("Reel_%s_%d_%s" % ("L" if bank_y < 0 else "R", i, rm.get_name()))
-        w("729 tape units placed: %d bodies, %d reel actors" % (placed729, placed729 * len(reel_meshes)))
+        placed_reels = 0
+        for name, bx, bank_y, face, _tgt in HALL:
+            if name != "ibm2401":
+                continue
+            if t_body:
+                a = spawn(unreal.StaticMeshActor, (bx, bank_y, 0), yaw=face)
+                a.static_mesh_component.set_static_mesh(t_body)
+                a.set_actor_label("IBM729_%s_%d" % ("L" if bank_y < 0 else "R", bx))
+                placed729 += 1
+            # Restore each node's hub offset relative to the corresponding 729 cabinet.
+            for rm in reel_meshes:
+                offset = reel_offsets.get(rm.get_name())
+                if offset is None:
+                    w("729 reel has no placement metadata: %s" % rm.get_name())
+                    continue
+                ox, oy, oz = offset
+                angle = math.radians(face)
+                rx = ox * math.cos(angle) - oy * math.sin(angle)
+                ry = ox * math.sin(angle) + oy * math.cos(angle)
+                r = spawn(unreal.StaticMeshActor, (bx + rx, bank_y + ry, oz), yaw=face)
+                # Movable must be set before assigning the mesh; the subsystem rotates this actor
+                # on every frame, and Static mobility would leave the reel frozen in the cook.
+                r.static_mesh_component.set_editor_property("mobility", MOVABLE)
+                r.static_mesh_component.set_static_mesh(rm)
+                r.tags = ["TapeReel"]
+                r.set_actor_label("Reel_%s_%d_%s" % ("L" if bank_y < 0 else "R", bx, rm.get_name()))
+                placed_reels += 1
+        w("729 tape units placed: %d bodies, %d reel actors; replaced IBM 2401 stations"
+          % (placed729, placed_reels))
     except Exception as e:
         import traceback as _t
         w("729 PLACEMENT WARN: %s" % e)
@@ -1122,6 +1137,11 @@ try:
     # and every downstream gate (m2_clean.sh's `grep -q SUCCESS`) believed it.
     if not ok:
         raise RuntimeError("save_current_level returned False; no .umap was written")
+    expected729 = sum(1 for entry in HALL if entry[0] == "ibm2401")
+    expected_reels = expected729 * 2
+    if placed729 != expected729 or placed_reels != expected_reels:
+        raise RuntimeError("tape asset placement incomplete: bodies %d/%d, reels %d/%d"
+                           % (placed729, expected729, placed_reels, expected_reels))
     w("SUCCESS")
 except Exception as e:
     w("FAIL " + str(e))

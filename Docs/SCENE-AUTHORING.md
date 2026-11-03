@@ -50,15 +50,15 @@ ONE engine version, and a 5.8-authored map cannot be loaded by the 5.5 cook.
 
 ## Assets: scavenged vs authored
 
-Twelve hero props are Sketchfab GLBs. They are imported as **GLB, never FBX** — Blender's FBX
+Eleven hero props are Sketchfab GLBs. They are imported as **GLB, never FBX** — Blender's FBX
 exporter only writes textures wired to a Principled BSDF, so several machines exported with no
 textures at all and rendered as blank white blocks.
 
 The tape units are **authored in Blender**, not scavenged, because no scavenged prop was an IBM
-729 and the hall was consequently 20 featureless slabs. `Deployment/blender/make_ibm729.py`
-rebuilds it: real proportions (0.76 x 0.74 x 1.80 m), off-white shell, chrome frame, dark glass
-door over the reel bay, IBM-blue lower panel, amber supply reel, white take-up reel, CI-mint
-status lamps.
+729. `Deployment/blender/make_ibm729.py` rebuilds it: real proportions (0.76 x 0.74 x 1.80 m),
+hollow off-white shell, chrome frame, dark-backed open reel bay, IBM-blue lower panel, amber supply
+reel, white take-up reel, CI-mint status lamps. The authored 729 replaces the legacy IBM 2401
+placeholder at each tape-machine station in the hall.
 
 ```
 blender --background --python Deployment/blender/make_ibm729.py -- --out <glb dir>
@@ -66,7 +66,7 @@ blender --background --python Deployment/blender/make_ibm729.py -- --out <glb di
 
 Every dimension in that script is an explicit constant rather than a viewport adjustment, and the
 output is verified against the shipped `ibm-729-tape.glb`: node names and transforms, all seven
-materials (including the lamp's emissive strength), and all seven primitives' vertex counts,
+materials (including the lamp's emissive strength), and all eleven primitives' vertex counts,
 index counts and bounding boxes match to four decimals. The prop is reproducible from source, not
 just re-creatable by hand.
 
@@ -113,25 +113,18 @@ emissive; converting to linear here would double-apply the transform.
 
 ## Reels
 
-`UTapeReelSpinner` finds actors tagged `TapeReel` and rotates them on Roll.
+`UTapeReelSpinner` finds actors tagged `TapeReel` and rotates them on Pitch. The reel disc lies in
+the cabinet's local XZ plane, so its axle is local Y. The previous Roll animation turned around
+the unrelated actor X axis and made the discs wobble edge-on.
 
-Roll is correct and not a guess: in the GLB each reel is its own node with its origin at the hub,
-disc in local XY, axis local Z. glTF Z maps to Unreal X, so the reel's axis *is* the actor's Roll
-axis. `FRotator` composes as `Rz(Yaw) * Ry(Pitch) * Rx(Roll)`, so Roll is applied in local space
-before the cabinet's +/-90 yaw — the units can face across the aisle and the reels still spin about
-themselves rather than orbiting.
-
-**None of this is visible on the stream, and that is a framing problem, not a reel problem.** The
-shipped shot is a 21-degree portrait solved for the resident's face, from x=170 looking down +X.
-The tape rank sits at x 560..1510, y +/-155/195, yawed +/-90 so the reel faces look *across* the
-aisle. At the near bank the units are outside the horizontal cone entirely (half-width 72cm at
-x=560 versus |y| 155); at the far bank they are inside it but edge-on and largely behind her. A
-camera-held-still diff over four frames confirms it: the machine-only strips move 0.08% (right,
-indistinguishable from the 0.02% encoder noise floor) and 4.8% (left, consistent with encoder
-bleed from her adjacent hair and arm). `Tape reels spinning: 24` in the log is real; the pixels
-simply do not contain a reel to watch.
-
-Reviewing this asset needs a camera that is not the call framing — see the camera note below.
+Each reel is a separate GLB node with its pivot at the hub, but its node translation is not retained
+when Interchange imports it as a standalone `StaticMesh`. `author_diorama.py` therefore restores
+the authored hub offsets (16/17cm to either side, 25cm behind the front, 126cm above the floor)
+before rotating the machine banks across the aisle. Spawning at the cabinet origin left the reels
+floating outside the cabinets; a positive `Tape reels spinning` count did not prove that their
+placement or visible rotation was correct. The 729 asset now has a hollow shell, dark-backed open
+bay, and eight-spoke reels with separate flanges and a dark tape pack. This keeps the animated
+parts visible inside the machine silhouette instead of layering solid discs over the cabinet.
 
 Rates are deliberately **not uniform**. A hall turning in lockstep reads as a screensaver; real
 machines run independent jobs. Each reel's speed (90-240 deg/s) and direction are seeded from its
@@ -330,11 +323,9 @@ Absolute luminance across two builds is therefore not a clean comparison — com
 render with `r.EyeAdaptation.ExposureOverride` fixed.
 
 ## Next
-- **The reels are flat discs, so their rotation is invisible even where the camera can see them.**
-  `UTapeReelSpinner` turns them and the log confirms 24 spinning, but a featureless disc looks
-  identical at every angle — the frame-diff evidence above measures the framing problem and would
-  have measured the same 0.08% with a fixed camera pointed straight at one. Spokes, a hub slot or
-  an asymmetric tape pack in `make_ibm729.py` would cost nothing and make the motion legible.
+- The imported secondary machine props remain comparatively low-detail. Replace them only where
+  the call framing shows them clearly; the custom tape machines now provide the recognizable
+  animated detail in the visible hall.
 - The room tone's `AmbientSound` has **no attenuation asset**, so a sound placed deliberately out
   in the hall at (700, 20, 150) plays at the same level everywhere. It is mixed low enough not to
   matter today, but the position currently buys nothing.
