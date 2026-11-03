@@ -84,6 +84,7 @@ The deployment target is an **AMD/ROCm** host. It does **not** require an NVIDIA
 | `Content/` | The diorama and the resident. Most of it is authored at build time by `Deployment/author_diorama.py` |
 | `Deployment/` | Dockerfiles, compose files, the `kokoro-align` sidecar, browser harnesses, core-2 tunnel units |
 | `Docs/` | See [`Docs/README.md`](Docs/README.md) for the index |
+| `Website/` | Static explainer for [`metahuman.ci.computer`](https://metahuman.ci.computer/) |
 | `Scripts/` | Build, test and E2E runners |
 
 ## Build and test (Windows)

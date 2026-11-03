@@ -24,14 +24,3 @@ services:
       # below. .env.example ships both blank for that reason.
       OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://127.0.0.1:11434}"
       OLLAMA_MODEL: "${OLLAMA_MODEL:-gemma4:e2b}"
-
-  # Run the stock image entrypoint (bash .../start.sh --nosudo), but mount a patched start.sh
-  # over the stock path: --https_redirect removed (it binds taken port 80) + explicit ports.
-  # setup's npm install/link/build stays stock, so it builds and runs correctly on :8090.
-  signalling:
-    entrypoint: ["bash", "/SignallingWebServer/platform_scripts/bash/start.sh", "--nosudo"]
-    command: []
-    environment:
-      PUBLIC_IP: "${PUBLIC_IP:-127.0.0.1}"
-    volumes:
-      - "./signalling-start.sh:/SignallingWebServer/platform_scripts/bash/start.sh:ro"

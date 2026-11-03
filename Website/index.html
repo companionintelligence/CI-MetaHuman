@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#17130e" />
+    <meta name="description" content="A private, expressive 3D companion that runs on hardware you control and streams to your browser." />
+    <link rel="icon" type="image/png" href="/assets/icon.png" />
+    <link rel="preload" as="image" href="/assets/icon.png" />
+    <link rel="stylesheet" href="/styles.css" />
+    <title>MetaHuman — a presence for your private AI</title>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="#top" aria-label="MetaHuman home">
+        <img src="/assets/icon.png" alt="" width="34" height="34" />
+        <span>CI <b>METAHUMAN</b></span>
+      </a>
+      <nav aria-label="Main navigation">
+        <a href="#experience">Experience</a>
+        <a href="#how-it-works">How it works</a>
+        <a href="#privacy">Privacy</a>
+      </nav>
+      <a class="nav-cta" href="https://core-2.capybara-ulmer.ts.net:10000/">Check private access <span aria-hidden="true">↗</span></a>
+    </header>
+
+    <main id="top">
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <p class="eyebrow"><span class="status-dot"></span> A local companion, with a face</p>
+          <h1 id="hero-title">Intelligence<br />with <em>presence.</em></h1>
+          <p class="hero-lede">A photoreal companion you can talk with in real time. The avatar renders on your own GPU host; the model and voice stay on infrastructure you control.</p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="https://core-2.capybara-ulmer.ts.net:10000/">Check private access <span aria-hidden="true">↗</span></a>
+            <a class="text-link" href="#how-it-works">See how it works <span aria-hidden="true">↓</span></a>
+          </div>
+          <p class="access-note"><span class="lock" aria-hidden="true">⌑</span> The private live stream is running on the CI tailnet. Sign in with CI Portal to connect.</p>
+        </div>
+        <div class="hero-art" aria-label="Portrait of a calm porcelain-like human face in a warm-lit computer room" role="img">
+          <div class="art-frame">
+            <img src="/assets/icon.png" alt="" width="512" height="512" />
+            <span class="art-corner art-corner-tl"></span><span class="art-corner art-corner-br"></span>
+            <div class="art-caption"><span>PREVIEW CHARACTER</span><span>01 / ELIZA</span></div>
+          </div>
+          <p class="art-aside">REAL-TIME<br />RENDER / 5.8</p>
+        </div>
+        <div class="hero-index" aria-hidden="true"><span>01</span><span>LOCAL / EMBODIED / PRIVATE</span><span>CI — 2026</span></div>
+      </section>
+
+      <section class="manifesto" id="experience" aria-labelledby="manifesto-title">
+        <div class="section-index"><span>01</span><span>THE EXPERIENCE</span></div>
+        <div class="manifesto-grid">
+          <h2 id="manifesto-title">Not another voice<br />in a blank box.</h2>
+          <div class="manifesto-copy">
+            <p>MetaHuman gives your private AI a face and a voice. Type a message and watch each reply take shape through expression, gaze, speech, and synchronized lip motion.</p>
+            <p>The current scene pairs a Reallusion character with an Unreal Engine environment. A browser receives the live picture and sound over WebRTC; the GPU host does the rendering.</p>
+          </div>
+        </div>
+        <div class="feature-ribbon">
+          <div><span class="feature-no">01</span><b>Talk naturally</b><small>Type a message from your browser</small></div>
+          <div><span class="feature-no">02</span><b>Read the moment</b><small>Gaze and expression follow the exchange</small></div>
+          <div><span class="feature-no">03</span><b>Hear every reply</b><small>Speech and lip motion follow each reply</small></div>
+        </div>
+      </section>
+
+      <section class="how" id="how-it-works" aria-labelledby="how-title">
+        <div class="section-index"><span>02</span><span>UNDER THE HOOD</span></div>
+        <div class="how-head"><h2 id="how-title">A short path from<br />your words to a face.</h2><p>One turn crosses a small, understandable stack. Your browser carries the conversation; the host does the work.</p></div>
+        <ol class="flow">
+          <li><span class="flow-step">01</span><span class="flow-label">YOU</span><p>Speak or type<br />from your browser</p></li>
+          <li><span class="flow-step">02</span><span class="flow-label">COMPANION</span><p>Language and voice<br />run on your network</p></li>
+          <li><span class="flow-step">03</span><span class="flow-label">CHARACTER</span><p>Expression and speech<br />render in Unreal</p></li>
+          <li><span class="flow-step">04</span><span class="flow-label">BACK TO YOU</span><p>Live video and audio<br />arrive over WebRTC</p></li>
+        </ol>
+        <div class="tech-note"><span class="tech-mark">CI</span><p><b>Built to be re-aimed.</b> The companion connects to Ollama or an OpenAI-compatible inference endpoint through configuration. Voice can use local speech services, and conversation memory is opt-in.</p><a href="https://docs.ci.computer/" aria-label="Read Companion Intelligence documentation">↗</a></div>
+      </section>
+
+      <section class="privacy" id="privacy" aria-labelledby="privacy-title">
+        <div class="privacy-copy">
+          <div class="section-index"><span>03</span><span>YOUR INFRASTRUCTURE</span></div>
+          <h2 id="privacy-title">Private by<br /><em>where it runs.</em></h2>
+          <p>Rendering and inference are designed to stay on the machines you choose. CI Portal sign-in and Tailscale keep private previews inside the CI network.</p>
+          <a class="text-link" href="https://docs.ci.computer/" target="_blank" rel="noreferrer">Learn about Companion Intelligence <span aria-hidden="true">↗</span></a>
+        </div>
+        <div class="privacy-stamp"><span>DESIGNED FOR</span><strong>YOUR<br />OWN<br />MACHINE</strong><span>NO SHARED CLOUD RENDER</span><i aria-hidden="true">CI</i></div>
+      </section>
+
+      <section class="closing">
+        <p class="eyebrow">Private preview</p>
+        <h2>A presence is live.</h2>
+        <p class="closing-copy">The private stream is running on the CI tailnet. Sign in with CI Portal to connect.</p>
+        <a class="button button-light" href="https://core-2.capybara-ulmer.ts.net:10000/">Check private access <span aria-hidden="true">↗</span></a>
+      </section>
+    </main>
+
+    <footer class="footer"><a class="brand" href="#top"><img src="/assets/icon.png" alt="" width="28" height="28" /><span>CI <b>METAHUMAN</b></span></a><span>Companion Intelligence · 2026</span><a href="https://ci.computer/privacy-policy">Privacy</a></footer>
+  </body>
+</html>

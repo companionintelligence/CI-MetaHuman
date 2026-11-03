@@ -24,8 +24,10 @@ echo "===== FACE COOK START $(date -u) ====="
 docker run --rm --user root -v /home/ci:/host --entrypoint bash ubuntu:26.04 -c '
   rm -rf /host/cook-clean/Source /host/cook-clean/Plugins /host/cook-clean/Config \
          /host/cook-clean/Scripts /host/cook-clean/Deployment /host/cook-clean/MetaHumanLocalLLM.uproject
-  mkdir -p /host/cook-clean && tar xzf /tmp/../host/../tmp/proj-src.tgz -C /host/cook-clean 2>/dev/null || \
-  tar xzf /host/proj-src.tgz -C /host/cook-clean'
+  mkdir -p /host/cook-clean && (tar xzf /tmp/../host/../tmp/proj-src.tgz -C /host/cook-clean 2>/dev/null || \
+  tar xzf /host/proj-src.tgz -C /host/cook-clean) && \
+  find /host/cook-clean -type f -name ._\* -delete
+  find /host/cook-clean -type f -name .DS_Store -delete'
 grep -q "SUPPLIED CompanionStage" /home/ci/cook-clean/Deployment/Dockerfile.amd \
   && echo "DOCKERFILE_FIX_PRESENT (will not regenerate a supplied map)" \
   || { echo "DOCKERFILE_STALE — aborting, it would delete the diorama"; exit 1; }

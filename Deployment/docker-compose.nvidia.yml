@@ -1,26 +1,26 @@
-# NVIDIA override — NVENC hardware encode via the NVIDIA Container Toolkit.
+# NVIDIA override — Vulkan render + NVENC hardware encode.
 #
 #   docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up
 #
-# Use the default Dockerfile (Epic's runtime-pixel-streaming base bundles the NVIDIA
-# userspace + NVENC). Requires the NVIDIA Container Toolkit installed on the host.
+# Use the default Dockerfile (Epic's runtime-pixel-streaming base bundles NVENC). The host needs
+# NVIDIA Container Toolkit CDI support and a generated CDI spec; rootless Docker can keep that spec
+# in ~/.config/cdi/nvidia.yaml without changing or restarting the daemon.
 
 services:
   project:
     command:
       - "-RenderOffscreen"
+      - "-Vulkan"
       - "-ForceRes"
       - "-ResX=1920"
       - "-ResY=1080"
-      - "-PixelStreamingUrl=ws://127.0.0.1:8888"
-      - "-PixelStreamingEncoderCodec=H264"
+      - "-PixelStreamingUrl=${PIXEL_STREAMING_URL:-ws://127.0.0.1:8888}"
+      - "-PixelStreamingEncoderCodec=${PIXEL_STREAMING_ENCODER_CODEC:-H264}"
       - "-Unattended"
       - "-StdOut"
       - "-FullStdOutLogOutput"
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: "nvidia"
-              capabilities: ["gpu"]
-              count: 1
+    devices:
+      - "nvidia.com/gpu=all"
+    environment:
+      VK_ICD_FILENAMES: "/etc/vulkan/icd.d/nvidia_icd.json"
+      NVIDIA_DRIVER_CAPABILITIES: "all"

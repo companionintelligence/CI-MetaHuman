@@ -7,10 +7,11 @@ file) selected through environment variables. Built on Epic's official Pixel Str
 pattern (`Engine/Extras/Containers/Examples/PixelStreaming`), plus an `oauth2-proxy` login gate.
 
 ```
-browser ──▶ oidc-proxy :8095 ──▶ signalling :8090 (player) / :8888 (streamer)
-   (CI-portal OIDC)                     ▲
-                                        │ WebRTC media ⇄ coturn :3478
-   packaged UE app (GPU) ──────────────┘
+browser ──▶ Tailscale HTTPS :10000 ──▶ oidc-proxy :8095 ──▶ signalling :8090 (loopback)
+   (CI-portal OIDC)                                               ▲
+                                                                 │ :8888 (loopback)
+   packaged UE app (GPU) ────────────────────────────────────────┘
+             └── WebRTC media ⇄ coturn :3478
         └── chat ──▶ OpenAI-compatible server at CI_HUB_URL
                      (default http://127.0.0.1:11434/v1 — a local Ollama)
 ```
@@ -36,7 +37,8 @@ configure against.
 | `oidc-proxy` | `quay.io/oauth2-proxy/oauth2-proxy`                          | CI-portal OIDC login in front of the stream; the only reader of `.env.edge` |
 | `turnserver` | `coturn/coturn`                                             | WebRTC relay for NAT/firewall traversal |
 
-All four run with `network_mode: host`.
+The Unreal app and coturn use host networking. The signalling server runs in bridge mode with
+ports 8090, 8888, and 8889 published only on `127.0.0.1`; oauth2-proxy is the only browser route.
 
 ## Prerequisites
 
@@ -44,11 +46,15 @@ All four run with `network_mode: host`.
    then `docker login ghcr.io`. Grants access to `ghcr.io/epicgames/unreal-engine:*` and the
    signalling-server image.
 2. **GPU host** — a Linux host that can render (Vulkan) and hardware-encode video. Two paths:
-   - **NVIDIA** — GPU + [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/),
-     NVENC. Use the default `Dockerfile` + `docker-compose.nvidia.yml`.
+   - **NVIDIA** — GPU with Vulkan and NVENC. Use the default `Dockerfile` +
+     `docker-compose.nvidia.yml` and NVIDIA Container Toolkit CDI. For rootless Docker, generate the
+     user-scoped spec with `nvidia-ctk cdi generate --output="$HOME/.config/cdi/nvidia.yaml"`;
+     this does not require changing or restarting the Docker daemon.
    - **AMD** (e.g. core-2, a Strix Halo APU) — GPU render via `/dev/dri`; encode is **VP8 in
      software**, since PixelStreaming supports NVENC and AMF and neither works on RADV/Linux. Use
-     `Dockerfile.amd` + `docker-compose.amd.yml`. See [`core-2-runbook.md`](core-2-runbook.md).
+     `Dockerfile.amd` + `docker-compose.amd.yml`. The current UE 5.8 MetaHuman build cooks but
+     crashes in RADV during rendering on Strix Halo; the UE 5.5 renderer works on that GPU, but
+     cannot load the current UE 5.8 MetaHuman assets. See [`core-2-runbook.md`](core-2-runbook.md).
    - No GPU / fallback — the base file's software VP8 encoder (CPU) runs anywhere but is slower.
 3. **Docker + Compose v2.**
 4. **CI-portal OIDC client** — register this deployment as an OIDC client in ci-portal and note
@@ -121,9 +127,9 @@ The override files, each documented in its own header comment:
 
 | File | What it adds |
 |---|---|
-| `docker-compose.nvidia.yml` | NVENC H.264 encode + an `nvidia` GPU device reservation |
+| `docker-compose.nvidia.yml` | NVIDIA Vulkan render + NVENC H.264 through the `nvidia.com/gpu=all` CDI device |
 | `docker-compose.amd.yml` | GPU render + `/dev/dri` device plumbing (`RENDER_GID`/`VIDEO_GID`, `LIBVA_DRIVER_NAME`). Encode stays **VP8 in software** — PixelStreaming's hardware paths are NVENC and AMF, neither of which exists on RADV/Linux, so the file selects VP8 explicitly rather than let a doomed probe run |
-| `docker-compose.ollama.yml` | pins `MHLLM_BACKEND: ollama`; `OLLAMA_BASE_URL`/`OLLAMA_MODEL` defaults; patched signalling start script |
+| `docker-compose.ollama.yml` | pins `MHLLM_BACKEND: ollama`; `OLLAMA_BASE_URL`/`OLLAMA_MODEL` defaults |
 | `docker-compose.face.yml` | the companion/face stack: pins `ollama`, the beta-1 model and voice endpoints, persona, opening shot |
 | `docker-compose.ue55.yml` | runs the 5.5-built image instead of the default 5.8 one |
 | `docker-compose.mesagit.yml` | runs against a mesa-git RADV build layered into a `-mesagit` image |
@@ -132,9 +138,12 @@ First build also runs the initial Linux cook (long, multi-GB). For core-2 specif
 follow [`core-2-runbook.md`](core-2-runbook.md) — it has the measured GPU/VAAPI facts, the
 box prep, and a control-plane-only smoke test you can run before the cook finishes.
 
-Then browse to the proxy (e.g. `https://agent.example.com/` → `http://<host>:8095/` in dev).
-You are redirected to ci-portal to sign in; after login the Pixel Streaming player loads and
-connects to the running agent.
+On core-2, Tailscale Serve publishes the loopback proxy over HTTPS at
+`https://core-2.capybara-ulmer.ts.net:10000/`. The redirect URI registered with CI Portal is
+`https://core-2.capybara-ulmer.ts.net:10000/oauth2/callback`. The browser is sent to
+`https://hub.ci.computer` to sign in; after login the Pixel Streaming player loads and connects
+to the running agent. Port `:8095` itself is loopback-only, and the stream's signalling HTTP port
+must not be opened around the proxy.
 
 ## How the wiring reaches the app
 
@@ -233,13 +242,17 @@ comments explain each case.
 - **Packaging caveat.** The build cooks a MetaHuman project for Linux; the MetaHuman plugins
   are Linux-enabled in the `.uproject`, but a first Linux cook can surface asset/plugin issues
   worth validating on a dev host before relying on the image in CI.
-- **Ports.** Expose only `:8095` (the OIDC proxy — see `http_address` in `oauth2-proxy.cfg`)
-  publicly. Keep signalling `:8090` internal. TURN needs `3478` (TCP/UDP) and the UDP relay range
-  `49152-65535`.
+- **Ports.** Publish signalling `:8090`, `:8888`, and `:8889` on loopback only. Expose the
+  Tailscale Serve HTTPS port `:10000` to tailnet clients; it forwards to oauth2-proxy's loopback
+  listener on `:8095`. TURN needs `3478` (TCP/UDP) and the UDP relay range `49152-65535` reachable
+  within the tailnet.
 - **Pixel Streaming 2** is the plugin enabled in the `.uproject`
   (`-PixelStreamingUrl=ws://127.0.0.1:8888`). For the legacy Pixel Streaming plugin, substitute
   `-PixelStreamingIP`/`-PixelStreamingPort`.
-- **Not yet built or run end to end.** [`core-2-runbook.md`](core-2-runbook.md) records that
-  neither this repo's authoring machine nor core-2 has produced a Linux package, so the first
-  `docker build` is also the first Linux cook. The manifests follow Epic's official example and
-  oauth2-proxy's documented OIDC config; validate on a GPU host before shipping.
+- **Runtime validation.** On 2026-11-02 the Linux build and cook completed on core-2; the UE 5.8
+  renderer then aborted in RADV, so core-2 is not a supported renderer for these assets. A stable
+  preview is now running on the Razer RTX 4080 over Tailscale: Vulkan sees the GPU, the face driver
+  resolves all 42 curves, Pixel Streaming joins, and the opening response is generated and spoken.
+  Kokoro phoneme alignment is unavailable on the beta-1 host, so lip motion uses the app's
+  rescaled timing fallback. SSO redirects to CI Portal; finishing passkey sign-in is a browser-side
+  step. See [`core-2-runbook.md`](core-2-runbook.md).

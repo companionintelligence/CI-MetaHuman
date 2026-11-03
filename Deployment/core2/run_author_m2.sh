@@ -2,25 +2,17 @@
 # M2 diorama authoring in the content-only project: import 12 props + author the set.
 # Copies the WHOLE Content/ tree out (Maps + imported Diorama assets).
 #
-# STILL dev-5.5 while m2_full.sh / m2_clean.sh now cook on 5.8, and that split is deliberate
-# rather than an oversight. The engine ceiling that forces the COOK to 5.8 does not apply here:
-# the cook has to open the repo's git-tracked Content, which is package version 1018 against UE
-# 5.5.4's ceiling of 1013 (Scripts/BuildNative.ps1's header has the full account). This script
-# opens a different tree -- the content-only Author.uproject seeded from /home/ci/nia-content --
-# and every one of the 260 packages there is version 1009, comfortably under that ceiling.
-# Measured on core-2 by reading the package headers, not assumed.
-#
-# 5.5 also WRITES at its own version, and the 5.8 cook reads older packages happily, so the
-# handoff is in the safe direction. Moving this to dev-5.8 for consistency would cost pulling
-# another ~85 GB engine base (core2/README.md) onto a box that serves live work, for no behaviour
-# it does not already have. If nia-content is ever re-exported from a newer editor, re-check the
-# package version before assuming this still holds.
+# Author and cook with dev-5.8. This helper used to author with dev-5.5, and that split was safe:
+# all 260 packages under /home/ci/nia-content are version 1009, below UE 5.5.4's 1013 ceiling
+# (measured on core-2), and 5.8 reads the packages 5.5 writes. The engine images were later pruned
+# from core-2, though, so the 5.8 cook has to pull its base regardless. Using 5.8 for both steps
+# avoids fetching a second, roughly 85 GB engine base and removes a version split.
 echo "===== AUTHOR M2 $(date -u) ====="
-rm -f /home/ci/stage-out/AUTHOR_RESULT.txt /home/ci/stage-out/author_m2.log
-rm -rf /home/ci/stage-out/Content
 docker run --rm --user root \
   -v /home/ci/authorproj:/proj -v /home/ci/stage-out:/out -v /home/ci/props-glb:/glb:ro -v /home/ci/mh-seo:/mh:ro -v /home/ci/nia-content:/nia:ro \
-  --entrypoint bash ghcr.io/epicgames/unreal-engine:dev-5.5 -c '
+  --entrypoint bash ghcr.io/epicgames/unreal-engine:dev-5.8 -c '
+    rm -rf /out/Content /out/AUTHOR_RESULT.txt /out/author_m2.log
+    chmod 777 /out
     rm -rf /proj/Content && mkdir -p /proj/Content
     cp -r /nia/. /proj/Content/ 2>/dev/null
     chown -R ue4:ue4 /proj && chmod 777 /out

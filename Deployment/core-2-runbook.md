@@ -10,13 +10,15 @@ Concrete deployment path for `core-2`, measured 2026-07-14 over Tailscale SSH (`
 | OS / kernel | Ubuntu 26.04 LTS, kernel 7.0 |
 | CPU / RAM | 32 threads, 125 GB unified |
 | Disk | 767 GB free on `/` |
-| Render | **Vulkan works** (`AMD Radeon 8060S (RADV STRIX_HALO)`) |
+| Render | Vulkan enumerates on Radeon 8060S; current UE 5.8 process aborts in RADV (`store_deref`) |
 | Encode | **VAAPI on `/dev/dri/renderD128`**: H.264 Baseline/Main/High, HEVC Main/Main10, AV1 (all `VAEntrypointEncSlice`) |
 | Docker | present; `/dev/dri` passthrough into a container confirmed working |
 | Not present | NVIDIA GPU/NVENC, NVIDIA Container Toolkit, any Unreal install |
 
-Implication: use `Dockerfile.amd` + `docker-compose.amd.yml` (VAAPI H.264), **not** the
-NVENC default. WebRTC negotiates H.264, which VAAPI provides here.
+Use `Dockerfile.amd` + `docker-compose.amd.yml` for this AMD host. The current UE 5.8 MetaHuman
+assets cook, but the renderer crashes on this Strix Halo GPU; the historical UE 5.5 workaround
+renders here but cannot load the current UE 5.8 MetaHuman assets. Treat this host as unsupported
+for the current MetaHuman runtime until that compatibility gap is resolved.
 
 ## Known issues on the box (flagged, not changed — it's a production host)
 
@@ -24,18 +26,34 @@ NVENC default. WebRTC negotiates H.264, which VAAPI provides here.
   emits config-parse warnings. Fix before pulling private images:
   `rmdir /root/.docker/config.json` (it's empty) — Docker recreates it as a file on next login.
 - core-2 runs the live CI marketplace stack (`ci-hermes`, `ci-memory` + DB, `ci-openclaw`, …).
-  Keep the Pixel Streaming ports off anything those use; everything here is host-networked.
+  Signalling runs in bridge mode with 8090/8888/8889 bound to loopback; the Unreal app and coturn
+  use host networking. The OIDC proxy on 8095 is the browser upstream for Tailscale Serve.
 
-## The one prerequisite still needed: a Linux build
+## Current build and runtime status (2026-11-02)
 
-The image's builder stage cooks the project for Linux on `ghcr.io/epicgames/unreal-engine:dev-5.8`.
-That requires **Epic GHCR access** (link GitHub↔Epic, accept the UE EULA, `docker login ghcr.io`).
-Neither this repo's authoring machine (no `LINUX_MULTIARCH_ROOT` cross-toolchain) nor core-2
-(no Unreal installed) has produced a Linux package yet — so the first `docker build` is also
-the first Linux cook (long, multi-GB). Alternatives if Epic GHCR access is unavailable:
-install UE 5.8 for Linux on core-2 and cook natively, or install the cross-compile toolchain
-on the Windows box and `BuildCookRun -platform=Linux` there, then `COPY` the `dist/Linux`
-staging into a slim runtime image.
+The Linux build and cook completed on core-2 using Epic's 5.8 builder image. The packaged app
+started, bound all 42 face curves, and joined Pixel Streaming, then aborted during rendering in
+RADV with `Unknown intrinsic: @store_deref`. `RADV_DEBUG=llvm` delayed the abort but did not fix
+it. The repo's earlier 5.5 workaround is not compatible with the current 5.8 character assets.
+The app is not stable enough to publish or expose as a working demo on this hardware yet.
+
+## Stable preview on the RTX 4080 host (2026-11-02)
+
+The live preview uses the Razer Linux host (`razer-nvidia-linux` on Tailscale), not core-2. Its
+rootless Docker daemon runs the UE 5.8 package with NVIDIA CDI passthrough and host networking.
+The runtime image needs `libegl1`, `libgl1`, `libx11-6`, `libx11-xcb1`, and `libxext6` in
+addition to the Epic runtime base: without them, Vulkan reports
+`VK_ERROR_INCOMPATIBLE_DRIVER` even though the container can see the GPU. With those libraries,
+`vulkaninfo` reports the RTX 4080 and the app has remained up with Pixel Streaming joined, all 42
+face curves bound, and its scripted opening generated and spoken by Qwen and Kokoro.
+
+The browser URL remains `https://core-2.capybara-ulmer.ts.net:10000/`; core-2's Tailscale Serve
+and CI Portal proxy serve the player, while the renderer on Razer reaches core-2's signalling,
+model, and voice services through SSH tunnels. WebRTC media relays through coturn on core-2. The
+opening and TTS were verified from the app log. A browser sign-in page is reachable, but passkey
+completion still requires the viewer's authenticator. The beta-1 Kokoro aligner is currently
+unavailable, so the app uses its audio-length-rescaled lip-sync estimate until that optional
+service is restored.
 
 ## Deploy steps (once Epic GHCR access is in place)
 
@@ -47,8 +65,8 @@ docker login ghcr.io                     # Epic-linked GitHub PAT
 # 1. get the repo onto core-2
 git clone https://github.com/companionintelligence/ci-metahermit.git
 cd ci-metahermit/Deployment
-cp .env.example .env                     # fill CI_PORTAL_* (OIDC), CI_HUB_* (Ollama), TURN_*
-openssl rand -base64 32                  # -> OIDC_COOKIE_SECRET
+cp .env.example .env                     # fill CI_PORTAL_*, CI_HUB_*, and TURN_* values
+cp .env.edge.example .env.edge           # set oauth2-proxy client/cookie secrets here
 
 # 2. build the AMD image (first run also cooks Linux — long)
 PROJECT_DOCKERFILE=Deployment/Dockerfile.amd \
@@ -64,10 +82,14 @@ vainfo --display drm --device /dev/dri/renderD128 | grep H264   # host-side enco
 
 ## Access over Tailscale
 
-core-2 is `100.101.156.33` on the tailnet. With host networking, the OIDC proxy is on
-`:8095` (:8080 is already taken on core-2). From a tailnet client: browse `http://core-2:8095/` → redirected to CI-portal login →
-Pixel Streaming player loads. For anything beyond a tailnet test, terminate TLS in front of
-`oidc-proxy` and set `cookie_secure = true` (see README).
+core-2 is `100.101.156.33` on the tailnet. Tailscale Serve already publishes the Hub on HTTPS
+port 443, so MetaHuman uses HTTPS port 10000 and forwards to the loopback listener at
+`127.0.0.1:8095`. From a tailnet client, browse to
+`https://core-2.capybara-ulmer.ts.net:10000/`. CI Portal returns to
+`https://core-2.capybara-ulmer.ts.net:10000/oauth2/callback`. Signalling ports `:8090`, `:8888`,
+and `:8889` bind to loopback only. The OIDC proxy uses CI Portal's explicit endpoints under
+`/api/auth` because discovery is hosted at `/api/auth/.well-known/openid-configuration` while the
+issuer remains the origin root.
 
 ## Verifying the beta-1 forwards
 
@@ -108,12 +130,13 @@ path drift apart, so this section points at them instead of repeating them:
 
 ## Quick smoke test without a full cook
 
-To validate the **control plane** (signalling + TURN + OIDC) before the Linux build exists,
+To validate the **control plane** (signalling + TURN + OIDC) without starting the Unreal renderer,
 bring up everything except `project`:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.amd.yml up -d turnserver signalling oidc-proxy
-# browse http://core-2:8095/  -> CI-portal login should gate the (streamer-less) player page
+# Start Tailscale Serve: tailscale serve --https=10000 --bg http://127.0.0.1:8095
+# browse https://core-2.capybara-ulmer.ts.net:10000/ -> CI Portal login gates the player page
 ```
 
 Image auth note: `coturn` and `oauth2-proxy` images are public, but the **signalling-server
