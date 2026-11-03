@@ -7,24 +7,18 @@ With no --out it writes ibm-729-tape.glb into $MHLLM_GLB_DIR (the same variable
 Deployment/author_diorama.py resolves the prop directory through), and falls back to the
 current directory.
 
-WHY THIS PROP IS MODELLED RATHER THAN SCAVENGED. None of the twelve Sketchfab machines is a tape
-drive, so the hall behind the resident was twenty featureless slabs -- and no amount of lighting
-or grading fixes absent geometry. The 729 is the machine a 1960s room is REMEMBERED by: two reels
-turning behind glass is the image, and nothing else in the set can supply it.
+WHY THIS PROP IS MODELLED RATHER THAN SCAVENGED. None of the eleven remaining Sketchfab machines
+is a 729 tape drive. The 729 is the machine a 1960s room is REMEMBERED by: two reels turning in an
+open bay is the image, and nothing else in the set can supply it.
 
-THE LOAD-BEARING DECISION is that the reels are SEPARATE OBJECTS with their own origins at the
-hub. A reel modelled into the shell looks identical in a still frame and can never turn. Spinning
-tape is the most recognisable motion in a machine room of this era, so that one modelling choice
-is the difference between a hall that can move and one that is permanently dead.
+The front is an open, dark-backed reel bay in a hollow shell. The reels are separate root nodes
+with their own origins at their hubs. Each has two open-spoke flanges around a dark tape pack, so
+rotation reads in motion and in a still instead of looking like a blank coloured disc.
 
-That choice reaches Unreal like this: each reel is a root node whose disc lies in local XY with
-its axis on local Z, and glTF Z maps to Unreal X -- so the reel's spin axis IS the actor's ROLL
-axis. FRotator composes as Rz(Yaw) * Ry(Pitch) * Rx(Roll), so Roll is applied in local space
-BEFORE the cabinet's +/-90 yaw, and the units can face across the aisle while their reels still
-spin about themselves instead of orbiting. UTapeReelSpinner rotates whatever carries the TapeReel
-tag; author_diorama.py finds these two by matching "Reel" in the imported asset name, so the
-OBJECT NAMES below are load-bearing too -- UE's glTF importer names the StaticMesh assets after
-the nodes.
+The reel disc lies in the cabinet's local XZ plane, with its axle on local Y. Unreal `Pitch`
+therefore rotates it about its hub after the machine is turned to face across the aisle. The
+authoring script restores each reel node's hub offset when it becomes a standalone StaticMeshActor;
+the source node names are load-bearing because `author_diorama.py` uses them to match placement.
 
 GEOMETRY IS SPEC, NOT TASTE. Every dimension is a real 729 measurement (0.76 x 0.74 x 1.80 m,
 10.5-inch reels) and is written as an explicit constant, because the alternative -- eyeballing it
@@ -32,11 +26,11 @@ in a viewport -- produced the 29-metre desk terminal that HANDOFF.md still carri
 
 NO TEXTURES, deliberately. Flat PBR values only. The set is lit by explicit lights with GI off,
 so what sells these cabinets is the SILHOUETTE and the value split between shell, chrome and
-glass; a diffuse map would add download weight and a licence question for detail the camera never
-resolves at the distance the tape rank actually sits.
+the dark reel backing; a diffuse map would add download weight and a licence question for detail
+the camera never resolves at the distance the tape rank actually sits.
 
-Palette follows the reference photographs: off-white shell, chrome frame, dark glass over the reel
-bay, IBM-blue lower panel, amber supply reel, white take-up reel, CI-mint status lamps (mint is
+Palette follows the reference photographs: off-white shell, chrome frame, dark backing in the open
+reel bay, IBM-blue lower panel, amber supply reel, white take-up reel, CI-mint status lamps (mint is
 also period phosphor -- see Docs/SCENE-AUTHORING.md).
 """
 import argparse
@@ -49,7 +43,7 @@ import bmesh
 
 # ---------------------------------------------------------------------------------------------
 # Dimensions. Blender is Z-up and the cabinet FACES -Y; the glTF exporter converts to Y-up on the
-# way out, which is what turns the reels' thin axis into glTF local Z (and therefore Unreal Roll).
+# way out. The reel disc lies in the cabinet's local XZ plane, with its axle on local Y (Unreal Pitch).
 # ---------------------------------------------------------------------------------------------
 W, D, H = 0.76, 0.74, 1.80          # real 729 envelope, metres
 SHELL_X, SHELL_Y = W / 2.0, D / 2.0
@@ -59,11 +53,11 @@ TRIM_FRONT, TRIM_BACK = -0.405, 0.3774
 
 REEL_R, REEL_T = 0.135, 0.045       # 10.5-inch reel, 4.5cm across the flange
 REEL_Z = 1.26                       # hub height: the bay sits at chest height on the real machine
-REEL_Y = -0.25                      # inside the cabinet, BEHIND the glass at y=-0.38
+REEL_Y = -0.25                      # inside the cabinet, in front of the dark backing
 SUPPLY_X, TAKEUP_X = -0.16, 0.17    # not symmetric: the take-up side carries the capstan
 HUB_R, HUB_T = 0.045, 0.030         # chrome hub caps, part of the BODY -- they do not turn
 
-GLASS_X, GLASS_Z0, GLASS_Z1 = 0.3496, 0.81, 1.638     # dark door over the reel bay
+GLASS_X, GLASS_Z0, GLASS_Z1 = 0.3496, 0.81, 1.638     # dark backing behind the open reel bay
 BLUE_X, BLUE_Z0, BLUE_Z1 = 0.3268, 0.126, 0.666       # IBM-blue lower panel
 PANEL_Y0, PANEL_Y1 = -0.395, -0.365                   # both panels are set into the front face
 
@@ -128,6 +122,37 @@ def disc(cx, cy, cz, radius, half_thickness, segments=32):
     return v, f
 
 
+def annulus(outer_radius, inner_radius, y0, y1, segments=48):
+    """A thin reel flange, open through the middle instead of a solid plate."""
+    v, f = [], []
+    for i in range(segments):
+        a = math.tau * i / segments
+        for radius, y in ((outer_radius, y0), (outer_radius, y1),
+                          (inner_radius, y0), (inner_radius, y1)):
+            v.append((radius * math.cos(a), y, radius * math.sin(a)))
+    for i in range(segments):
+        j = (i + 1) % segments
+        oi, oj, ii, ij = 4 * i, 4 * j, 4 * i + 2, 4 * j + 2
+        f.extend(((oi, 4 * i + 1, 4 * j + 1, oj),
+                  (ii, ij, 4 * j + 3, 4 * i + 3),
+                  (oi, oj, ij, ii),
+                  (4 * i + 1, 4 * j + 1, 4 * j + 3, 4 * i + 3)))
+    return v, f
+
+
+def radial_spoke(theta, r0, r1, half_width, y0, y1):
+    """A rectangular spoke in the reel's XZ plane, extruded along its axle (Y)."""
+    ux, uz = math.cos(theta), math.sin(theta)
+    vx, vz = -uz, ux
+    points = [(r0 * ux - half_width * vx, r0 * uz - half_width * vz),
+              (r1 * ux - half_width * vx, r1 * uz - half_width * vz),
+              (r1 * ux + half_width * vx, r1 * uz + half_width * vz),
+              (r0 * ux + half_width * vx, r0 * uz + half_width * vz)]
+    v = [(x, y, z) for y in (y0, y1) for x, z in points]
+    return v, [(0, 1, 2, 3), (7, 6, 5, 4), (0, 4, 5, 1),
+               (1, 5, 6, 2), (2, 6, 7, 3), (3, 7, 4, 0)]
+
+
 def build_mesh(name, parts):
     """parts: list of (verts, faces, material_index). Emits ONE mesh with per-face material
     indices, which is what makes the exported GLB carry one primitive per material instead of one
@@ -185,19 +210,21 @@ def add_object(name, mesh, materials, location=(0.0, 0.0, 0.0)):
 def build(mats):
     # ---- body -------------------------------------------------------------------------------
     parts = [
-        (*box(-SHELL_X, SHELL_X, -SHELL_Y, SHELL_Y, 0.0, H), SHELL),
+        # Hollow chassis with a dark-backed open reel bay. The former full-depth cube occluded
+        # the window while separate reels sat on its exterior, making them read as loose plates.
+        (*box(-SHELL_X, SHELL_X, SHELL_Y - 0.06, SHELL_Y, 0.0, H), SHELL),
+        (*box(-SHELL_X, -SHELL_X + 0.055, -SHELL_Y, SHELL_Y - 0.06, 0.0, H), SHELL),
+        (*box(SHELL_X - 0.055, SHELL_X, -SHELL_Y, SHELL_Y - 0.06, 0.0, H), SHELL),
+        (*box(-SHELL_X, SHELL_X, -SHELL_Y, SHELL_Y, 0.0, 0.075), SHELL),
+        (*box(-SHELL_X, SHELL_X, -SHELL_Y, SHELL_Y, H - 0.075, H), SHELL),
+        (*box(-0.34, 0.34, 0.245, 0.275, 0.72, 1.66), GLASS),
         # Chrome uprights and a capping rail. Full height, standing proud on both sides: this is
         # the profile that separates a 729 from a filing cabinet at 15 metres.
         (*box(-TRIM_X, -SHELL_X, TRIM_FRONT, TRIM_BACK, 0.0, H), TRIM),
         (*box(SHELL_X, TRIM_X, TRIM_FRONT, TRIM_BACK, 0.0, H), TRIM),
         (*box(-TRIM_X, TRIM_X, TRIM_FRONT, TRIM_BACK, H - 0.04, H), TRIM),
-        (*box(-GLASS_X, GLASS_X, PANEL_Y0, PANEL_Y1, GLASS_Z0, GLASS_Z1), GLASS),
+        (*box(-TRIM_X, TRIM_X, TRIM_FRONT, TRIM_BACK, 0.70, 0.77), TRIM),
         (*box(-BLUE_X, BLUE_X, PANEL_Y0, PANEL_Y1, BLUE_Z0, BLUE_Z1), BLUE),
-        # Hub caps. Chrome, and part of the BODY -- the cap does not turn with the reel, so
-        # modelling it into the reel would make the shine rotate and give the whole hall a
-        # strobing highlight.
-        (*disc(SUPPLY_X, TRIM_FRONT + HUB_T, REEL_Z, HUB_R, HUB_T), TRIM),
-        (*disc(TAKEUP_X, TRIM_FRONT + HUB_T, REEL_Z, HUB_R, HUB_T), TRIM),
     ]
     step = (LAMP_X1 - LAMP_X0) / (LAMP_N - 1)
     for i in range(LAMP_N):
@@ -208,12 +235,23 @@ def build(mats):
     add_object("IBM729_Body", body, [mats[i] for i in (SHELL, TRIM, GLASS, BLUE, LAMP)])
 
     # ---- reels ------------------------------------------------------------------------------
-    # Built at the ORIGIN and positioned by the object transform, so each object's origin sits at
-    # its own hub. Modelled in place instead, the reel would orbit the cabinet's centre when
-    # rotated, which looks like a fairground ride rather than a tape transport.
+    # Open-spoke transport reels, centred at the hub so the imported node transform and runtime
+    # spin use the same pivot.
     for name, x, mat in (("Reel_Supply", SUPPLY_X, REEL_A), ("Reel_Takeup", TAKEUP_X, REEL_W)):
-        me = build_mesh(name, [(*disc(0.0, 0.0, 0.0, REEL_R, REEL_T / 2.0), 0)])
-        add_object(name, me, [mats[mat]], location=(x, REEL_Y, REEL_Z))
+        half = REEL_T / 2.0
+        parts = [(*disc(0.0, 0.0, 0.0, 0.098, 0.010, segments=48), 1),
+                 (*annulus(REEL_R, 0.116, -half, -half + 0.009), 0),
+                 (*annulus(REEL_R, 0.116, half - 0.009, half), 0),
+                 (*disc(0.0, 0.0, 0.0, 0.038, half, segments=32), 2),
+                 (*disc(0.0, 0.0, 0.0, 0.010, half + 0.002, segments=24), 1)]
+        for i in range(8):
+            theta = math.tau * i / 8.0
+            parts.append((*radial_spoke(theta, 0.035, 0.122, 0.010,
+                                        -half, -half + 0.008), 0))
+            parts.append((*radial_spoke(theta, 0.035, 0.122, 0.010,
+                                        half - 0.008, half), 0))
+        me = build_mesh(name, parts)
+        add_object(name, me, [mats[mat], mats[GLASS], mats[TRIM]], location=(x, REEL_Y, REEL_Z))
 
 
 def main():
@@ -230,7 +268,7 @@ def main():
     os.makedirs(os.path.dirname(out), exist_ok=True)
 
     # Factory settings, empty: the default scene's camera and lamp would export as glTF nodes and
-    # arrive in Unreal as extra actors in the middle of every one of the twelve tape units.
+    # arrive in Unreal as extra actors in the middle of every tape unit.
     bpy.ops.wm.read_factory_settings(use_empty=True)
     mats = [make_material(*m) for m in MATERIALS]
     build(mats)

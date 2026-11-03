@@ -53,10 +53,11 @@ void UTapeReelSpinner::Tick(float DeltaTime)
 			Reels.RemoveAtSwap(i);
 			continue;
 		}
-		// Reels spin about their own axis. The GLB gives each reel its own origin, which is what
-		// makes this a rotation rather than an orbit around the cabinet.
+		// The reel disc lies in the cabinet's local XZ plane, so its axle is local Y. Pitch rotates
+		// around that axle; after the cabinet's aisle yaw, it still spins around its own hub rather
+		// than wobbling edge-on around the unrelated actor X axis.
 		FRotator R = Actor->GetActorRotation();
-		R.Roll += Reels[i].DegreesPerSecond * DeltaTime;
+		R.Pitch += Reels[i].DegreesPerSecond * DeltaTime;
 		Actor->SetActorRotation(R);
 	}
 }

@@ -1,5 +1,5 @@
 #!/bin/bash
-# M2 diorama authoring in the content-only project: import 12 props + author the set.
+# M2 diorama authoring in the content-only project: import 11 props + author the set.
 # Copies the WHOLE Content/ tree out (Maps + imported Diorama assets).
 #
 # Author and cook with dev-5.8. This helper used to author with dev-5.5, and that split was safe:
@@ -9,7 +9,7 @@
 # avoids fetching a second, roughly 85 GB engine base and removes a version split.
 echo "===== AUTHOR M2 $(date -u) ====="
 docker run --rm --user root \
-  -v /home/ci/authorproj:/proj -v /home/ci/stage-out:/out -v /home/ci/props-glb:/glb:ro -v /home/ci/mh-seo:/mh:ro -v /home/ci/nia-content:/nia:ro \
+  -v /home/ci/authorproj:/proj -v /home/ci/stage-out:/out -v /home/ci/props-glb:/glb:ro -v /home/ci/mh-seo:/mh:ro -v /home/ci/nia-content:/nia:ro -v /home/ci/cook-clean/Deployment/audio:/audio:ro \
   --entrypoint bash ghcr.io/epicgames/unreal-engine:dev-5.8 -c '
     rm -rf /out/Content /out/AUTHOR_RESULT.txt /out/author_m2.log
     chmod 777 /out
