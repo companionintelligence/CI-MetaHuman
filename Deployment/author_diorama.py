@@ -77,7 +77,7 @@ try:
     eas = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
 
     # ---------- import all 11 props (GLB via Interchange; materials+textures come with) ----------
-    def import_prop(name, glb):
+    def import_prop(name, glb, mesh_name=None):
         task = unreal.AssetImportTask()
         task.filename = GLB_DIR + "/" + glb
         task.destination_path = "/Game/Diorama/" + name
@@ -90,7 +90,8 @@ try:
         mesh, tex = None, 0
         for a in assets:
             k = str(a.asset_class_path.asset_name)
-            if k == "StaticMesh" and mesh is None:
+            asset_name = str(a.asset_name)
+            if k == "StaticMesh" and mesh is None and (mesh_name is None or asset_name == mesh_name):
                 mesh = unreal.load_asset(str(a.package_name))
             elif k == "Texture2D":
                 tex += 1
@@ -623,7 +624,10 @@ try:
         # read as working, and set_static_mesh then raised a nativize TypeError that the outer
         # except swallowed into a one-line warning -- before a single reel actor was spawned.
         # That is the "Tape reels spinning: 0" in the runtime log.
-        t_body, _t_body_tex = import_prop("ibm729", "ibm-729-tape.glb")
+        # This GLB imports three StaticMeshes. The registry's first entry is not guaranteed to
+        # be the cabinet body (on the staged build it was Reel_Takeup), so select the body node
+        # explicitly instead of treating the first mesh as the cabinet.
+        t_body, _t_body_tex = import_prop("ibm729", "ibm-729-tape.glb", mesh_name="IBM729_Body")
         reel_meshes = []
         for a in unreal.AssetRegistryHelpers.get_asset_registry().get_assets_by_path(
                 "/Game/Diorama/ibm729", recursive=True):
@@ -631,13 +635,9 @@ try:
                 reel_meshes.append(unreal.load_asset(str(a.package_name)))
         w("729: body=%s reels=%d" % (t_body is not None, len(reel_meshes)))
 
-        # Interchange imports each GLB node mesh as its own StaticMesh asset. The node's
-        # translation is not retained when that mesh is later assigned to a new actor, so
-        # spawning both reel meshes at the cabinet origin strands two bare discs beside the
-        # machine (the obvious loose circles in the stream). Restore the measured node offsets
-        # from make_ibm729.py here. Blender's exported GLB coordinates resolve to Unreal cm as
-        # (x, -y, z): the reel hubs are 16/17cm off-centre, 25cm behind the front, and 126cm high.
-        # The cabinet faces down local -Y before its aisle yaw is applied.
+        # The exported reel meshes are centered at their object origins. Place each hub 25cm along
+        # the cabinet's local -Y front face so the StaticMeshActor pivot stays on the hub for
+        # TapeReelSpinner; rotating the cabinet toward the aisle then carries the reels with it.
         reel_offsets = {
             "Reel_Supply": (-16.0, -25.0, 126.0),
             "Reel_Takeup": (17.0, -25.0, 126.0),
@@ -648,8 +648,12 @@ try:
         for name, bx, bank_y, face, _tgt in HALL:
             if name != "ibm2401":
                 continue
+            # The legacy hall placeholder's yaw points along the aisle, but a 729's open bay is
+            # on local -Y. Turn the custom cabinets diagonally toward the resident camera and
+            # centre aisle so both banks show their reel bays in the shot.
+            tape_yaw = 225.0 if bank_y < 0 else -45.0
             if t_body:
-                a = spawn(unreal.StaticMeshActor, (bx, bank_y, 0), yaw=face)
+                a = spawn(unreal.StaticMeshActor, (bx, bank_y, 0), yaw=tape_yaw)
                 a.static_mesh_component.set_static_mesh(t_body)
                 a.set_actor_label("IBM729_%s_%d" % ("L" if bank_y < 0 else "R", bx))
                 placed729 += 1
@@ -660,10 +664,10 @@ try:
                     w("729 reel has no placement metadata: %s" % rm.get_name())
                     continue
                 ox, oy, oz = offset
-                angle = math.radians(face)
+                angle = math.radians(tape_yaw)
                 rx = ox * math.cos(angle) - oy * math.sin(angle)
                 ry = ox * math.sin(angle) + oy * math.cos(angle)
-                r = spawn(unreal.StaticMeshActor, (bx + rx, bank_y + ry, oz), yaw=face)
+                r = spawn(unreal.StaticMeshActor, (bx + rx, bank_y + ry, oz), yaw=tape_yaw)
                 # Movable must be set before assigning the mesh; the subsystem rotates this actor
                 # on every frame, and Static mobility would leave the reel frozen in the cook.
                 r.static_mesh_component.set_editor_property("mobility", MOVABLE)
