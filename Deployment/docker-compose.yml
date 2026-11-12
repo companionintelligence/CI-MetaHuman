@@ -22,8 +22,11 @@ services:
   # the entrypoint refuses to start rather than run an open relay.
   #
   # A relay may not reach loopback, link-local, private, CGNAT (tailnet) or multicast peers
-  # (denied-peer-ip / no-multicast-peers in turnserver.conf), except this host's own PUBLIC_IP --
-  # where the Unreal streamer's candidates are -- and whatever TURN_ALLOWED_PEER_IPS adds.
+  # (denied-peer-ip / no-multicast-peers in turnserver.conf), except this host's own addresses,
+  # PUBLIC_IP and whatever TURN_ALLOWED_PEER_IPS adds. The host's addresses are where the
+  # host-networked Unreal streamer's candidates and coturn's relays are; the entrypoint reads them
+  # from /proc/net at start, so a NAT'd host's private interface address is covered too. Each is a
+  # single address: the rest of the LAN, the tailnet and the Docker bridges stay denied.
   turnserver:
     image: "coturn/coturn:4.6.2"
     init: true

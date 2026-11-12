@@ -12,7 +12,8 @@ services:
   # no port: it sits alone on its own bridge network (`kokoro-align`, at the bottom of this file) at
   # a fixed address. The host -- and so the host-networked `project` -- reaches it there; nothing
   # off this host can, and a TURN relay cannot either (coturn denies 10/8 and the other private
-  # ranges). Inside its own network namespace it listens on 0.0.0.0, which there means only that
+  # ranges and exempts only this host's own addresses, which the sidecar's is not; it relays no TCP
+  # at all). Inside its own network namespace it listens on 0.0.0.0, which there means only that
   # bridge. It used to share the host's network and listen on every interface the host has.
   #
   # Point the app at it with KOKORO_ALIGNER_URL=http://<KOKORO_ALIGN_IP>:13401 -- NOT 127.0.0.1,
