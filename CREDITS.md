@@ -84,6 +84,12 @@ companion, that was treated as a licence issue, and CI-authored props replaced t
 | `ibm-3350-disk.glb` | ["IBM 3350 "Madrid""](https://sketchfab.com/3d-models/ibm-3350-madrid-6d1b6c37642a44388c06992e0923f990) | replaced by `make_period_props.py` |
 | `ibm-2401-tape.glb` | ["IBM 2401"](https://sketchfab.com/3d-models/ibm-2401-61f8ce78c76b46dfade5ccc7ad020a1b) | the set no longer loads it (the 729 replaced it); delete it from prop directories |
 
+`Assets/store-screenshots/01-scene.png` and `02-conversation.png` were captured before the
+replacement. They show maxdragon's "IBM 1401 Central Processing Unit" in the background,
+alongside the CI-authored 729s. Until they are recaptured from a build with the CI-authored
+props, wherever they are published they need the credit "IBM 1401 Central Processing Unit" by
+maxdragon, CC BY 4.0, linked to the model page above.
+
 ## Software and fonts
 
 The Unreal editor tooling in `Plugins/VibeUE` and `Plugins/VibeMetaHumans` is by Kevin Buckley /
