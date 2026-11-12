@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1.27.1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 #
 # Multi-stage build for the containerized MetaHumanLocalLLM Pixel Streaming agent.
 # Stage 1 packages the project for Linux on Epic's development image; stage 2 copies the
