@@ -51,7 +51,7 @@ A photoreal avatar standing in a 1970s mainframe room, holding a conversation wi
 
 | | |
 |---|---|
-| **Engine** | UE **5.5** for the shipped cook. 5.8 is used for authoring and MCP work only |
+| **Engine** | UE **5.8** for editor authoring, MCP work and the current Pixel Streaming cook |
 | **Avatar** | Reallusion Character Creator "Nia" (persona: Eliza) — **CC-named** morph targets (`V_*`), *not* ARKit. 286 morphs, all 15 CC visemes |
 | **Cognition** | Ollama, thinking disabled — **424–914 ms** warm for `qwen3.8:27b` on the reference host |
 | **Voice out** | Kokoro via AMD Lemonade, OpenAI-shaped HTTP — 1166 ms median, **audible in the browser, measured by energy** |
@@ -88,6 +88,9 @@ The deployment target is an **AMD/ROCm** host. It does **not** require an NVIDIA
 | `Scripts/` | Build, test and E2E runners |
 
 ## Build and test (Windows)
+
+The Vibe editor integrations and native Unreal MCP setup are documented in
+[`Docs/EDITOR-AI-TOOLS.md`](Docs/EDITOR-AI-TOOLS.md).
 
 The Unreal **Editor must be closed** — Live Coding holds a global lock and the build fails with
 `Unable to build while Live Coding is active`.

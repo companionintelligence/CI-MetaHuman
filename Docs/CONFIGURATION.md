@@ -97,7 +97,7 @@ Applied strictly in this order, each overwriting the last when non-empty:
 
 | Variable | Compose default | C++ default | What it does |
 |---|---|---|---|
-| `KOKORO_SERVER_URL` | `http://127.0.0.1:13305` | **empty** | AMD Lemonade base URL. **Empty ⇒ the character keeps `UNullTextToSpeech` and is mute** while the audio track still negotiates and carries digital silence forever |
+| `KOKORO_SERVER_URL` | blank in base; `http://127.0.0.1:13305` in face override | **empty** | Optional AMD Lemonade base URL. The base project passes the value from `.env`; when empty, the character keeps `UNullTextToSpeech` and the audio track carries digital silence |
 | `KOKORO_MODEL` | `kokoro-v1` | `kokoro-v1` | TTS model id. The C++ default **used to be** `Kokoro-82M-ONNX` — the upstream model's own name, which Lemonade rejects. Only the face compose carried the working override, so every path that skipped that file (a native build, `BuildNative.ps1`, a bare editor run) got a 404 per utterance and a companion that never spoke. The two now agree |
 | `KOKORO_VOICE` | `af_sky` | `af_sky` | Per-request; change freely. `af_sky` measured cleanest of those tried. Note the aligner below times against the same voice, so changing it changes both |
 | `KOKORO_ALIGNER_URL` | `http://127.0.0.1:13400` (face) | **empty** | `kokoro-align` sidecar. **No longer in flight**: `UKokoroPhonemeAligner` is committed, and `UCompanionRuntimeSubsystem` constructs it whenever this is non-empty, binds its `OnAlignmentReady` delegate and asks it to align each reply. Blank means precision loss, never failure — lip-sync falls back to rescaling the spelling estimate to the clip's measured length, and the log names which of the two it used |
@@ -179,7 +179,7 @@ would be silently ignored on every machine that had already held one conversatio
 | `UE_RELEASE` | `5.8` (from `.env.example`) | The base compose's image tag and its `--build-arg RELEASE`. **It does not reach every stack**: `docker-compose.face.yml` pins `ci/metahuman-local-llm:5.8-face` and `docker-compose.ue55.yml` pins `:5.5`, both literals that override the tag this builds. The face pin now names the same 5.8 this variable carries — deliberately, since `m2_clean.sh` builds `…:5.8-face` and hard-fails with `COMPOSE_IMAGE_MISMATCH` if the two drift — so only the ue55 stack still diverges |
 | `UE_RELEASE_SHORT` | `5.8` (from `.env.example`) | **Nothing reads it.** Repo-wide the name occurs only in `.env.example`, in a `docker-compose.yml` comment recording that it is dead, and in this table — no compose file consumes it and no source file reads it. Dead rather than merely undelivered |
 | `PROJECT_DOCKERFILE` | `Deployment/Dockerfile` | Set to `Deployment/Dockerfile.amd` on core-2 |
-| `SIGNALLING_IMAGE` | `…signalling-server:5.5` | Epic publishes only `:5.5` |
+| `SIGNALLING_IMAGE` | `ci/pixelstreaming-signalling:ue5.8` | Built from the pinned Epic Pixel Streaming Infrastructure source |
 | `PUBLIC_IP` | auto-detected by `run.sh` (via `api.ipify.org`, curl or wget) | `--publicIp` and the TURN ICE URL. `docker-compose.ollama.yml` defaults the signalling service's copy to `127.0.0.1` |
 | `TURN_USER` / `TURN_PASSWORD` | `ci-agent` / `change-me-turn-password`, both from `.env.example` — the compose interpolates them with no fallback | coturn credentials |
 | `STREAM_RES_X` / `STREAM_RES_Y` | `720` / `1280` (AMD override) | **Portrait** — the product is a video call |

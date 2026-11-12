@@ -1,0 +1,30 @@
+# Build Epic's UE 5.8 Pixel Streaming infrastructure from its public source. Epic's published
+# signalling image stops at 5.5, which makes it an unreliable default for this 5.8 project.
+FROM node:lts
+
+ARG PIXEL_STREAMING_INFRASTRUCTURE_REF=289b9542159a6ee6a5d0f62834f1f27a472397b6
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates git python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+RUN git init . \
+    && git remote add origin https://github.com/EpicGames/PixelStreamingInfrastructure.git \
+    && git fetch --depth=1 origin "${PIXEL_STREAMING_INFRASTRUCTURE_REF}" \
+    && git checkout --detach FETCH_HEAD
+
+COPY patch_pixelstreaming_player.py /usr/local/bin/patch-pixelstreaming-player.py
+RUN python3 /usr/local/bin/patch-pixelstreaming-player.py \
+    /src/Frontend/implementations/typescript/src/player.html
+
+# Keep the upstream Dockerfile layout and setup path so links between Common, Signalling,
+# SignallingWebServer and the TypeScript frontend are built exactly as Epic expects.
+WORKDIR /SignallingWebServer
+RUN cp /src/NODE_VERSION . \
+    && cp /src/package.json . \
+    && cp /src/package-lock.json . \
+    && cp -a /src/Common /src/Signalling /src/SignallingWebServer /src/Frontend . \
+    && SignallingWebServer/platform_scripts/bash/setup.sh --build
+
+EXPOSE 8090 8888 8889

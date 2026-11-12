@@ -31,16 +31,18 @@ services:
       - "--no-dtls"
       - "--no-tls"
 
-  # Epic's Pixel Streaming signalling server. Bind host ports only to loopback: player HTTP on
-  # 8090 sits behind the OIDC proxy, and the UE app reaches streamer WebSocket on localhost:8888.
-  # Epic only publishes this image up to :5.5 (newer versions live in the open-source
-  # EpicGamesExt/PixelStreamingInfrastructure repo). :5.5 interoperates with a 5.8
-  # PixelStreaming2 streamer in practice; if the streamer fails to register, build the
-  # matching 5.8 signalling server from that repo and point SIGNALLING_IMAGE at it.
+  # Pixel Streaming 5.8 signalling server built from Epic's pinned public source. Bind host ports
+  # only to loopback: player HTTP on 8090 sits behind the OIDC proxy, and the UE app reaches the
+  # streamer WebSocket on localhost:8888.
   signalling:
-    image: "${SIGNALLING_IMAGE:-ghcr.io/epicgames/pixel-streaming-signalling-server:5.5}"
+    image: "${SIGNALLING_IMAGE:-ci/pixelstreaming-signalling:ue5.8}"
+    build:
+      context: "."
+      dockerfile: "Dockerfile.signalling"
+      args:
+        PIXEL_STREAMING_INFRASTRUCTURE_REF: "${PIXEL_STREAMING_INFRASTRUCTURE_REF:-289b9542159a6ee6a5d0f62834f1f27a472397b6}"
     init: true
-    entrypoint: ["bash", "/SignallingWebServer/platform_scripts/bash/start.sh", "--nosudo"]
+    entrypoint: ["bash", "/SignallingWebServer/SignallingWebServer/platform_scripts/bash/start.sh", "--nosudo"]
     command: []
     environment:
       PUBLIC_IP: "${PUBLIC_IP}"
@@ -53,14 +55,12 @@ services:
       - "127.0.0.1:8888:8888/tcp"
       - "127.0.0.1:8889:8889/tcp"
     volumes:
-      - "./signalling-start.sh:/SignallingWebServer/platform_scripts/bash/start.sh:ro"
+      - "./signalling-start.sh:/SignallingWebServer/SignallingWebServer/platform_scripts/bash/start.sh:ro"
       # The stock player page defaults to the LOCKED-MOUSE control scheme, which makes every click
       # over the stream arrive at a virtual cursor position instead of the point the viewer clicked
       # -- measured landing at (0,640) and (720,1280) for clicks at (300,1269) and (657,1269). That
-      # misses the on-screen chat box AND the Send button, and a click that falls through to the
-      # game viewport steals keyboard focus for good. This mounts the same page with hovering mouse
-      # turned on by default; see the comment at the top of the file for the measurements.
-      - "./pixelstreaming/player.html:/SignallingWebServer/www/player.html:ro"
+      # The player fix is applied to Epic's pinned source and baked into the frontend at build
+      # time, so it cannot silently disappear when a container is recreated.
     depends_on:
       - turnserver
 
@@ -230,6 +230,13 @@ services:
       OPENAI_BASE_URL: "${OPENAI_BASE_URL:-${CI_HUB_URL:-http://127.0.0.1:11434/v1}}"
       OPENAI_API_KEY: "${OPENAI_API_KEY:-${CI_HUB_TOKEN}}"
       OPENAI_MODEL: "${OPENAI_MODEL:-${CI_HUB_MODEL}}"
+
+      # Optional audio path. The app emits a live WebRTC audio track even when TTS is unset,
+      # so a connected browser alone does not verify that the resident can speak.
+      KOKORO_SERVER_URL: "${KOKORO_SERVER_URL:-}"
+      KOKORO_MODEL: "${KOKORO_MODEL:-}"
+      KOKORO_VOICE: "${KOKORO_VOICE:-af_sky}"
+      KOKORO_ALIGNER_URL: "${KOKORO_ALIGNER_URL:-}"
 
       WHISPER_SERVER_URL: "${WHISPER_SERVER_URL}"
       PIPER_SERVER_URL: "${PIPER_SERVER_URL}"

@@ -139,8 +139,7 @@ docker compose -f docker-compose.yml -f docker-compose.amd.yml up -d turnserver 
 # browse https://core-2.capybara-ulmer.ts.net:10000/ -> CI Portal login gates the player page
 ```
 
-Image auth note: `coturn` and `oauth2-proxy` images are public, but the **signalling-server
-image is Epic-gated** (`ghcr.io/epicgames/pixel-streaming-signalling-server` needs
-`docker login ghcr.io`). Without Epic GHCR access, build the signalling server from its
-open-source repo (`github.com/EpicGamesExt/PixelStreamingInfrastructure`, plain Node.js, no
-Epic auth). Ports verified free on core-2: 8090, 8888, 3478 (8080 is taken -> we use 8095).
+Image auth note: `coturn` and `oauth2-proxy` images are public. The **signalling server builds
+from the pinned public UE 5.8 `PixelStreamingInfrastructure` source**; Epic GHCR access is needed
+for the Unreal Engine image, not the signalling server. Ports verified free on core-2: 8090, 8888,
+3478 (8080 is taken -> we use 8095).

@@ -41,8 +41,8 @@ Three 5.5 pins remain in this loop and are **not** fixed by that change:
 | `Deployment/docker-compose.face.yml` | `image: ci/metahuman-local-llm:5.5-face` | `m2_clean.sh` builds `:5.8-face` and now stops with `COMPOSE_IMAGE_MISMATCH` before deploying, until that file names the same tag |
 | `gpu_preview.sh` | renders through `ci/ue55-editor-preview:mesa` | preview only, no cook |
 
-`SIGNALLING_IMAGE` is a different matter and not an engine pin to "fix" here: `.env.example` notes
-Epic publishes the signalling server image only up to `:5.5`.
+The default `SIGNALLING_IMAGE` now builds from the pinned UE 5.8 `PixelStreamingInfrastructure`
+source. This avoids the old Epic-published `:5.5` image and its separate GHCR access requirement.
 
 The figures on this page — the `cost` column, the 85 GB base, the 24 GB preview image, the 20
 minute cook — all predate this change and were recorded while the loop built 5.5. They stay
@@ -79,9 +79,9 @@ What the measurements showed (core-2, packaged 5.5 + PixelStreaming2, 720x1280 p
   aimed at Send and hit nothing. And a click that falls through the HUD onto the game viewport takes
   keyboard focus, which nothing gave back: one stray click made the chat box dead for the session.
 - **`HoveringMouse=true` fixes the aim.** The same two clicks then arrive as (299,1269) and
-  (657,1269), the box focuses on click, and the **Send button submits**. This is now the default —
-  `Deployment/pixelstreaming/player.html` is mounted over the stock page and sets it before
-  `player.js` parses. Append `?HoveringMouse=false` to get the stock behaviour back.
+  (657,1269), the box focuses on click, and the **Send button submits**. The current 5.8 signalling
+  image builds this default into Epic's pinned player source. Append `?HoveringMouse=false` to get
+  the stock behaviour back.
 - **The app no longer depends on either.** `SCompanionHUD::RestoreInputFocusIfLost`, ticked every
   250 ms by `UCompanionRuntimeSubsystem::RearmChatFocus`, takes the caret back whenever nothing that
   can type is holding it (it deliberately yields to the operator console's own text fields). Send

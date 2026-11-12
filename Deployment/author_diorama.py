@@ -108,15 +108,14 @@ try:
     # THE empty-stage root cause. new_level REFUSES to overwrite ("Failed to validate the
     # destination. An asset already exists at this location") and returns False, and everything
     # after it then authors into the UNTITLED transient level -- which save_current_level cannot
-    # write ("Can't save the level because it doesn't have a filename"). The container never hit
-    # this because it authors into a project whose Content/ was just rm -rf'd, so there was
-    # nothing to collide with; anywhere the repo's own committed CompanionStage.umap exists, the
-    # whole run silently produced no map at all. Delete first, and refuse to continue if the
-    # fresh level did not actually take.
+    # write ("Can't save the level because it doesn't have a filename"). The authoring project
+    # must start without this package (the content-only/docker path removes it before Unreal
+    # launches). EditorAssetLibrary.delete_asset reports success while the package remains on disk
+    # when that map is the editor's current level, so fail before touching it instead of claiming
+    # that it was removed.
     MAP_PATH = "/Game/Maps/CompanionStage"
     if unreal.EditorAssetLibrary.does_asset_exist(MAP_PATH):
-        unreal.EditorAssetLibrary.delete_asset(MAP_PATH)
-        w("removed the pre-existing %s so new_level can claim the path" % MAP_PATH)
+        raise RuntimeError("%s already exists; remove it before starting the authoring editor" % MAP_PATH)
     if not les.new_level(MAP_PATH):
         raise RuntimeError("new_level(%s) failed; refusing to author into an untitled level" % MAP_PATH)
     w("new_level ok")
@@ -347,7 +346,8 @@ try:
     # Keep a central double-width entry; the glass stays lightly tinted so the first frame reads
     # as a datacenter behind a storefront instead of a dark reflection.
     glass_path = "/Game/Diorama/SetMats/M_FrontGlass_Tint"
-    glass_mat = unreal.EditorAssetLibrary.load_asset(glass_path)
+    glass_mat = (unreal.EditorAssetLibrary.load_asset(glass_path)
+                 if unreal.EditorAssetLibrary.does_asset_exist(glass_path) else None)
     if not glass_mat:
         glass_mat = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
             "M_FrontGlass_Tint", "/Game/Diorama/SetMats", unreal.Material, unreal.MaterialFactoryNew())
@@ -448,27 +448,27 @@ try:
     # the bottom of a 9:16 frame exactly where the reference desks do.
     console = spawn(unreal.StaticMeshActor, (250, 20, 68))
     console.static_mesh_component.set_static_mesh(cube)
-    console.set_actor_scale3d(unreal.Vector(1.05, 1.8, 0.08))
+    console.set_actor_scale3d(unreal.Vector(0.70, 1.10, 0.08))  # 140x220cm
     paint(console, "M_ConsoleTop", (0.88, 0.87, 0.84), 0.30)   # white console laminate
     for i, dy in enumerate((-65, 65)):
         ped = spawn(unreal.StaticMeshActor, (250, 20 + dy, 33))
         ped.static_mesh_component.set_static_mesh(cube)
-        ped.set_actor_scale3d(unreal.Vector(0.82, 0.34, 0.66))
+        ped.set_actor_scale3d(unreal.Vector(0.55, 0.24, 0.54))
         paint(ped, "M_ConsolePed_%d" % i, (0.30, 0.30, 0.31), 0.55)
     # Compact vintage operator seating beside the desk; these stay outside the camera aisle.
     for i, dy in enumerate((-145, 145)):
         seat = spawn(unreal.StaticMeshActor, (275, 20 + dy, 44), yaw=90 if dy < 0 else -90)
         seat.static_mesh_component.set_static_mesh(cube)
-        seat.set_actor_scale3d(unreal.Vector(0.48, 0.48, 0.10))
+        seat.set_actor_scale3d(unreal.Vector(0.21, 0.21, 0.05))  # 42cm square seat
         paint(seat, "M_OperatorChair_Seat_%d" % i, (0.22, 0.045, 0.032), 0.38)
         back = spawn(unreal.StaticMeshActor, (235, 20 + dy, 78), yaw=90 if dy < 0 else -90)
         back.static_mesh_component.set_static_mesh(cube)
-        back.set_actor_scale3d(unreal.Vector(0.12, 0.48, 0.48))
+        back.set_actor_scale3d(unreal.Vector(0.06, 0.22, 0.38))  # 44cm wide, 76cm high
         paint(back, "M_OperatorChair_Back_%d" % i, (0.22, 0.045, 0.032), 0.38)
         for leg_i, (dx, ddy) in enumerate(((-18,-18),(-18,18),(18,-18),(18,18))):
             leg = spawn(unreal.StaticMeshActor, (275 + dx, 20 + dy + ddy, 21))
             leg.static_mesh_component.set_static_mesh(cube)
-            leg.set_actor_scale3d(unreal.Vector(0.045, 0.045, 0.42))
+            leg.set_actor_scale3d(unreal.Vector(0.018, 0.018, 0.21))
             paint(leg, "M_OperatorChair_Leg_%d_%d" % (i, leg_i), (0.40, 0.42, 0.41), 0.3)
     w("operator console placed")
 
@@ -580,7 +580,12 @@ try:
     # ---------- desk under the small artifacts ----------
     desk = spawn(unreal.StaticMeshActor, (115,-320,66))
     desk.static_mesh_component.set_static_mesh(cube)
-    desk.set_actor_scale3d(unreal.Vector(1.6,1.4,0.12))   # 160x140cm top at ~72cm
+    desk.set_actor_scale3d(unreal.Vector(0.8,0.7,0.12))   # 160x140cm top at ~72cm
+    for i, (dx, dy) in enumerate(((-70,-60),(-70,60),(70,-60),(70,60))):
+        leg = spawn(unreal.StaticMeshActor, (115 + dx, -320 + dy, 30))
+        leg.static_mesh_component.set_static_mesh(cube)
+        leg.set_actor_scale3d(unreal.Vector(0.045,0.045,0.60))
+        paint(leg, "M_ArtifactDeskLeg_%d" % i, (0.28,0.30,0.31), 0.42)
     w("desk ok")
 
     # ---------- the 11 props: measure -> normalize scale -> ground -> place ----------
@@ -1003,6 +1008,9 @@ try:
         seo_parts = []   # Nia is the resident; skip the Seo import entirely (saves ~2 min too)
     placed_seo = 0
     for fbx, dest, slotmap in seo_parts:
+        if not os.path.isfile(fbx):
+            w("resident: optional MetaHuman export unavailable, skipping %s" % fbx)
+            continue
         m = import_skel(fbx, dest)
         if not m:
             w("resident: import FAIL %s" % fbx); continue
@@ -1041,6 +1049,9 @@ try:
         skm = unreal.load_asset('/MoverTests/Characters/Mannequins/Meshes/SKM_Manny')
         if skm:
             a = spawn(unreal.SkeletalMeshActor, RES_POS, yaw=RES_YAW); a.set_actor_label("Resident")
+            # Actor labels do not survive a cook. Keep the runtime camera director and face
+            # subsystem attached to this last-resort resident just as they are for Nia.
+            a.set_editor_property("tags", ["CompanionFace"])
             a.skeletal_mesh_component.set_skeletal_mesh(skm)
             w("resident: FELL BACK to SKM_Manny (Seo import failed)")
 
@@ -1211,6 +1222,12 @@ try:
     # and every downstream gate (m2_clean.sh's `grep -q SUCCESS`) believed it.
     if not ok:
         raise RuntimeError("save_current_level returned False; no .umap was written")
+    map_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "Content", "Maps", "CompanionStage.umap")
+    if not os.path.isfile(map_file) or os.path.getsize(map_file) < 200_000:
+        size = os.path.getsize(map_file) if os.path.isfile(map_file) else 0
+        raise RuntimeError("saved map artifact missing or incomplete (%d bytes): %s" % (size, map_file))
+    w("map artifact verified: %d bytes" % os.path.getsize(map_file))
     expected729 = sum(1 for entry in HALL if entry[0] == "ibm2401")
     expected_reels = expected729 * 2
     if placed729 != expected729 or placed_reels != expected_reels:

@@ -37,8 +37,8 @@ now survives real Kokoro output (it previously segfaulted on it).
 ~~**But no audio has ever reached a browser.**~~ **RESOLVED 2026-08-06.** It reaches a browser and
 it is audible: speech measured at `peakRms` 0.0769 against a 0.0211 room-tone floor, 3.65x. UE had
 been transmitting correctly all along — the stock frontend simply never attached the inbound audio
-track to the `<video>` element it built from the video track alone. One script in the already-mounted
-`Deployment/pixelstreaming/player.html` closes it. See `REPO-STATE.md` §5 for the measurements and
+track to the `<video>` element it built from the video track alone. The pinned signalling image
+build applies `Deployment/patch_pixelstreaming_player.py` to Epic's player source. See `REPO-STATE.md` §5 for the measurements and
 for why this hid so well.
 
 ~~Also missing: **barge-in**.~~ **DONE.** `UCompanionRuntimeSubsystem::CancelUtterance` now stops the

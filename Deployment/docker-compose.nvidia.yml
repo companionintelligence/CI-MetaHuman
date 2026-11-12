@@ -44,7 +44,10 @@ services:
     environment:
       VK_ICD_FILENAMES: "/etc/vulkan/icd.d/nvidia_icd.json"
       NVIDIA_DRIVER_CAPABILITIES: "all"
-      KOKORO_ALIGNER_URL: "http://127.0.0.1:13401"
+      # Leave blank unless the kokoro-align sidecar is actually running on this host. The client
+      # falls back to measured-duration text timing when unset; a dead hard-coded endpoint only
+      # adds latency to every spoken turn.
+      KOKORO_ALIGNER_URL: "${KOKORO_ALIGNER_URL:-}"
 
 volumes:
   kokoro-align-models:
