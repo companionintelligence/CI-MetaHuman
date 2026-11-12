@@ -53,6 +53,8 @@ case "$MHLLM_RESIDENT" in
   *)         GATE="resident: MANNEQUIN placed" ;;
 esac
 grep -q "$GATE" /home/ci/stage-out/AUTHOR_RESULT.txt || { echo "NO_RESIDENT (${MHLLM_RESIDENT} requested)"; exit 1; }
+# Props whose GLB is still a NoAI-tagged Sketchfab download are left out, not shipped. Not fatal; say so.
+grep -E "^prop REFUSED|^NoAI prop slots" /home/ci/stage-out/AUTHOR_RESULT.txt
 
 # 3. Move authored content into the cook tree, as root (see header).
 docker run --rm --user root -v /home/ci:/host --entrypoint bash ubuntu:26.04 -c '

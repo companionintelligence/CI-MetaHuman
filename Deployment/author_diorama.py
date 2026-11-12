@@ -94,6 +94,34 @@ PROPS = [
     ("cp500",      "prologica-cp500.glb",   ( -50,  355, 0),   69,  55),
 ]
 
+# SLOTS WHOSE SKETCHFAB MODEL IS NoAI-TAGGED. These three files were maxdragon's CC BY 4.0 models,
+# and all three Sketchfab pages carry the NoAI tag. Sketchfab's Terms of Use bar NoAI content from
+# use "in datasets for, in the development of, or as inputs to generative AI programs" (Sketchfab
+# Help Center article 16152133), and this product is an AI companion, so that is a licence issue.
+# A file in one of these slots is imported only when its glTF asset block names Companion
+# Intelligence as the copyright holder, which is what Deployment/blender/make_period_props.py
+# writes into the replacements it builds under the same names. Anything else, such as the old
+# Sketchfab download or a file of unknown origin, is REFUSED and the slot stays empty, so a stale
+# prop directory cannot put those models back into a build.
+CI_AUTHORED_ONLY = ("ibm-1401-cpu.glb", "ibm-3178-terminal.glb", "ibm-3350-disk.glb")
+CI_COPYRIGHT_MARK = "Companion Intelligence"
+
+def glb_copyright(path):
+    """asset.copyright of a binary glTF file, "" when it has none, None when it cannot be read."""
+    import json, struct
+    try:
+        with open(path, "rb") as f:
+            head = f.read(20)
+            if len(head) < 20:
+                return None
+            magic, _version, _length, chunk_len, chunk_type = struct.unpack("<4sIII4s", head)
+            if magic != b"glTF" or chunk_type != b"JSON":
+                return None
+            doc = json.loads(f.read(chunk_len).decode("utf-8"))
+        return str((doc.get("asset") or {}).get("copyright") or "")
+    except Exception:
+        return None
+
 try:
     open(RESULT, "w").close()
     w("start")
@@ -125,10 +153,24 @@ try:
         return mesh, tex
 
     imported = {}
+    refused = []
     for name, glb, pos, yaw, target_cm in PROPS:
+        if glb in CI_AUTHORED_ONLY and os.path.isfile(GLB_DIR + "/" + glb):
+            mark = glb_copyright(GLB_DIR + "/" + glb)
+            if not mark or CI_COPYRIGHT_MARK not in mark:
+                # Not imported at all, so nothing of it reaches /Game, the map or the cook.
+                # place_prop() then logs "SKIP place" for every slot that would have used it.
+                imported[name] = None
+                refused.append(name)
+                w("prop REFUSED %-10s %s is not CI-authored (asset.copyright=%r); the Sketchfab model "
+                  "that filled this slot is NoAI-tagged. Build the replacement with "
+                  "Deployment/blender/make_period_props.py" % (name, glb, mark))
+                continue
         sm, tex = import_prop(name, glb)
         imported[name] = sm
         w("import %-11s -> %s (%d tex)" % (name, "OK" if sm else "NO_STATICMESH", tex))
+    w("NoAI prop slots: %d of %d refused%s" % (len(refused), len(CI_AUTHORED_ONLY),
+      (" (" + ", ".join(refused) + " left empty)") if refused else ""))
 
     # ---------- fresh level ----------
     # THE empty-stage root cause. new_level REFUSES to overwrite ("Failed to validate the

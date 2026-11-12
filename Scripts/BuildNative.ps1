@@ -112,6 +112,7 @@ $UProject = Join-Path $ProjectRoot 'MetaHumanLocalLLM.uproject'
 if (-not (Test-Path $UProject)) { throw "Project not found: $UProject" }
 if ($Archive -eq '') { $Archive = Join-Path $ProjectRoot "dist/$Platform" }
 $StageMap = Join-Path $ProjectRoot 'Content\Maps\CompanionStage.umap'
+$script:RefusedPropsNote = $null   # set by Invoke-StageAuthoring when NoAI prop slots were left empty
 
 if ($Platform -eq 'Mac') {
     Write-Host 'Mac cannot be built from Windows. Apple provides no cross-compiler.' -ForegroundColor Yellow
@@ -277,7 +278,7 @@ function Invoke-StageAuthoring {
 
     if (-not (Test-Path $result)) { throw "Authoring produced no result file. See $log" }
     $lines = Get-Content $result
-    $lines | Where-Object { $_ -match 'resident|Nia:|729|placed|SUCCESS|FAIL' } | ForEach-Object { "  $_" }
+    $lines | Where-Object { $_ -match 'resident|Nia:|729|placed|REFUSED|NoAI|SUCCESS|FAIL' } | ForEach-Object { "  $_" }
 
     # FAIL FAST, loudly, on every condition that has previously shipped an empty stage.
     if (-not ($lines -match '^SUCCESS')) { throw "Authoring did not report SUCCESS. See $log and $result" }
@@ -294,6 +295,16 @@ function Invoke-StageAuthoring {
     }
     elseif (-not ($lines -match 'resident: MANNEQUIN placed')) {
         throw "Authoring placed no mannequin resident (the default). See $result"
+    }
+    # Not a failure: a slot whose GLB is still the NoAI-tagged Sketchfab download is left EMPTY rather
+    # than shipped (author_diorama.py, CI_AUTHORED_ONLY). Said here and again after the cook, where
+    # it is seen.
+    $refused = @($lines | Where-Object { $_ -match '^prop REFUSED' })
+    if ($refused.Count -gt 0) {
+        $script:RefusedPropsNote = ("$($refused.Count) prop slot(s) left empty: their GLBs in $glb are the NoAI-tagged " +
+            'Sketchfab models, not the CI-authored replacements. Build those with ' +
+            "'blender --background --python Deployment/blender/make_period_props.py -- --out $glb'.")
+        Write-Host $script:RefusedPropsNote -ForegroundColor Yellow
     }
     # Both of these ship in the repo now, so a miss is a regression rather than a missing optional
     # input. They used to fail SILENTLY -- try/except around the import, no line in the result
@@ -435,5 +446,6 @@ finally {
 if ($uatExit -ne 0) { throw "BuildCookRun failed ($uatExit)" }
 
 Write-Host "OK -> $Archive (resident: $Resident)" -ForegroundColor Green
+if ($script:RefusedPropsNote) { Write-Host $script:RefusedPropsNote -ForegroundColor Yellow }
 Write-Host 'Runtime config is environment variables, same as the container:' -ForegroundColor Cyan
 Write-Host '  OLLAMA_BASE_URL, OLLAMA_MODEL, KOKORO_SERVER_URL, MHLLM_OPENING_LINE, MHLLM_HUD=0'
