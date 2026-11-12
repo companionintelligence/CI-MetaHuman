@@ -8,7 +8,7 @@ them to `/home/ci/` rather than editing the server copies in place.
 
 | script | what it does | cost |
 |---|---|---|
-| `run_author_m2.sh` | Authors the map headlessly (`author_diorama.py`) in the content-only project via `dev-5.5` + `-nullrhi` (still 5.5 — see **Engine version**). Mounts the prop GLBs and the MetaHuman Seo FBX export (`/home/ci/mh-seo`); mounts and copies `nia-content` **only** with `MHLLM_RESIDENT=nia` (default `metahuman`). Writes `stage-out/Content` + `AUTHOR_RESULT.txt`. | ~3 min |
+| `run_author_m2.sh` | Authors the map headlessly (`author_diorama.py`) in the content-only project via `dev-5.5` + `-nullrhi` (still 5.5 — see **Engine version**). Mounts the prop GLBs; the default resident (`MHLLM_RESIDENT=mannequin`) is engine content and needs nothing else. Mounts the MetaHuman Seo FBX export (`/home/ci/mh-seo`) **only** with `metahuman` or `nia`, and mounts and copies `nia-content` **only** with `nia`. Writes `stage-out/Content` + `AUTHOR_RESULT.txt`. | ~3 min |
 | `m2_full.sh` | The full pipeline: author → purge + refresh `cook-m2/Content` → `docker build Dockerfile.amd --build-arg RELEASE=5.8` → `docker compose up -d project` (the tag it just built) → capture a frame. | ~20 min |
 | `gpu_preview.sh` | Renders the **uncooked** authored map on the real GPU via `ci/ue55-editor-preview:mesa`. Skips the cook entirely. See `Dockerfile.editorpreview` for the ICD/`setpriv` gotchas that make this work at all. | ~3-5 min |
 | `cap2.mjs` / `cap5.mjs` | Headless Playwright capture of the live WebRTC stream into a PNG + luminance stats. `cap2` writes `m2-canvas.png`, `cap5` writes `ship-view.png` (no mouse input, so it does not rotate the camera). | ~30 s |

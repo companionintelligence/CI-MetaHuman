@@ -18,14 +18,16 @@ conversational turn actually travels*. Deeper topics have their own files — se
 
 ## 1. What Eliza is
 
-A photoreal avatar (named Eliza in persona; the MetaHuman "Seo" by default, the Reallusion Character
-Creator "Nia" only when a build asks for her) standing in a 1970s mainframe room, rendered in Unreal Engine, holding a conversation with a visitor. Every
+An avatar (named Eliza in persona) standing in a 1970s mainframe room, rendered in Unreal Engine,
+holding a conversation with a visitor. By default the avatar is a faceless placeholder, Epic's UE
+mannequin, because both photoreal characters on hand (the MetaHuman "Seo" and the Reallusion Character
+Creator "Nia") are Fab content tagged NoAI and are built only when asked for by name. Every
 model runs on hardware we own. Nothing leaves the tailnet.
 
 | | |
 |---|---|
 | **Engine** | UE **5.8** — what the project authors, builds and cooks. The C++ still compiles on 5.5 and is still tested there (§5.4); the **content** is what cannot go back. Every git-tracked package under `Content/` is UE5 package version **1018**, UE 5.5.4 reads at most **1013**, and package serialisation is forward-only, so a 5.5 cook fails at asset *load* — see the header of `Scripts/BuildNative.ps1` and [`COMPAT-AND-ECOSYSTEM-REVIEW.md`](COMPAT-AND-ECOSYSTEM-REVIEW.md) |
-| **Avatar** | MetaHuman "Seo" by default, face tagged `FaceProfile=ARKit` (unverified against the exported face — [`SCENE-AUTHORING.md`](SCENE-AUTHORING.md#the-resident)). Reallusion CC "Nia" — **CC-named** morph targets (`V_*`), *not* ARKit, 286 morph targets, all 15 CC visemes present — is opt-in only (`-Resident Nia`) because her licence says no to AI use. The measurements in this document were taken on Nia |
+| **Avatar** | Epic's UE mannequin by default: no facial rig, so the face driver resolves 0 curves ([`SCENE-AUTHORING.md`](SCENE-AUTHORING.md#the-resident)). Opt-in only, because both listings say no to AI use: the MetaHuman "Seo" (`-Resident MetaHuman`), face tagged `FaceProfile=ARKit` and unverified against the exported face, and the Reallusion CC "Nia" (`-Resident Nia`) — **CC-named** morph targets (`V_*`), *not* ARKit, 286 morph targets, all 15 CC visemes present. The measurements in this document were taken on Nia |
 | **Cognition** | Ollama `qwen3.8:27b`, thinking disabled — **424–914 ms** warm on beta-1 |
 | **Voice out** | Kokoro via AMD Lemonade Server, OpenAI-shaped HTTP — **1166 ms** median |
 | **Voice in** | Whisper via the same Lemonade endpoint — **66 ms** median. Service works; **not wired to a UI control** (§6) |
