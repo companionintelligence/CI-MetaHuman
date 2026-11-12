@@ -114,12 +114,32 @@ void UCompanionStageDirector::OnWorldBeginPlay(UWorld& InWorld)
 	}
 
 	float EyeZ = 180.0f;
-	if (const USkeletalMeshComponent* Mesh = Resident->FindComponentByClass<USkeletalMeshComponent>())
 	{
 		// Measure rather than assume: a different character changes the framing, and a hard-coded
 		// eyeline is what cropped her head off the first time portrait was tried.
-		const FVector Extent = Mesh->Bounds.BoxExtent;
-		EyeZ = Extent.Z * 2.0f * 0.93f;
+		//
+		// Measured over the WHOLE resident, including the actors ATTACHED to it. The MetaHuman
+		// resident is three skeletal meshes -- the tagged Face, with Body and Outfit attached to it --
+		// and the face mesh's own bounds are a head-sized box, which would have put the eyeline near
+		// the floor. (GetActorBounds' bIncludeFromChildActors does not cover this: it means actors
+		// spawned by a ChildActorComponent, not actors attached with AttachToActor.)
+		//
+		// For a single-mesh resident such as Nia the union is that one mesh's bounds, i.e. exactly
+		// the box this used to read from the skeletal mesh component, so her framing is unchanged.
+		FBox Box = Resident->GetComponentsBoundingBox(/*bNonColliding*/ true, /*bIncludeFromChildActors*/ true);
+		TArray<AActor*> Attached;
+		Resident->GetAttachedActors(Attached, /*bResetArray*/ true, /*bRecursivelyIncludeAttachedActors*/ true);
+		for (const AActor* Part : Attached)
+		{
+			if (Part)
+			{
+				Box += Part->GetComponentsBoundingBox(/*bNonColliding*/ true, /*bIncludeFromChildActors*/ true);
+			}
+		}
+		if (Box.IsValid && Box.GetExtent().Z > KINDA_SMALL_NUMBER)
+		{
+			EyeZ = Box.GetExtent().Z * 2.0f * 0.93f;
+		}
 	}
 
 	BuildPath(Resident->GetActorLocation(), EyeZ);

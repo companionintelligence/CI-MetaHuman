@@ -47,15 +47,13 @@ sibling, by the same author), [Montserrat](https://github.com/JulietaUla/Montser
   also contains the project's npm dependencies, each under its own licence, on a `node:lts`
   (Debian) base.
 
-### Character content staged at build time (not in this repository)
+### The resident: engine content by default, Fab characters only on request (not in this repository)
 
 | Component | Source | Where it enters | Licence | Status |
 |---|---|---|---|---|
-| "Character Creator: Nia" by Reallusion Inc: skeletal mesh, materials, `CC_Shaders`, `CC_Rigs` and idle motions, about 900 MB | Fab, <https://www.fab.com/listings/366cfc84-6d6a-44ff-89ad-4bffb7347c15> | `Scripts/BuildNative.ps1` (`-NiaContent` or `MHLLM_NIA_CONTENT`) copies it into `Content/CC_ControlRig_Nia`, which `.gitignore` excludes. `Deployment/core2/run_author_m2.sh` copies `/home/ci/nia-content`. `Deployment/author_diorama.py` places `SK_Nia` as the resident, so it is cooked into every packaged build | Fab Standard License, Personal and Professional tiers, both free. The listing says "Allows usage with AI: No" (`isAiForbidden: true` in Fab's API), and its description ends "*Non-Commercial Use" | **Open licence blocker.** See [NOTICE.md](NOTICE.md), "Open licence blocker: the resident avatar" |
-| MetaHuman "Seo" (`mhc_seo.mhpkg`, exported to FBX) | not recorded | `author_diorama.py` reads it from `MHLLM_MH_DIR` (`/mh`) only when Nia is absent | MetaHuman content: Unreal Engine EULA, if it came from MetaHuman Creator | Fallback only. Confirm its provenance before relying on it |
-
-When neither is available, `author_diorama.py` places the engine's `SKM_Manny` mannequin, which is
-Unreal Engine content under the Unreal Engine EULA.
+| Epic's UE mannequin: `SKM_Manny` and its `MM_Idle` loop | the engine's MoverTests plugin (`Engine/Plugins/Experimental/MoverTests`) | **The default resident.** `Deployment/author_diorama.py` places it when `MHLLM_RESIDENT` is unset or `mannequin` (`Scripts/BuildNative.ps1` without `-Resident`), so it is cooked into every default build | Unreal Engine content: Licensed Technology under the Unreal Engine EULA | Clear for this use. A placeholder with no facial rig |
+| "Character Creator: Nia" by Reallusion Inc: skeletal mesh, materials, `CC_Shaders`, `CC_Rigs` and idle motions, about 900 MB | Fab, <https://www.fab.com/listings/366cfc84-6d6a-44ff-89ad-4bffb7347c15> | **Only on request.** `Scripts/BuildNative.ps1 -Resident Nia` (`-NiaContent` or `MHLLM_NIA_CONTENT`) copies it into `Content/CC_ControlRig_Nia`, which `.gitignore` excludes; `Deployment/core2/run_author_m2.sh` mounts `/home/ci/nia-content` only with `MHLLM_RESIDENT=nia`. `author_diorama.py` loads `SK_Nia` only for that resident | Fab Standard License, Personal and Professional tiers, both free. The listing says "Allows usage with AI: No" (`isAiForbidden: true` in Fab's API), and its description ends "*Non-Commercial Use" | **Opt-in only; not cleared for this use.** See [NOTICE.md](NOTICE.md), "The resident avatar" |
+| MetaHuman "Seo" (`mhc_seo.mhpkg`, exported to FBX) | Fab, "Seo - Editable MetaHuman Character" by Groomchenko, <https://www.fab.com/listings/3693be83-9054-4fd3-9b2e-0b6d5b45fe22> | **Only on request.** `author_diorama.py` reads the FBX export from `MHLLM_MH_DIR` (`/mh`; `-MetaHumanDir` for `BuildNative.ps1`) with `MHLLM_RESIDENT=metahuman`, or as Nia's fall-back | Fab Standard License; the listing says "Allows usage with AI: No" (`isAiForbidden: true`). Fab assets are not Licensed Technology under the Unreal Engine EULA, so Epic's MetaHuman terms do not lift the tag | **Opt-in only; not cleared for this use.** See [NOTICE.md](NOTICE.md), "The resident avatar" |
 
 ### kokoro-align sidecar image (`Deployment/kokoro-align`)
 

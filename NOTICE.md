@@ -192,63 +192,77 @@ the published history would need a history rewrite and an LFS purge, which is th
 Do not commit MetaHuman, Fab or other Epic source assets to this repository; keep them in
 private storage.
 
-## Open licence blocker: the resident avatar, Reallusion's "Nia"
+## The resident avatar: Epic's mannequin by default; "Nia" and "Seo" are opt-in only
 
-The companion's on-screen character is a third-party Fab asset whose listing restricts both AI
-use and commercial use. No licence in this repository covers how the product uses her. Treat
-this as unresolved until the owner records terms that clearly allow that use, or replaces her.
-Facts below were read on 2026-11-12.
+The companion's on-screen character is chosen when the map is authored: `MHLLM_RESIDENT` for
+`Deployment/author_diorama.py` and `Deployment/core2/run_author_m2.sh`, `-Resident` for
+`Scripts/BuildNative.ps1`. The default is the only choice whose licence clears an AI companion.
+Facts below were read on 2026-11-12; the root `README.md` ("Licensing") quotes the sources.
 
-- **The asset.** "Character Creator: Nia" by Reallusion Inc, free on Fab:
-  <https://www.fab.com/listings/366cfc84-6d6a-44ff-89ad-4bffb7347c15>. Fab offers it under its
-  Standard License, in the Personal and Professional tiers. She is the figure the persona
-  "Eliza" is shown as.
-- **How she enters a build.** Her content is not in this repository or its history:
-  `/Content/CC_ControlRig_Nia/` is in `.gitignore`, and `Docs/reference/nia-morph-targets.txt`
-  holds only the names of her morph targets. `Scripts/BuildNative.ps1` stops if her content is
-  missing (only `-SkipAuthoring`, which cooks an empty stage, avoids that) and copies about 900 MB
-  of it into `Content/CC_ControlRig_Nia`. `Deployment/core2/run_author_m2.sh` copies
-  `/home/ci/nia-content` into the authoring project, and `Deployment/core2/m2_clean.sh` stops
-  with `NO_NIA_CONTENT` without it. `Deployment/author_diorama.py` then places
-  `/Game/CC_ControlRig_Nia/RLContent/Nia/SK_Nia` as the resident. Every packaged build and
-  runtime image made this way contains her, cooked. The face pipeline (`MHLLM_FACE_PROFILE=CC`)
-  drives her morph targets. `Assets/store-screenshots/01-scene.png`, `02-conversation.png` and
-  `Docs/verification-2026-08-17/measurement-regions.png` show her.
-- **Problem 1: no AI use.** The listing page shows "Allows usage with AI: No", and Fab's listing
-  API (`https://www.fab.com/i/listings/366cfc84-6d6a-44ff-89ad-4bffb7347c15`) returns
-  `"isAiForbidden": true`. Fab does not document that label on its own; read it as Fab's "NoAI"
-  marking. Epic's Fab documentation says a NoAI asset "must not be used for generative AI data
-  collection"
-  ([Licenses and Pricing in Fab](https://dev.epicgames.com/documentation/en-us/fab/licenses-and-pricing-in-fab)).
-  As Fab staff quoted the Fab EULA (section 16(l)) on 2026-10-13, NoAI content may not be used in
-  datasets used by generative AI programs, in the development of generative AI programs, or as
-  training inputs to them. That thread also notes the Fab Terms of Service (section 3.3(i)) say
-  "inputs" without "training"
-  (<https://forums.unrealengine.com/t/noai-content-inputs-or-training-inputs/2838630>). This
-  product is an AI companion whose generated replies drive her face. Whether that counts as
-  developing, or giving inputs to, a generative AI program is unclear. The three NoAI-tagged
-  Sketchfab props were replaced on the same ground.
-- **Problem 2: a non-commercial note.** The listing description ends "*Non-Commercial Use", yet
-  Fab's summary of the Standard License it is offered under says buyers may use assets
-  commercially (<https://www.fab.com/eula>). The listing contradicts itself, and a commercial
-  release, such as a store listing built on the screenshots above, falls inside that conflict.
-- **What is on record.** `README.md` and `Docs/ROADMAP.md` say the owner has stated that
-  licensing is handled. No licence, permission or correspondence from Reallusion is recorded in
-  this repository, so this file cannot confirm it.
+- **Default: Epic's UE mannequin.** `SKM_Manny` and its `MM_Idle` loop, from the engine's
+  MoverTests plugin. They are Epic-provided content installed with Unreal Engine, so they are
+  Licensed Technology under the Unreal Engine EULA (section 1), and a cooked build or runtime image
+  carries them in object code as section 4 requires. The current EULA has no AI clause (EULA
+  update 22, October 30, 2026, removed section 6(e)'s restrictions). Nothing outside the engine is
+  staged for it. It is a placeholder: it has no facial rig, so there is no lip-sync or expression.
+- **Opt-in: "Character Creator: Nia" by Reallusion Inc** (`-Resident Nia`, `MHLLM_RESIDENT=nia`),
+  free on Fab under its Standard License, in the Personal and Professional tiers:
+  <https://www.fab.com/listings/366cfc84-6d6a-44ff-89ad-4bffb7347c15>.
+  - **No AI use.** The listing page shows "Allows usage with AI: No", and Fab's listing API
+    (`https://www.fab.com/i/listings/366cfc84-6d6a-44ff-89ad-4bffb7347c15`) returns
+    `"isAiForbidden": true`. Fab does not document that label on its own; read it as Fab's "NoAI"
+    marking. Epic's Fab documentation says a NoAI asset "must not be used for generative AI data
+    collection"
+    ([Licenses and Pricing in Fab](https://dev.epicgames.com/documentation/en-us/fab/licenses-and-pricing-in-fab)).
+    As Fab staff quoted the Fab EULA (section 16(l)) on 2026-10-13, NoAI content may not be used
+    in datasets used by generative AI programs, in the development of generative AI programs, or
+    as training inputs to them. That thread also notes the Fab Terms of Service (section 3.3(i))
+    say "inputs" without "training"
+    (<https://forums.unrealengine.com/t/noai-content-inputs-or-training-inputs/2838630>).
+  - **A non-commercial note.** The listing description ends "*Non-Commercial Use", yet Fab's
+    summary of the Standard License it is offered under says buyers may use assets commercially
+    (<https://www.fab.com/eula>). The listing contradicts itself, and a commercial release falls
+    inside that conflict.
+  - **How she enters a build, and only when asked for.** Her content is not in this repository or
+    its history: `/Content/CC_ControlRig_Nia/` is in `.gitignore`, and
+    `Docs/reference/nia-morph-targets.txt` holds only the names of her morph targets. Only
+    `-Resident Nia` makes `Scripts/BuildNative.ps1` copy about 900 MB of it into
+    `Content/CC_ControlRig_Nia`, and only `MHLLM_RESIDENT=nia` makes `run_author_m2.sh` mount
+    `/home/ci/nia-content`. `author_diorama.py` does not even load `SK_Nia` for another resident,
+    and `Deployment/core2/m2_clean.sh` refuses a mannequin or MetaHuman cook tree that still
+    contains her (`UNEXPECTED_NIA_CONTENT`).
+- **Opt-in: the MetaHuman "Seo"** (`-Resident MetaHuman`, `MHLLM_RESIDENT=metahuman`).
+  `mhc_seo.mhpkg` is the Fab listing "Seo - Editable MetaHuman Character" by Groomchenko
+  (<https://www.fab.com/listings/3693be83-9054-4fd3-9b2e-0b6d5b45fe22>): Standard License, and
+  "Allows usage with AI: No" (`isAiForbidden: true`). Epic's MetaHuman terms do not override the
+  seller's: the Unreal Engine EULA (section 1) says assets downloaded from an Epic-operated
+  marketplace, Fab included, are not Licensed Technology. Seo therefore stands exactly where Nia
+  does. Her FBX export is not in this repository; it is read from `MHLLM_MH_DIR` /
+  `-MetaHumanDir` only for this resident (and as Nia's fall-back), and a mannequin build creates
+  nothing under `/Game/Seo`.
 
-To close the blocker, do one of these:
+This product is an AI companion whose generated replies drive the resident's face. Whether that
+counts as developing, or giving inputs to, a generative AI program is unclear, and an unclear
+licence is treated as a licence problem. Neither Fab character is staged, loaded or cooked unless
+asked for by name, and building or distributing with either is a decision for counsel, not for the
+build script. The three NoAI-tagged Sketchfab props were replaced on the same ground
+([CREDITS.md](CREDITS.md)).
 
-1. Get written terms from Reallusion that cover commercial use and use as the avatar of an AI
-   companion, and record them here.
-2. Replace the resident. When `SK_Nia` is absent, `author_diorama.py` already falls back to the
-   MetaHuman "Seo" export in `MHLLM_MH_DIR` and then to the engine mannequin. A switch still needs
-   the build scripts above to stop requiring Nia, `MHLLM_FACE_PROFILE=ARKit`, a new authoring run
-   and cook in Unreal, and new screenshots. Seo's provenance is not recorded, and MetaHuman content
-   is under the Unreal Engine EULA: check both, including the current AI terms, first.
+**Still open:**
 
-Until one of these is done, get counsel's view before any commercial build, image or store
-listing that contains her, and do not use her mesh, rig or renders as data for training any
-model.
+1. **A resident with a face** that the project may use with AI: a MetaHuman created in-house with
+   MetaHuman Creator (Licensed Technology, so the EULA governs it), or written terms from
+   Reallusion or Groomchenko that cover use as the avatar of an AI companion (for Nia, commercial
+   use too), recorded here.
+2. **Images made with Nia.** `Assets/store-screenshots/01-scene.png`, `02-conversation.png` and
+   `Docs/verification-2026-08-17/measurement-regions.png` show her, and the two screenshots also
+   show a replaced NoAI prop ([CREDITS.md](CREDITS.md)). Recapture them from a mannequin build, or
+   get counsel's view, before they appear in a store listing or other commercial material.
+3. **What is on record.** Earlier versions of `README.md` and `Docs/ROADMAP.md` said the owner had
+   stated that licensing is handled. No licence, permission or correspondence from Reallusion or
+   Groomchenko is recorded in this repository, so this file cannot confirm it.
+
+Do not use either character's mesh, rig or renders as data for training any model.
 <!-- end hand-authored -->
 
 ## Copyleft and reciprocal-licence dependencies

@@ -41,8 +41,9 @@ COPY --chown=ue4:ue4 . /home/ue4/project-src
 # Nothing in this file authors the set. It cooks whatever Content/ the build context carries, and
 # the CompanionStage.umap committed to git is a 23 KB STUB: sky and ground, no machine hall, no
 # props, no resident. So a clean checkout built an image that streamed an empty stage, and nothing
-# anywhere failed. The authored Content/ (the map, the imported Diorama assets and the Nia
-# character) has to be in the context first: Docs/BUILD-AND-DEPLOY.md section 2.2.
+# anywhere failed. The authored Content/ (the map and the imported Diorama assets, plus the
+# resident's content when an opt-in resident was authored; the default mannequin is engine
+# content) has to be in the context first: Docs/BUILD-AND-DEPLOY.md section 2.2.
 #
 # The script is byte-for-byte the same in Dockerfile.amd, and CI extracts it and runs it against
 # fixtures (.github/workflows/checks.yml), so change both copies together and keep it POSIX sh.

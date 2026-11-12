@@ -1,6 +1,8 @@
 # Documentation index
 
-**Eliza** — a locally-hosted embodied AI companion. A Reallusion Character Creator avatar in a
+**Eliza** — a locally-hosted embodied AI companion. An avatar (by default a faceless UE mannequin
+placeholder; the MetaHuman "Seo" and the Reallusion Character Creator "Nia" are opt-in only, for
+licence reasons — see the root README's *Licensing*) in a
 1970s mainframe room, rendered in Unreal Engine 5.8, delivered two ways: a Linux container cook
 streamed to browsers via Pixel Streaming, and a native Windows executable. All inference is local:
 Ollama for cognition, Kokoro for speech, Whisper for hearing, on AMD ROCm hardware we own.

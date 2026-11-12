@@ -17,7 +17,7 @@ def _dir(var, default):
     return os.environ.get(var, default).replace("\\", "/").rstrip("/")
 
 GLB_DIR   = _dir("MHLLM_GLB_DIR",   "/glb")      # prop GLBs (scavenged Sketchfab assets)
-MH_DIR    = _dir("MHLLM_MH_DIR",    "/mh")       # MetaHuman "Seo" FBX/TGA (fallback resident only)
+MH_DIR    = _dir("MHLLM_MH_DIR",    "/mh")       # MetaHuman "Seo" FBX export (opt-in: MHLLM_RESIDENT=metahuman)
 AUDIO_DIR = _dir("MHLLM_AUDIO_DIR", "/audio")    # Deployment/audio — the machine-room score
 BRAND_DIR = _dir("MHLLM_BRAND_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "generated"))
 # Deployment/generated — set dressing this repo SYNTHESIZES rather than scavenges:
@@ -35,6 +35,29 @@ BRAND_DIR = _dir("MHLLM_BRAND_DIR", os.path.join(os.path.dirname(os.path.abspath
 # "There was nothing to import" in the authoring log.
 GEN_DIR   = _dir("MHLLM_GEN_DIR",   GLB_DIR)
 RESULT    = os.environ.get("MHLLM_AUTHOR_RESULT", "/out/AUTHOR_RESULT.txt")
+
+# WHICH RESIDENT. Three choices, and the default is the only one whose licence clears this use.
+#   "mannequin" (the default) places Epic's UE mannequin, SKM_Manny from the engine's MoverTests
+#       plugin, playing its MM_Idle loop. Content installed with Unreal Engine is Licensed
+#       Technology under the Unreal Engine EULA (section 1), and the current EULA carries no AI
+#       restriction. It is a PLACEHOLDER: it has no facial morph targets, so the face driver binds
+#       and resolves 0 curves (no lip-sync, no expression, no eye movement).
+#   "metahuman" places the MetaHuman "Seo" export read from MH_DIR.
+#   "nia" places the Reallusion Character Creator "Nia" content staged under
+#       /Game/CC_ControlRig_Nia, exactly as every build did before this switch existed, including
+#       the fall-back to Seo if she fails to load.
+#
+# Seo and Nia are OPT-IN because of their licences, not their looks. Both are Fab content under the
+# Standard License with "Allows usage with AI: No" (the NoAI tag): Nia is "Character Creator: Nia"
+# (Reallusion Inc), and mhc_seo.mhpkg is "Seo - Editable MetaHuman Character" (seller Groomchenko).
+# This product is an AI companion. Epic's MetaHuman terms do not clear Seo: the Unreal Engine EULA
+# (section 1) says assets downloaded from Fab "are not Licensed Technology", so the seller's Fab
+# licence, NoAI tag included, is what governs her. README.md "Licensing" has the citations.
+#
+# Anything else is refused rather than guessed: authoring a different resident than the one asked
+# for is the silent-wrong-artifact failure every gate in this pipeline exists to stop.
+RESIDENT  = os.environ.get("MHLLM_RESIDENT", "").strip().lower() or "mannequin"
+RESIDENTS = ("mannequin", "metahuman", "nia")
 def w(s):
     try:
         with open(RESULT, "a") as f: f.write(str(s) + "\n")
@@ -71,9 +94,40 @@ PROPS = [
     ("cp500",      "prologica-cp500.glb",   ( -50,  355, 0),   69,  55),
 ]
 
+# SLOTS WHOSE SKETCHFAB MODEL IS NoAI-TAGGED. These three files were maxdragon's CC BY 4.0 models,
+# and all three Sketchfab pages carry the NoAI tag. Sketchfab's Terms of Use bar NoAI content from
+# use "in datasets for, in the development of, or as inputs to generative AI programs" (Sketchfab
+# Help Center article 16152133), and this product is an AI companion, so that is a licence issue.
+# A file in one of these slots is imported only when its glTF asset block names Companion
+# Intelligence as the copyright holder, which is what Deployment/blender/make_period_props.py
+# writes into the replacements it builds under the same names. Anything else, such as the old
+# Sketchfab download or a file of unknown origin, is REFUSED and the slot stays empty, so a stale
+# prop directory cannot put those models back into a build.
+CI_AUTHORED_ONLY = ("ibm-1401-cpu.glb", "ibm-3178-terminal.glb", "ibm-3350-disk.glb")
+CI_COPYRIGHT_MARK = "Companion Intelligence"
+
+def glb_copyright(path):
+    """asset.copyright of a binary glTF file, "" when it has none, None when it cannot be read."""
+    import json, struct
+    try:
+        with open(path, "rb") as f:
+            head = f.read(20)
+            if len(head) < 20:
+                return None
+            magic, _version, _length, chunk_len, chunk_type = struct.unpack("<4sIII4s", head)
+            if magic != b"glTF" or chunk_type != b"JSON":
+                return None
+            doc = json.loads(f.read(chunk_len).decode("utf-8"))
+        return str((doc.get("asset") or {}).get("copyright") or "")
+    except Exception:
+        return None
+
 try:
     open(RESULT, "w").close()
     w("start")
+    if RESIDENT not in RESIDENTS:
+        raise RuntimeError("MHLLM_RESIDENT=%r is not one of %s" % (RESIDENT, "/".join(RESIDENTS)))
+    w("resident requested: %s (MHLLM_RESIDENT)" % RESIDENT)
     les = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
     eas = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
 
@@ -99,10 +153,24 @@ try:
         return mesh, tex
 
     imported = {}
+    refused = []
     for name, glb, pos, yaw, target_cm in PROPS:
+        if glb in CI_AUTHORED_ONLY and os.path.isfile(GLB_DIR + "/" + glb):
+            mark = glb_copyright(GLB_DIR + "/" + glb)
+            if not mark or CI_COPYRIGHT_MARK not in mark:
+                # Not imported at all, so nothing of it reaches /Game, the map or the cook.
+                # place_prop() then logs "SKIP place" for every slot that would have used it.
+                imported[name] = None
+                refused.append(name)
+                w("prop REFUSED %-10s %s is not CI-authored (asset.copyright=%r); the Sketchfab model "
+                  "that filled this slot is NoAI-tagged. Build the replacement with "
+                  "Deployment/blender/make_period_props.py" % (name, glb, mark))
+                continue
         sm, tex = import_prop(name, glb)
         imported[name] = sm
         w("import %-11s -> %s (%d tex)" % (name, "OK" if sm else "NO_STATICMESH", tex))
+    w("NoAI prop slots: %d of %d refused%s" % (len(refused), len(CI_AUTHORED_ONLY),
+      (" (" + ", ".join(refused) + " left empty)") if refused else ""))
 
     # ---------- fresh level ----------
     # THE empty-stage root cause. new_level REFUSES to overwrite ("Failed to validate the
@@ -804,8 +872,11 @@ try:
         import traceback as _t
         w("729 PLACEMENT WARN: %s" % e)
 
-    # ---------- the resident: MetaHuman "Seo" ----------
-    # Converted from mhc_seo.mhpkg (5.6 EditableCharacter): assembled in a local 5.8 editor,
+    # ---------- the resident ----------
+    # Default (MHLLM_RESIDENT=mannequin): Epic's UE mannequin, placed further down. Opt-in: the
+    # MetaHuman "Seo" (metahuman) or the Reallusion "Nia" (nia); see WHICH RESIDENT at the top.
+    #
+    # Seo: converted from mhc_seo.mhpkg (5.6 EditableCharacter): assembled in a local 5.8 editor,
     # exported Face+Body+Outfit to FBX (version-agnostic), re-imported HERE into 5.5 as
     # skeletal meshes. Face carries 849 morph targets = the MetaHuman facial-blendshape rig
     # (the future viseme source). Placed at the camera's look target.
@@ -817,7 +888,7 @@ try:
     # facing by looking for EYES in a captured frame, not by reasoning about the forward vector.
     RES_POS, RES_YAW = (330, 20, 0), 90.0
 
-    # ---------- preferred resident: Reallusion Character Creator "Nia" ----------
+    # ---------- opt-in resident (MHLLM_RESIDENT=nia): Reallusion Character Creator "Nia" ----------
     # Nia ships as a UE 5.3 project with NO plugin dependencies and PLAIN SkeletalMesh /
     # Texture2D / AnimSequence assets, so UE 5.5 loads them directly — no FBX round-trip, and
     # we keep her REAL PBR materials (M_HQSkin + per-region instances + SSS profiles) instead
@@ -838,7 +909,10 @@ try:
     NIA_YAW = 90.0
     nia_placed = False
     try:
-        nia = unreal.load_asset(NIA_SK)
+        # Not even LOADED unless asked for. A checkout that once built with -Resident Nia keeps her
+        # content staged in Content/CC_ControlRig_Nia (it is gitignored, not deleted), and the old
+        # unconditional load would have quietly made her the resident of every later build.
+        nia = unreal.load_asset(NIA_SK) if RESIDENT == "nia" else None
         if nia:
             a = spawn(unreal.SkeletalMeshActor, RES_POS, yaw=NIA_YAW)
             a.set_actor_label("Nia")
@@ -847,7 +921,10 @@ try:
             # build. UCompanionFaceSubsystem finds the resident by this tag at BeginPlay and
             # attaches the face driver — which is how behaviour reaches a map that is authored
             # in a content-only project and therefore cannot reference plugin C++ or Blueprints.
-            a.set_editor_property("tags", ["CompanionFace"])
+            # FaceProfile=CC declares her rig (Reallusion V_* morphs). It is what the C++ assumed for
+            # every map before the tag existed, so this changes nothing for her; it exists so the
+            # MetaHuman resident can declare ARKit instead of inheriting a CC default.
+            a.set_editor_property("tags", ["CompanionFace", "FaceProfile=CC"])
             comp = a.skeletal_mesh_component
             comp.set_skeletal_mesh(nia)
             try:
@@ -880,8 +957,10 @@ try:
                 w("Nia: NO idle anim found (tried %s) — she will stand in bind pose" % NIA_ANIM)
             nia_placed = True
             w("resident: NIA placed at %s yaw %.0f" % (RES_POS, NIA_YAW))
-        else:
+        elif RESIDENT == "nia":
             w("Nia: %s not found — falling back to the MetaHuman Seo path" % NIA_SK)
+        else:
+            w("resident: Nia not requested (MHLLM_RESIDENT=%s) -- placing the %s resident" % (RESIDENT, RESIDENT))
     except Exception as e:
         import traceback as _tb
         w("NIA ERROR (falling back to Seo): %s\n%s" % (e, _tb.format_exc()[:600]))
@@ -915,77 +994,81 @@ try:
     tools = unreal.AssetToolsHelpers.get_asset_tools()
     MEL = unreal.MaterialEditingLibrary
     seo_mats = {}
-    try:
-        def imp_tex(name):
-            t = unreal.AssetImportTask()
-            t.set_editor_property("filename", MH_DIR + "/tex/%s.tga" % name)
-            t.set_editor_property("destination_path", "/Game/Seo/Tex")
-            t.set_editor_property("automated", True); t.set_editor_property("save", True)
-            t.set_editor_property("replace_existing", True)
-            unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([t])
-            return unreal.load_asset("/Game/Seo/Tex/%s" % name)
-        # The exported MetaHuman baked textures are un-tintable neutral bakes (T_Head_BC is flat
-        # gray 94,94,94 — meant to be tinted by the full MetaHuman skin shader we don't have), so
-        # a plain texture sample renders gray. Use a CONSTANT skin-tone color instead: robust,
-        # guaranteed non-gray, and a clean base to iterate the real skin material from later.
-        M_Skin = tools.create_asset("M_SeoSkin", "/Game/Seo/Mat", unreal.Material, unreal.MaterialFactoryNew())
-        cp = MEL.create_material_expression(M_Skin, unreal.MaterialExpressionVectorParameter, -380, 0)
-        cp.set_editor_property("parameter_name", "BaseColor")
-        cp.set_editor_property("default_value", unreal.LinearColor(0.80, 0.58, 0.50, 1.0))
-        cok = MEL.connect_material_property(cp, "RGB", unreal.MaterialProperty.MP_BASE_COLOR)
-        if not cok:
-            cok = MEL.connect_material_property(cp, "", unreal.MaterialProperty.MP_BASE_COLOR)
-        w("  M_SeoSkin base-color connect ok=%s" % cok)
-        rg = MEL.create_material_expression(M_Skin, unreal.MaterialExpressionConstant, -380, 250)
-        rg.set_editor_property("r", 0.55)
-        MEL.connect_material_property(rg, "", unreal.MaterialProperty.MP_ROUGHNESS)
-        # *** THE gray-render root cause ***: a material created via MaterialFactoryNew has NO
-        # usage flags. Applying it to a SkeletalMesh with the skeletal-mesh variant uncompiled
-        # makes UE fall back to the DEFAULT (gray) material at runtime/cook (logs
-        # "Material with missing usage flag was applied to skeletal mesh") — which is why every
-        # prior attempt (component override, fresh SkeletalMaterial structs, textured, constant
-        # color) rendered pixel-identical gray. Flag both usages so the SM variants get compiled
-        # into the cook. Morph targets: the Face carries 849 (the viseme rig) so it needs it too.
-        for _flag in ("used_with_skeletal_mesh", "used_with_morph_targets"):
-            M_Skin.set_editor_property(_flag, True)
-        MEL.recompile_material(M_Skin)
-        w("  M_SeoSkin usage: skel=%s morph=%s" % (
-            M_Skin.get_editor_property("used_with_skeletal_mesh"),
-            M_Skin.get_editor_property("used_with_morph_targets")))
+    # Only a build that may place Seo needs her materials: the metahuman resident, and nia, whose
+    # fall-back is Seo and whose runs have always built them. A mannequin build creates nothing
+    # under /Game/Seo.
+    if RESIDENT in ("metahuman", "nia"):
+        try:
+            def imp_tex(name):
+                t = unreal.AssetImportTask()
+                t.set_editor_property("filename", MH_DIR + "/tex/%s.tga" % name)
+                t.set_editor_property("destination_path", "/Game/Seo/Tex")
+                t.set_editor_property("automated", True); t.set_editor_property("save", True)
+                t.set_editor_property("replace_existing", True)
+                unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([t])
+                return unreal.load_asset("/Game/Seo/Tex/%s" % name)
+            # The exported MetaHuman baked textures are un-tintable neutral bakes (T_Head_BC is flat
+            # gray 94,94,94 — meant to be tinted by the full MetaHuman skin shader we don't have), so
+            # a plain texture sample renders gray. Use a CONSTANT skin-tone color instead: robust,
+            # guaranteed non-gray, and a clean base to iterate the real skin material from later.
+            M_Skin = tools.create_asset("M_SeoSkin", "/Game/Seo/Mat", unreal.Material, unreal.MaterialFactoryNew())
+            cp = MEL.create_material_expression(M_Skin, unreal.MaterialExpressionVectorParameter, -380, 0)
+            cp.set_editor_property("parameter_name", "BaseColor")
+            cp.set_editor_property("default_value", unreal.LinearColor(0.80, 0.58, 0.50, 1.0))
+            cok = MEL.connect_material_property(cp, "RGB", unreal.MaterialProperty.MP_BASE_COLOR)
+            if not cok:
+                cok = MEL.connect_material_property(cp, "", unreal.MaterialProperty.MP_BASE_COLOR)
+            w("  M_SeoSkin base-color connect ok=%s" % cok)
+            rg = MEL.create_material_expression(M_Skin, unreal.MaterialExpressionConstant, -380, 250)
+            rg.set_editor_property("r", 0.55)
+            MEL.connect_material_property(rg, "", unreal.MaterialProperty.MP_ROUGHNESS)
+            # *** THE gray-render root cause ***: a material created via MaterialFactoryNew has NO
+            # usage flags. Applying it to a SkeletalMesh with the skeletal-mesh variant uncompiled
+            # makes UE fall back to the DEFAULT (gray) material at runtime/cook (logs
+            # "Material with missing usage flag was applied to skeletal mesh") — which is why every
+            # prior attempt (component override, fresh SkeletalMaterial structs, textured, constant
+            # color) rendered pixel-identical gray. Flag both usages so the SM variants get compiled
+            # into the cook. Morph targets: the Face carries 849 (the viseme rig) so it needs it too.
+            for _flag in ("used_with_skeletal_mesh", "used_with_morph_targets"):
+                M_Skin.set_editor_property(_flag, True)
+            MEL.recompile_material(M_Skin)
+            w("  M_SeoSkin usage: skel=%s morph=%s" % (
+                M_Skin.get_editor_property("used_with_skeletal_mesh"),
+                M_Skin.get_editor_property("used_with_morph_targets")))
 
-        # masked "hidden" material (opacity mask 0) for the transparent overlay slots
-        M_Hidden = tools.create_asset("M_SeoHidden", "/Game/Seo/Mat", unreal.Material, unreal.MaterialFactoryNew())
-        M_Hidden.set_editor_property("blend_mode", unreal.BlendMode.BLEND_MASKED)
-        z = MEL.create_material_expression(M_Hidden, unreal.MaterialExpressionConstant, -380, 0)
-        z.set_editor_property("r", 0.0)
-        MEL.connect_material_property(z, "", unreal.MaterialProperty.MP_OPACITY_MASK)
-        for _flag in ("used_with_skeletal_mesh", "used_with_morph_targets"):
-            M_Hidden.set_editor_property(_flag, True)
-        MEL.recompile_material(M_Hidden)
+            # masked "hidden" material (opacity mask 0) for the transparent overlay slots
+            M_Hidden = tools.create_asset("M_SeoHidden", "/Game/Seo/Mat", unreal.Material, unreal.MaterialFactoryNew())
+            M_Hidden.set_editor_property("blend_mode", unreal.BlendMode.BLEND_MASKED)
+            z = MEL.create_material_expression(M_Hidden, unreal.MaterialExpressionConstant, -380, 0)
+            z.set_editor_property("r", 0.0)
+            MEL.connect_material_property(z, "", unreal.MaterialProperty.MP_OPACITY_MASK)
+            for _flag in ("used_with_skeletal_mesh", "used_with_morph_targets"):
+                M_Hidden.set_editor_property(_flag, True)
+            MEL.recompile_material(M_Hidden)
 
-        def mic(name, color):
-            m = tools.create_asset(name, "/Game/Seo/Mat", unreal.MaterialInstanceConstant,
-                                   unreal.MaterialInstanceConstantFactoryNew())
-            m.set_editor_property("parent", M_Skin)
-            MEL.set_material_instance_vector_parameter_value(m, "BaseColor", unreal.LinearColor(*color))
-            return m
-        seo_mats = {
-            "head":  mic("MI_SeoHead",  (0.82, 0.60, 0.52, 1.0)),  # skin
-            "body":  mic("MI_SeoBody",  (0.80, 0.58, 0.50, 1.0)),  # skin
-            "teeth": mic("MI_SeoTeeth", (0.90, 0.88, 0.82, 1.0)),  # off-white
-            "eye":   mic("MI_SeoEye",   (0.10, 0.08, 0.07, 1.0)),  # dark iris
-            "hidden": M_Hidden,
-            # Garment. Reusing M_SeoSkin as the parent is deliberate: it already carries the
-            # skeletal-mesh/morph-target usage flags, without which the outfit would render as
-            # the default gray exactly like the body did.
-            "cloth_top": mic("MI_SeoClothTop", (0.30, 0.36, 0.40, 1.0)),  # slate shirt
-            "cloth_leg": mic("MI_SeoClothLeg", (0.20, 0.23, 0.27, 1.0)),  # darker shorts
-        }
-        unreal.EditorLoadingAndSavingUtils.save_dirty_packages(True, True)
-        w("skin materials built: %s" % list(seo_mats.keys()))
-    except Exception as e:
-        import traceback as _tb
-        w("MATERIALS ERROR (mesh will stay gray): %s\n%s" % (e, _tb.format_exc()[:500]))
+            def mic(name, color):
+                m = tools.create_asset(name, "/Game/Seo/Mat", unreal.MaterialInstanceConstant,
+                                       unreal.MaterialInstanceConstantFactoryNew())
+                m.set_editor_property("parent", M_Skin)
+                MEL.set_material_instance_vector_parameter_value(m, "BaseColor", unreal.LinearColor(*color))
+                return m
+            seo_mats = {
+                "head":  mic("MI_SeoHead",  (0.82, 0.60, 0.52, 1.0)),  # skin
+                "body":  mic("MI_SeoBody",  (0.80, 0.58, 0.50, 1.0)),  # skin
+                "teeth": mic("MI_SeoTeeth", (0.90, 0.88, 0.82, 1.0)),  # off-white
+                "eye":   mic("MI_SeoEye",   (0.10, 0.08, 0.07, 1.0)),  # dark iris
+                "hidden": M_Hidden,
+                # Garment. Reusing M_SeoSkin as the parent is deliberate: it already carries the
+                # skeletal-mesh/morph-target usage flags, without which the outfit would render as
+                # the default gray exactly like the body did.
+                "cloth_top": mic("MI_SeoClothTop", (0.30, 0.36, 0.40, 1.0)),  # slate shirt
+                "cloth_leg": mic("MI_SeoClothLeg", (0.20, 0.23, 0.27, 1.0)),  # darker shorts
+            }
+            unreal.EditorLoadingAndSavingUtils.save_dirty_packages(True, True)
+            w("skin materials built: %s" % list(seo_mats.keys()))
+        except Exception as e:
+            import traceback as _tb
+            w("MATERIALS ERROR (mesh will stay gray): %s\n%s" % (e, _tb.format_exc()[:500]))
 
     # slot index -> material key, per the probed slot layout
     BODY_SLOTS = {0: "body"}
@@ -1004,9 +1087,12 @@ try:
     seo_parts = [(MH_DIR + "/fbx/SKM_MHC_Seo_BodyMesh.fbx", "/Game/Seo/Body", BODY_SLOTS),
                  (MH_DIR + "/fbx/SKM_MHC_Seo_FaceMesh.fbx", "/Game/Seo/Face", FACE_SLOTS),
                  (MH_DIR + "/fbx/MHC_Seo_Outfits.fbx",      "/Game/Seo/Outfit", OUTFIT_SLOTS)]
-    if nia_placed:
-        seo_parts = []   # Nia is the resident; skip the Seo import entirely (saves ~2 min too)
+    if nia_placed or RESIDENT == "mannequin":
+        # Nia is the resident, or the default mannequin is: skip the Seo import entirely (it also
+        # saves ~2 min). A mannequin build never reads MH_DIR, so Seo cannot reach its map or cook.
+        seo_parts = []
     placed_seo = 0
+    seo_actors = {}      # part name ("Body"/"Face"/"Outfit") -> placed actor
     for fbx, dest, slotmap in seo_parts:
         if not os.path.isfile(fbx):
             w("resident: optional MetaHuman export unavailable, skipping %s" % fbx)
@@ -1041,19 +1127,104 @@ try:
         a = spawn(unreal.SkeletalMeshActor, RES_POS, yaw=RES_YAW)
         a.set_actor_label("Seo_" + dest.split("/")[-1])
         a.skeletal_mesh_component.set_skeletal_mesh(m)
+        seo_actors[dest.split("/")[-1]] = a
         placed_seo += 1
-    if not nia_placed:
-        w("resident: MetaHuman Seo placed (%d/%d parts, skinned+clothed) at %s yaw %.0f"
-          % (placed_seo, len(seo_parts), RES_POS, RES_YAW))
-    if placed_seo == 0 and not nia_placed:
-        skm = unreal.load_asset('/MoverTests/Characters/Mannequins/Meshes/SKM_Manny')
+
+    # ONE resident, not three loose actors. Seo arrives as three skeletal meshes (Face, Body, Outfit)
+    # that only line up because they share a transform, and the runtime treats the TAGGED actor as
+    # the whole character: UCompanionStageDirector turns it to meet the camera during the opening
+    # shot and measures its bounds for the eyeline, and UCompanionFaceSubsystem drives the morph
+    # targets of its skeletal mesh. So:
+    #   - the FACE carries the tags, because it is the mesh with the facial morph targets (849);
+    #   - Body and Outfit are ATTACHED to it, so turning the tagged actor turns the whole figure
+    #     instead of spinning a head above a still body;
+    #   - FaceProfile=ARKit declares the rig, so the C++ stops assuming Nia's CC names.
+    # Untagged, the face driver used to reach Seo only through its "most morph targets" fallback
+    # (with a warning), and the stage director found no resident at all.
+    #
+    # NOT VERIFIED against a live Seo export: whether the FBX-exported face carries ARKit-named
+    # morph targets. The runtime logs "Face profile 'ARKit': ..." with the resolved count; if it
+    # says 0, the mapping needs a MetaHuman-specific profile (Deployment/metahuman/09_probe_face_rig.py
+    # lists a mesh's morph names).
+    seo_face = seo_actors.get("Face")
+    seo_attached = 0
+    if seo_face:
+        seo_face.set_editor_property("tags", ["CompanionFace", "FaceProfile=ARKit"])
+        for part in ("Body", "Outfit"):
+            child = seo_actors.get(part)
+            if not child:
+                continue
+            try:
+                child.attach_to_actor(seo_face, "", unreal.AttachmentRule.KEEP_WORLD,
+                                      unreal.AttachmentRule.KEEP_WORLD, unreal.AttachmentRule.KEEP_WORLD,
+                                      False)
+                # Read the attachment BACK: a call that quietly does nothing would leave a body that
+                # stays behind when the face turns, and nothing else here would say so.
+                if child.get_attach_parent_actor() == seo_face:
+                    seo_attached += 1
+                else:
+                    w("resident: Seo_%s did not attach to Seo_Face" % part)
+            except Exception as e:
+                w("resident: Seo_%s attach FAILED: %s" % (part, e))
+    if not nia_placed and RESIDENT != "mannequin":
+        # The gate line. BuildNative.ps1 and m2_clean.sh require "resident: METAHUMAN placed" for the
+        # MetaHuman resident, and it is printed ONLY when every part imported, the face is tagged
+        # and both other parts follow it -- "placed 0 of 3" must never read as success.
+        if seo_parts and placed_seo == len(seo_parts) and seo_face and seo_attached == len(seo_parts) - 1:
+            w("resident: METAHUMAN placed (Seo %d/%d parts, face tagged CompanionFace + FaceProfile=ARKit, "
+              "body and outfit attached) at %s yaw %.0f" % (placed_seo, len(seo_parts), RES_POS, RES_YAW))
+        else:
+            w("resident: METAHUMAN INCOMPLETE (Seo %d/%d parts placed, face %s, %d of %d attached; export dir %s)"
+              % (placed_seo, len(seo_parts), "tagged" if seo_face else "MISSING", seo_attached,
+                 max(len(seo_parts) - 1, 0), MH_DIR))
+
+    # ---------- the default resident (MHLLM_RESIDENT=mannequin): Epic's UE mannequin ----------
+    # SKM_Manny and its MM_Idle loop ship inside the engine's MoverTests plugin (enabled in the
+    # .uproject; its Water dependency is why DefaultEngine.ini carries WaterBodyCollision). That makes
+    # them Licensed Technology under the Unreal Engine EULA, which covers "related Epic-provided
+    # content that you access when you download, use, or install Unreal Engine" (section 1), with no
+    # AI restriction in the current EULA. It is also the resident the core-2 stream first went live
+    # with, so the cook path is proven.
+    #
+    # It is a placeholder, and the log says so: no facial morph targets, so the face driver binds
+    # and resolves 0 profile curves. The same code is the last resort when a requested Seo import
+    # placed nothing, exactly as before; that fall-back still fails the requested resident's gate.
+    MANNY_SK   = "/MoverTests/Characters/Mannequins/Meshes/SKM_Manny"
+    MANNY_IDLE = "/MoverTests/Characters/Mannequins/Animations/Manny/MM_Idle"
+    if RESIDENT == "mannequin" or (placed_seo == 0 and not nia_placed):
+        skm = unreal.load_asset(MANNY_SK)
         if skm:
             a = spawn(unreal.SkeletalMeshActor, RES_POS, yaw=RES_YAW); a.set_actor_label("Resident")
-            # Actor labels do not survive a cook. Keep the runtime camera director and face
-            # subsystem attached to this last-resort resident just as they are for Nia.
+            # Actor labels do not survive a cook. The tag is what the runtime camera director and the
+            # face subsystem find the resident by, as for Nia. No FaceProfile= tag: there is no rig.
             a.set_editor_property("tags", ["CompanionFace"])
-            a.skeletal_mesh_component.set_skeletal_mesh(skm)
-            w("resident: FELL BACK to SKM_Manny (Seo import failed)")
+            comp = a.skeletal_mesh_component
+            comp.set_skeletal_mesh(skm)
+            if RESIDENT == "mannequin":
+                try:
+                    # Measured like Nia's, for the authored fallback camera below.
+                    MANNY_EYE_Z = (skm.get_bounds().box_extent.z * 2.0) * 0.93
+                except Exception:
+                    pass
+                # Same single-node idle Nia uses; set animation_data as a WHOLE struct, because
+                # mutating the struct get_editor_property returns does not persist.
+                idle = unreal.load_asset(MANNY_IDLE)
+                if idle:
+                    comp.set_editor_property("animation_mode", unreal.AnimationMode.ANIMATION_SINGLE_NODE)
+                    ad = comp.get_editor_property("animation_data")
+                    ad.set_editor_property("anim_to_play", idle)
+                    ad.set_editor_property("saved_looping", True)
+                    ad.set_editor_property("saved_playing", True)
+                    comp.set_editor_property("animation_data", ad)
+                back = comp.get_editor_property("animation_data").get_editor_property("anim_to_play")
+                # The gate line for the default resident (BuildNative.ps1, m2_clean.sh).
+                w("resident: MANNEQUIN placed (SKM_Manny, engine MoverTests content, tagged CompanionFace, "
+                  "idle=%s, no facial rig) at %s yaw %.0f"
+                  % (back.get_name() if back else "NONE (bind pose)", RES_POS, RES_YAW))
+            else:
+                w("resident: FELL BACK to SKM_Manny (Seo import failed)")
+        elif RESIDENT == "mannequin":
+            w("resident: MANNEQUIN NOT placed (%s did not load; is the MoverTests plugin enabled?)" % MANNY_SK)
 
     # ---------- score + branding ----------
     # Both are authored into the MAP rather than driven from C++, because neither needs to react
@@ -1190,8 +1361,9 @@ try:
     #
     # She stands at (330, 20, 0) facing -X (actor yaw 90, see NIA_YAW), so the camera must be on
     # the -X side of her to see a face rather than the back of her head. Eyeline comes from the
-    # measured mesh (NIA_EYE_Z above); the literal is only a fallback for the Seo path.
-    EYE_Z = float(globals().get("NIA_EYE_Z", 165.0))
+    # measured mesh (NIA_EYE_Z, or MANNY_EYE_Z for the default mannequin); the literal is only a
+    # fallback for the Seo path.
+    EYE_Z = float(globals().get("NIA_EYE_Z", globals().get("MANNY_EYE_Z", 165.0)))
     CAM_POS = (330.0 - CAM_DIST, 20.0, EYE_Z - 8.0)
     # Camera sits just under eye level, with a slight lift to centre the face.
     LOOK_AT = (330.0, 20.0, EYE_Z - 6.5)
@@ -1222,8 +1394,16 @@ try:
     # and every downstream gate (m2_clean.sh's `grep -q SUCCESS`) believed it.
     if not ok:
         raise RuntimeError("save_current_level returned False; no .umap was written")
-    map_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                            "Content", "Maps", "CompanionStage.umap")
+    # Ask the ENGINE where Content/ is rather than deriving it from this file's location. The old
+    # derivation (two directories up from __file__) is right for Deployment/author_diorama.py in a
+    # checkout, and wrong on core-2, where run_author_m2.sh copies the script to /proj/ and runs it
+    # from there: it resolved to /Content/Maps/CompanionStage.umap, which never exists, so every
+    # container run that reached this check would have reported FAIL after writing a good map.
+    try:
+        content_dir = unreal.SystemLibrary.get_project_content_directory()
+    except Exception:
+        content_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Content")
+    map_file = os.path.join(content_dir, "Maps", "CompanionStage.umap")
     if not os.path.isfile(map_file) or os.path.getsize(map_file) < 200_000:
         size = os.path.getsize(map_file) if os.path.isfile(map_file) else 0
         raise RuntimeError("saved map artifact missing or incomplete (%d bytes): %s" % (size, map_file))

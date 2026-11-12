@@ -16,9 +16,13 @@
 # build produced :5.5-m2 while the ue55 override started :5.5 -- two different tags.
 RELEASE=5.8
 export UE_RELEASE="${RELEASE}-m2"
+# mannequin (default), metahuman or nia -- read by run_author_m2.sh, which explains the choice.
+MHLLM_RESIDENT="$(printf '%s' "${MHLLM_RESIDENT:-mannequin}" | tr '[:upper:]' '[:lower:]')"
+export MHLLM_RESIDENT
 
 echo "===== M2v3 START $(date -u) ====="
-bash /home/ci/run_author_m2.sh
+# Non-zero only when it refuses to start; the result file would then be the previous run's.
+bash /home/ci/run_author_m2.sh || { echo "AUTHOR_NOT_STARTED"; exit 1; }
 echo "--- normalization report ---"
 grep -E "^place |placed " /home/ci/stage-out/AUTHOR_RESULT.txt
 if ! grep -q SUCCESS /home/ci/stage-out/AUTHOR_RESULT.txt; then echo "AUTHOR_FAIL"; exit 1; fi

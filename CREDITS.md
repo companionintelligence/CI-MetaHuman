@@ -87,26 +87,41 @@ companion, that was treated as a licence issue, and CI-authored props replaced t
 | `ibm-3350-disk.glb` | ["IBM 3350 "Madrid""](https://sketchfab.com/3d-models/ibm-3350-madrid-6d1b6c37642a44388c06992e0923f990) | replaced by `make_period_props.py` |
 | `ibm-2401-tape.glb` | ["IBM 2401"](https://sketchfab.com/3d-models/ibm-2401-61f8ce78c76b46dfade5ccc7ad020a1b) | the set no longer loads it (the 729 replaced it); delete it from prop directories |
 
+`Deployment/author_diorama.py` enforces this. It reads the glTF `asset.copyright` of
+`ibm-1401-cpu.glb`, `ibm-3178-terminal.glb` and `ibm-3350-disk.glb` before importing them and
+accepts a file only if that field names Companion Intelligence, which `make_period_props.py`
+writes into every replacement. Any other file in those slots, such as a stale maxdragon download,
+is never imported: the authoring result logs `prop REFUSED …` and the slot stays empty.
+
 `Assets/store-screenshots/01-scene.png` and `02-conversation.png` were captured before the
 replacement. They show maxdragon's "IBM 1401 Central Processing Unit" in the background,
 alongside the CI-authored 729s. Until they are recaptured from a build with the CI-authored
 props, wherever they are published they need the credit "IBM 1401 Central Processing Unit" by
-maxdragon, CC BY 4.0, linked to the model page above. Both screenshots also show the resident
-avatar, whose licence is unresolved (next section).
+maxdragon, CC BY 4.0, linked to the model page above. Both screenshots also show Nia, an opt-in
+resident whose licence does not clear this use (next section).
 
 ## The resident avatar
 
-The companion appears as "Character Creator: Nia" by
-[Reallusion Inc](https://www.fab.com/sellers/Reallusion%20Inc), from Fab
-(<https://www.fab.com/listings/366cfc84-6d6a-44ff-89ad-4bffb7347c15>), with Reallusion's own
-materials, shaders and idle motions. Her content is not in this repository. The build scripts
-stage it from a local copy and cook it into the packaged app ([THIRD_PARTY.md](THIRD_PARTY.md)).
-She is also shown in `Docs/verification-2026-08-17/measurement-regions.png`.
+By default the companion appears as **Epic's UE mannequin** (`SKM_Manny` with its `MM_Idle`
+loop, from the engine's MoverTests plugin): Unreal Engine content, licensed with the engine under
+the Unreal Engine EULA. It is a faceless placeholder.
 
-**Her licence is an open blocker.** The Fab listing says "Allows usage with AI: No", and its
-description ends "*Non-Commercial Use". Both conflict with an AI companion that may be sold.
-[NOTICE.md](NOTICE.md) sets out the problem and the ways to close it: written terms from
-Reallusion, or a different resident.
+Two third-party characters can still be authored, but only when asked for by name, because both
+are Fab content whose listings read "Allows usage with AI: No":
+
+- "Character Creator: Nia" by [Reallusion Inc](https://www.fab.com/sellers/Reallusion%20Inc), from
+  Fab (<https://www.fab.com/listings/366cfc84-6d6a-44ff-89ad-4bffb7347c15>), with Reallusion's own
+  materials, shaders and idle motions (`-Resident Nia`, `MHLLM_RESIDENT=nia`). Her listing's
+  description also ends "*Non-Commercial Use".
+- "Seo - Editable MetaHuman Character" by Groomchenko, from Fab
+  (<https://www.fab.com/listings/3693be83-9054-4fd3-9b2e-0b6d5b45fe22>), which is what
+  `mhc_seo.mhpkg` is (`-Resident MetaHuman`, `MHLLM_RESIDENT=metahuman`).
+
+Neither one's content is in this repository, and a default build neither stages nor cooks it
+([THIRD_PARTY.md](THIRD_PARTY.md)). Nia is shown in the store screenshots above and in
+`Docs/verification-2026-08-17/measurement-regions.png`, which were made before the mannequin
+became the default. [NOTICE.md](NOTICE.md) sets out why neither licence clears this use and what
+would: a MetaHuman created in-house, or written terms from the seller.
 
 ## Software and fonts
 
