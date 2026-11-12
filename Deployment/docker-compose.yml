@@ -14,22 +14,22 @@
 services:
 
   # WebRTC TURN relay. Needs TCP/UDP 3478 and the UDP relay range 49152-65535 reachable.
+  # Configured by coturn/turnserver.conf; coturn/entrypoint.sh appends the shared secret at start.
+  # There is no static account: the signalling server mints a time-limited username/credential
+  # pair per connecting peer from the same TURN_STATIC_AUTH_SECRET (TURN REST API, coturn's
+  # use-auth-secret), so nothing a browser is handed stays usable for long. With the secret unset
+  # the entrypoint refuses to start rather than run an open relay.
   turnserver:
     image: "coturn/coturn:4.6.2"
     init: true
     network_mode: "host"
-    command:
-      - "-a"
-      - "-v"
-      - "-n"
-      - "-u"
-      - "${TURN_USER}:${TURN_PASSWORD}"
-      - "-p"
-      - "3478"
-      - "-r"
-      - "ci-realm"
-      - "--no-dtls"
-      - "--no-tls"
+    entrypoint: ["/bin/sh", "/etc/coturn/ci/entrypoint.sh"]
+    command: []
+    environment:
+      TURN_STATIC_AUTH_SECRET: "${TURN_STATIC_AUTH_SECRET:-}"
+    volumes:
+      - "./coturn/turnserver.conf:/etc/coturn/ci/turnserver.conf:ro"
+      - "./coturn/entrypoint.sh:/etc/coturn/ci/entrypoint.sh:ro"
 
   # Pixel Streaming 5.8 signalling server built from Epic's pinned public source. Bind host ports
   # only to loopback: player HTTP on 8090 sits behind the OIDC proxy, and the UE app reaches the
@@ -48,8 +48,12 @@ services:
       PUBLIC_IP: "${PUBLIC_IP}"
       STUN_SERVER: "stun.l.google.com:19302"
       TURN_SERVER: "${PUBLIC_IP}:3478"
-      TURN_USER: "${TURN_USER}"
-      TURN_PASS: "${TURN_PASSWORD}"
+      # No TURN username or password reaches this container. signalling-start.sh hands this shared
+      # secret to the server through a 0600 file (--turn_secret_file), and the server mints a
+      # username/credential pair for each peer as it connects, valid for TURN_CREDENTIAL_TTL
+      # seconds for a player. The peer options it builds name the TURN server with no credentials.
+      TURN_STATIC_AUTH_SECRET: "${TURN_STATIC_AUTH_SECRET:-}"
+      TURN_CREDENTIAL_TTL: "${TURN_CREDENTIAL_TTL:-3600}"
     ports:
       - "127.0.0.1:8090:8090/tcp"
       - "127.0.0.1:8888:8888/tcp"
@@ -146,28 +150,30 @@ services:
     # `.env` first, so no documented procedure actually brings the stack up without one.
     #
     # Because this hands over the WHOLE file, `.env` must not carry anything the app should not
-    # see. Three secrets used to be in it — CI_PORTAL_CLIENT_SECRET, OIDC_COOKIE_SECRET and
-    # TURN_PASSWORD, wanted by oidc-proxy and turnserver — and they are dealt with two different
-    # ways, because they reach their consumers two different ways:
+    # see. The secrets other services want are dealt with two different ways, because they reach
+    # their consumers two different ways:
     #
-    #  * the two OIDC ones were only ever read as oidc-proxy's container environment. They now live
-    #    in `.env.edge`, which that service alone reads.
-    #  * TURN_PASSWORD cannot move, because it is never delivered as container environment at all:
-    #    it is interpolated into turnserver's `-u` argument and into signalling's
-    #    peerConnectionOptions, and compose interpolation reads the shell and the project env file
-    #    ONLY — a service's env_file does not feed `${...}` (compose warns "variable is not set"
-    #    and renders it blank; checked). The flags that would add a second interpolation source,
-    #    `--env-file` and COMPOSE_ENV_FILES, both abort with "couldn't find env file" when a named
-    #    file is absent, and a clean checkout has neither file. So it stays in `.env`.
+    #  * the two OIDC ones, CI_PORTAL_CLIENT_SECRET and OIDC_COOKIE_SECRET, were only ever read as
+    #    oidc-proxy's container environment. They now live in `.env.edge`, which that service alone
+    #    reads.
+    #  * TURN_STATIC_AUTH_SECRET, from which turnserver and signalling derive time-limited TURN
+    #    credentials, reaches both by INTERPOLATION into their `environment:` blocks, and compose
+    #    interpolation reads the shell and the project env file ONLY — a service's env_file does
+    #    not feed `${...}` (compose warns "variable is not set" and renders it blank; checked). The
+    #    flags that would add a second interpolation source, `--env-file` and COMPOSE_ENV_FILES,
+    #    both abort with "couldn't find env file" when a named file is absent, and a clean checkout
+    #    has neither file; and giving both services `.env.edge` instead would hand them the OIDC
+    #    secrets too. So it stays in `.env`, exactly as the static TURN_PASSWORD it replaced did.
     #
-    # All three are therefore blanked for this service in `environment:` below. That is what keeps
-    # TURN_PASSWORD out of the app, and it also covers the other two for anyone whose `.env` was
-    # written before the split and still lists them.
+    # They are therefore all blanked for this service in `environment:` below. That is what keeps
+    # the TURN secret out of the app, and it also covers the OIDC pair and the retired
+    # TURN_PASSWORD for anyone whose `.env` was written before they moved.
     env_file:
       - path: ".env"
         required: false
-    # Every INTERPOLATED key below is also in `.env`, deliberately (the three literal blanks below
-    # are the exception -- two of them no longer exist in `.env` at all, see .env.edge.example).
+    # Every INTERPOLATED key below is also in `.env`, deliberately (the four literal blanks below
+    # are the exception -- three of them no longer exist in `.env` at all: the OIDC pair moved to
+    # .env.edge.example and TURN_PASSWORD was retired).
     # env_file reads the FILE and nothing else, so
     # a key delivered only that way ignores the process environment entirely and
     # `VAR=x docker compose up` silently does nothing for it. What is kept here is the set a
@@ -182,11 +188,12 @@ services:
       # an env_file named anything else, a valueless key renders `null`. So this is a property of
       # this file's setup rather than a general env_file-vs-environment rule; both forms were
       # checked with `docker compose config`. An explicit `""` is unambiguous either way.
-      # Nothing in Plugins/CICompanion/Source reads any of these three names -- grepped across the
+      # Nothing in Plugins/CICompanion/Source reads any of these four names -- grepped across the
       # whole repo, zero code hits -- so blanking them costs the app nothing.
       CI_PORTAL_CLIENT_SECRET: ""
       OIDC_COOKIE_SECRET: ""
       TURN_PASSWORD: ""
+      TURN_STATIC_AUTH_SECRET: ""
 
       # `openai` selects UOpenAIChatClient, aimed at CI_HUB_URL below — the OpenAI-shaped path,
       # which is what the CI side of this deployment speaks. See the CI_HUB_URL block for what
