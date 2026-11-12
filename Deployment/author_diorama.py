@@ -17,7 +17,7 @@ def _dir(var, default):
     return os.environ.get(var, default).replace("\\", "/").rstrip("/")
 
 GLB_DIR   = _dir("MHLLM_GLB_DIR",   "/glb")      # prop GLBs (scavenged Sketchfab assets)
-MH_DIR    = _dir("MHLLM_MH_DIR",    "/mh")       # MetaHuman "Seo" FBX/TGA (fallback resident only)
+MH_DIR    = _dir("MHLLM_MH_DIR",    "/mh")       # MetaHuman "Seo" FBX export (the default resident)
 AUDIO_DIR = _dir("MHLLM_AUDIO_DIR", "/audio")    # Deployment/audio — the machine-room score
 BRAND_DIR = _dir("MHLLM_BRAND_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "generated"))
 # Deployment/generated — set dressing this repo SYNTHESIZES rather than scavenges:
@@ -35,6 +35,21 @@ BRAND_DIR = _dir("MHLLM_BRAND_DIR", os.path.join(os.path.dirname(os.path.abspath
 # "There was nothing to import" in the authoring log.
 GEN_DIR   = _dir("MHLLM_GEN_DIR",   GLB_DIR)
 RESULT    = os.environ.get("MHLLM_AUTHOR_RESULT", "/out/AUTHOR_RESULT.txt")
+
+# WHICH RESIDENT. "metahuman" (the default) places the MetaHuman "Seo" export read from MH_DIR.
+# "nia" places the Reallusion Character Creator "Nia" content staged under /Game/CC_ControlRig_Nia,
+# exactly as every build did before this switch existed, including the fall-back to Seo if she
+# fails to load.
+#
+# Nia is OPT-IN because of her licence, not her looks: her Fab listing ("Character Creator: Nia",
+# Reallusion Inc) is Standard License with "Allows usage with AI: No", i.e. the NoAI tag, and this
+# product is an AI companion. Epic's MetaHuman terms, by contrast, explicitly allow MetaHuman
+# characters in workflows that incorporate AI. README.md "Licensing" has the citations.
+#
+# Anything else is refused rather than guessed: authoring a different resident than the one asked
+# for is the silent-wrong-artifact failure every gate in this pipeline exists to stop.
+RESIDENT  = os.environ.get("MHLLM_RESIDENT", "").strip().lower() or "metahuman"
+RESIDENTS = ("metahuman", "nia")
 def w(s):
     try:
         with open(RESULT, "a") as f: f.write(str(s) + "\n")
@@ -74,6 +89,9 @@ PROPS = [
 try:
     open(RESULT, "w").close()
     w("start")
+    if RESIDENT not in RESIDENTS:
+        raise RuntimeError("MHLLM_RESIDENT=%r is not one of %s" % (RESIDENT, "/".join(RESIDENTS)))
+    w("resident requested: %s (MHLLM_RESIDENT)" % RESIDENT)
     les = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
     eas = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
 
@@ -817,7 +835,7 @@ try:
     # facing by looking for EYES in a captured frame, not by reasoning about the forward vector.
     RES_POS, RES_YAW = (330, 20, 0), 90.0
 
-    # ---------- preferred resident: Reallusion Character Creator "Nia" ----------
+    # ---------- opt-in resident (MHLLM_RESIDENT=nia): Reallusion Character Creator "Nia" ----------
     # Nia ships as a UE 5.3 project with NO plugin dependencies and PLAIN SkeletalMesh /
     # Texture2D / AnimSequence assets, so UE 5.5 loads them directly — no FBX round-trip, and
     # we keep her REAL PBR materials (M_HQSkin + per-region instances + SSS profiles) instead
@@ -838,7 +856,10 @@ try:
     NIA_YAW = 90.0
     nia_placed = False
     try:
-        nia = unreal.load_asset(NIA_SK)
+        # Not even LOADED unless asked for. A checkout that once built with -Resident Nia keeps her
+        # content staged in Content/CC_ControlRig_Nia (it is gitignored, not deleted), and the old
+        # unconditional load would have quietly made her the resident of every later build.
+        nia = unreal.load_asset(NIA_SK) if RESIDENT == "nia" else None
         if nia:
             a = spawn(unreal.SkeletalMeshActor, RES_POS, yaw=NIA_YAW)
             a.set_actor_label("Nia")
@@ -847,7 +868,10 @@ try:
             # build. UCompanionFaceSubsystem finds the resident by this tag at BeginPlay and
             # attaches the face driver — which is how behaviour reaches a map that is authored
             # in a content-only project and therefore cannot reference plugin C++ or Blueprints.
-            a.set_editor_property("tags", ["CompanionFace"])
+            # FaceProfile=CC declares her rig (Reallusion V_* morphs). It is what the C++ assumed for
+            # every map before the tag existed, so this changes nothing for her; it exists so the
+            # MetaHuman resident can declare ARKit instead of inheriting a CC default.
+            a.set_editor_property("tags", ["CompanionFace", "FaceProfile=CC"])
             comp = a.skeletal_mesh_component
             comp.set_skeletal_mesh(nia)
             try:
@@ -880,8 +904,10 @@ try:
                 w("Nia: NO idle anim found (tried %s) — she will stand in bind pose" % NIA_ANIM)
             nia_placed = True
             w("resident: NIA placed at %s yaw %.0f" % (RES_POS, NIA_YAW))
-        else:
+        elif RESIDENT == "nia":
             w("Nia: %s not found — falling back to the MetaHuman Seo path" % NIA_SK)
+        else:
+            w("resident: Nia not requested (MHLLM_RESIDENT=%s) -- placing the MetaHuman resident" % RESIDENT)
     except Exception as e:
         import traceback as _tb
         w("NIA ERROR (falling back to Seo): %s\n%s" % (e, _tb.format_exc()[:600]))
@@ -1007,6 +1033,7 @@ try:
     if nia_placed:
         seo_parts = []   # Nia is the resident; skip the Seo import entirely (saves ~2 min too)
     placed_seo = 0
+    seo_actors = {}      # part name ("Body"/"Face"/"Outfit") -> placed actor
     for fbx, dest, slotmap in seo_parts:
         if not os.path.isfile(fbx):
             w("resident: optional MetaHuman export unavailable, skipping %s" % fbx)
@@ -1041,10 +1068,56 @@ try:
         a = spawn(unreal.SkeletalMeshActor, RES_POS, yaw=RES_YAW)
         a.set_actor_label("Seo_" + dest.split("/")[-1])
         a.skeletal_mesh_component.set_skeletal_mesh(m)
+        seo_actors[dest.split("/")[-1]] = a
         placed_seo += 1
+
+    # ONE resident, not three loose actors. Seo arrives as three skeletal meshes (Face, Body, Outfit)
+    # that only line up because they share a transform, and the runtime treats the TAGGED actor as
+    # the whole character: UCompanionStageDirector turns it to meet the camera during the opening
+    # shot and measures its bounds for the eyeline, and UCompanionFaceSubsystem drives the morph
+    # targets of its skeletal mesh. So:
+    #   - the FACE carries the tags, because it is the mesh with the facial morph targets (849);
+    #   - Body and Outfit are ATTACHED to it, so turning the tagged actor turns the whole figure
+    #     instead of spinning a head above a still body;
+    #   - FaceProfile=ARKit declares the rig, so the C++ stops assuming Nia's CC names.
+    # Untagged, the face driver used to reach Seo only through its "most morph targets" fallback
+    # (with a warning), and the stage director found no resident at all.
+    #
+    # NOT VERIFIED against a live Seo export: whether the FBX-exported face carries ARKit-named
+    # morph targets. The runtime logs "Face profile 'ARKit': ..." with the resolved count; if it
+    # says 0, the mapping needs a MetaHuman-specific profile (Deployment/metahuman/09_probe_face_rig.py
+    # lists a mesh's morph names).
+    seo_face = seo_actors.get("Face")
+    seo_attached = 0
+    if seo_face:
+        seo_face.set_editor_property("tags", ["CompanionFace", "FaceProfile=ARKit"])
+        for part in ("Body", "Outfit"):
+            child = seo_actors.get(part)
+            if not child:
+                continue
+            try:
+                child.attach_to_actor(seo_face, "", unreal.AttachmentRule.KEEP_WORLD,
+                                      unreal.AttachmentRule.KEEP_WORLD, unreal.AttachmentRule.KEEP_WORLD,
+                                      False)
+                # Read the attachment BACK: a call that quietly does nothing would leave a body that
+                # stays behind when the face turns, and nothing else here would say so.
+                if child.get_attach_parent_actor() == seo_face:
+                    seo_attached += 1
+                else:
+                    w("resident: Seo_%s did not attach to Seo_Face" % part)
+            except Exception as e:
+                w("resident: Seo_%s attach FAILED: %s" % (part, e))
     if not nia_placed:
-        w("resident: MetaHuman Seo placed (%d/%d parts, skinned+clothed) at %s yaw %.0f"
-          % (placed_seo, len(seo_parts), RES_POS, RES_YAW))
+        # The gate line. BuildNative.ps1 and m2_clean.sh require "resident: METAHUMAN placed" for the
+        # MetaHuman resident, and it is printed ONLY when every part imported, the face is tagged
+        # and both other parts follow it -- "placed 0 of 3" must never read as success.
+        if seo_parts and placed_seo == len(seo_parts) and seo_face and seo_attached == len(seo_parts) - 1:
+            w("resident: METAHUMAN placed (Seo %d/%d parts, face tagged CompanionFace + FaceProfile=ARKit, "
+              "body and outfit attached) at %s yaw %.0f" % (placed_seo, len(seo_parts), RES_POS, RES_YAW))
+        else:
+            w("resident: METAHUMAN INCOMPLETE (Seo %d/%d parts placed, face %s, %d of %d attached; export dir %s)"
+              % (placed_seo, len(seo_parts), "tagged" if seo_face else "MISSING", seo_attached,
+                 max(len(seo_parts) - 1, 0), MH_DIR))
     if placed_seo == 0 and not nia_placed:
         skm = unreal.load_asset('/MoverTests/Characters/Mannequins/Meshes/SKM_Manny')
         if skm:

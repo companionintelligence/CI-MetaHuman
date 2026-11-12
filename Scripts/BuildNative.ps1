@@ -52,13 +52,34 @@
     Directory holding the prop GLBs. Defaults to $env:MHLLM_GLB_DIR, then to
     C:\devel\llm-metahuman\scene\glb.
 
+.PARAMETER Resident
+    Who stands in the diorama: MetaHuman (default) or Nia.
+
+    MetaHuman places the MetaHuman "Seo" export (see -MetaHumanDir). Nia places the Reallusion
+    Character Creator "Nia" content (see -NiaContent) exactly as every build did before this switch
+    existed. Nia is opt-in because of her licence: her Fab listing ("Character Creator: Nia",
+    Reallusion Inc) is Standard License with "Allows usage with AI: No", and this product is an AI
+    companion. Epic's MetaHuman terms explicitly allow MetaHuman characters in workflows that
+    incorporate AI. README.md "Licensing" carries the citations; read it before choosing Nia for
+    anything you distribute.
+
+.PARAMETER MetaHumanDir
+    The MetaHuman "Seo" FBX export: a folder holding fbx\SKM_MHC_Seo_BodyMesh.fbx,
+    fbx\SKM_MHC_Seo_FaceMesh.fbx and fbx\MHC_Seo_Outfits.fbx. Defaults to $env:MHLLM_MH_DIR, then
+    to C:\devel\_mh-convert\out\seo, where Deployment/metahuman/03_export_fbx_from_GUI.py writes it.
+    Required with -Resident MetaHuman. (This used to be hard-wired to Deployment\metahuman, which
+    holds the conversion SCRIPTS and no FBX, so a native build could never place Seo at all.)
+
 .PARAMETER NiaContent
     The Reallusion Character Creator "Nia" content root (the folder named CC_ControlRig_Nia).
     Defaults to $env:MHLLM_NIA_CONTENT, then to a CharacterCreatorNia project sitting beside
-    this one.
+    this one. Only read with -Resident Nia.
 
 .EXAMPLE
     ./Scripts/BuildNative.ps1 -Platform Win64 -Engine "C:\Program Files\Epic Games\UE_5.8"
+
+.EXAMPLE
+    ./Scripts/BuildNative.ps1 -Resident Nia -NiaContent "D:\CharacterCreatorNia\Content\CC_ControlRig_Nia"
 #>
 param(
     [ValidateSet('Win64', 'Linux', 'Mac')]
@@ -69,6 +90,9 @@ param(
     [switch]$SkipAuthoring,
     [switch]$KeepAuthoredMap,
     [string]$GlbDir = '',
+    [ValidateSet('MetaHuman', 'Nia')]
+    [string]$Resident = 'MetaHuman',
+    [string]$MetaHumanDir = '',
     [string]$NiaContent = ''
 )
 
@@ -101,7 +125,7 @@ if (-not (Test-Path $RunUAT)) { throw "RunUAT not found: $RunUAT. Pass -Engine <
 #
 # ROOT CAUSE THIS EXISTS TO FIX. Content/Maps/CompanionStage.umap in the repo is a 23 KB stub —
 # sky and ground, nothing else. The real set (the 1970s machine hall, the props, the lighting,
-# and Nia herself) has only ever existed as the OUTPUT of Deployment/author_diorama.py, which
+# and the resident herself) has only ever existed as the OUTPUT of Deployment/author_diorama.py, which
 # ran exclusively on core-2 inside a Linux container. Nothing on this path ever invoked it, so a
 # native build cooked the stub, and the shipped game logged "No resident found; face driver
 # inactive" / "Tape reels spinning: 0" and opened onto an empty stage.
@@ -109,7 +133,7 @@ if (-not (Test-Path $RunUAT)) { throw "RunUAT not found: $RunUAT. Pass -Engine <
 # WHY AUTHOR RATHER THAN COMMIT THE MAP. The set is DEFINED by ~960 lines of layout, lighting and
 # material logic. Committing the .umap would freeze a build artifact as source and guarantee it
 # drifts from the script the moment anyone edits the set — the exact drift trap HANDOFF.md
-# Lesson 2 describes. It is also ~900 MB of Nia content behind it, and a .umap is
+# Lesson 2 describes. It is also the resident's content behind it (~900 MB when that is Nia), and a .umap is
 # ENGINE-VERSION-SPECIFIC: one authored by 5.8 here cannot be loaded by the 5.5 cook on core-2.
 # So the map stays generated, and this function makes the native build generate it the same way
 # the container does — one source of truth, two consumers.
@@ -124,32 +148,64 @@ function Invoke-StageAuthoring {
     # container mount points (/glb, /mh, /audio), so the server pipeline is untouched.
     $glb = if ($GlbDir) { $GlbDir } elseif ($env:MHLLM_GLB_DIR) { $env:MHLLM_GLB_DIR }
            else { 'C:\devel\llm-metahuman\scene\glb' }
-    $nia = if ($NiaContent) { $NiaContent } elseif ($env:MHLLM_NIA_CONTENT) { $env:MHLLM_NIA_CONTENT }
-           else { Join-Path (Split-Path -Parent $ProjectRoot) 'CharacterCreatorNia\Content\CC_ControlRig_Nia' }
+    $mh  = if ($MetaHumanDir) { $MetaHumanDir } elseif ($env:MHLLM_MH_DIR) { $env:MHLLM_MH_DIR }
+           else { 'C:\devel\_mh-convert\out\seo' }
 
     if (-not (Test-Path $glb)) {
         throw "Prop GLBs not found: $glb. Pass -GlbDir <path> or set MHLLM_GLB_DIR."
     }
-    if (-not (Test-Path (Join-Path $nia 'RLContent\Nia\SK_Nia.uasset'))) {
-        throw ("Nia content not found: $nia (expected RLContent\Nia\SK_Nia.uasset). " +
-               'Pass -NiaContent <path> or set MHLLM_NIA_CONTENT.')
-    }
 
-    # Nia has to live under THIS project's Content/ because UE assets reference each other by
-    # package path and the script loads her from /Game/CC_ControlRig_Nia/RLContent/Nia/SK_Nia.
-    # Copied, not junctioned: the authoring run re-saves what it loads, and a junction would
-    # quietly rewrite the CharacterCreatorNia project's own assets into this engine's version.
-    # robocopy is incremental, so only the first build pays the ~900 MB.
-    $niaDest = Join-Path $ProjectRoot 'Content\CC_ControlRig_Nia'
-    Write-Host "Staging Nia content -> Content\CC_ControlRig_Nia (incremental)" -ForegroundColor Cyan
-    foreach ($sub in @('RLContent', 'CC_Shaders', 'CC_Rigs')) {
-        $from = Join-Path $nia $sub
-        if (-not (Test-Path $from)) { continue }
-        robocopy $from (Join-Path $niaDest $sub) /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null
-        # robocopy's exit code is a BIT FIELD, not a status: 0-7 are success (1 = files copied,
-        # 2 = extras, 4 = mismatches). Only >= 8 is a real failure. Testing it like a normal
-        # exit code fails every build that actually copies something.
-        if ($LASTEXITCODE -ge 8) { throw "robocopy failed ($LASTEXITCODE) staging $from" }
+    if ($Resident -eq 'MetaHuman') {
+        # All three parts, checked up front. author_diorama.py would otherwise skip a missing FBX,
+        # place what it found, and the gate below would stop the build several minutes later with a
+        # less specific message. The outfit is not optional either: MetaHuman removes the body
+        # geometry under clothing, so Body+Face alone render a figure with no torso.
+        $missing = @('SKM_MHC_Seo_BodyMesh.fbx', 'SKM_MHC_Seo_FaceMesh.fbx', 'MHC_Seo_Outfits.fbx') |
+            Where-Object { -not (Test-Path (Join-Path $mh "fbx\$_")) }
+        if ($missing) {
+            throw ("MetaHuman resident export not found in $mh (missing fbx\$($missing -join ', fbx\')). " +
+                   'Pass -MetaHumanDir <path> or set MHLLM_MH_DIR. core-2 authors from /home/ci/mh-seo; ' +
+                   'copy that folder if it is intact. To produce it instead: import ' +
+                   'mhc_seo.mhpkg in the 5.8 editor (GUI), assemble MHC_Seo, then run ' +
+                   'Deployment/metahuman/03_export_fbx_from_GUI.py from Tools > Execute Python ' +
+                   '(headless export deadlocks; see Docs/HANDOFF-METAHUMAN-SKIN.md). ' +
+                   'Or build the opt-in Nia resident with -Resident Nia.')
+        }
+        # A checkout that once built with -Resident Nia keeps her staged under Content\ (the folder
+        # is gitignored, not deleted). It is not referenced by a MetaHuman map and not cooked --
+        # DefaultGame.ini cooks only /Game/Maps/CompanionStage and what it references -- but say so,
+        # so nobody mistakes its presence for her being in the build.
+        if (Test-Path (Join-Path $ProjectRoot 'Content\CC_ControlRig_Nia')) {
+            Write-Host ('Note: Content\CC_ControlRig_Nia is still staged from an earlier -Resident Nia build. ' +
+                        'The MetaHuman map does not reference it, so it is not cooked. Delete it to be sure.') -ForegroundColor Yellow
+        }
+    }
+    else {
+        $nia = if ($NiaContent) { $NiaContent } elseif ($env:MHLLM_NIA_CONTENT) { $env:MHLLM_NIA_CONTENT }
+               else { Join-Path (Split-Path -Parent $ProjectRoot) 'CharacterCreatorNia\Content\CC_ControlRig_Nia' }
+        if (-not (Test-Path (Join-Path $nia 'RLContent\Nia\SK_Nia.uasset'))) {
+            throw ("Nia content not found: $nia (expected RLContent\Nia\SK_Nia.uasset). " +
+                   'Pass -NiaContent <path> or set MHLLM_NIA_CONTENT.')
+        }
+        Write-Host ('Resident: Nia (opt-in). Her Fab listing is tagged "Allows usage with AI: No"; ' +
+                    'see README.md "Licensing" before distributing this build.') -ForegroundColor Yellow
+
+        # Nia has to live under THIS project's Content/ because UE assets reference each other by
+        # package path and the script loads her from /Game/CC_ControlRig_Nia/RLContent/Nia/SK_Nia.
+        # Copied, not junctioned: the authoring run re-saves what it loads, and a junction would
+        # quietly rewrite the CharacterCreatorNia project's own assets into this engine's version.
+        # robocopy is incremental, so only the first build pays the ~900 MB.
+        $niaDest = Join-Path $ProjectRoot 'Content\CC_ControlRig_Nia'
+        Write-Host "Staging Nia content -> Content\CC_ControlRig_Nia (incremental)" -ForegroundColor Cyan
+        foreach ($sub in @('RLContent', 'CC_Shaders', 'CC_Rigs')) {
+            $from = Join-Path $nia $sub
+            if (-not (Test-Path $from)) { continue }
+            robocopy $from (Join-Path $niaDest $sub) /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null
+            # robocopy's exit code is a BIT FIELD, not a status: 0-7 are success (1 = files copied,
+            # 2 = extras, 4 = mismatches). Only >= 8 is a real failure. Testing it like a normal
+            # exit code fails every build that actually copies something.
+            if ($LASTEXITCODE -ge 8) { throw "robocopy failed ($LASTEXITCODE) staging $from" }
+        }
     }
 
     # Purge what the last authoring run produced. The container gets this for free by wiping
@@ -167,7 +223,9 @@ function Invoke-StageAuthoring {
     if (Test-Path $result) { Remove-Item $result -Force }
 
     $env:MHLLM_GLB_DIR = $glb
-    $env:MHLLM_MH_DIR = Join-Path $ProjectRoot 'Deployment\metahuman'
+    $env:MHLLM_MH_DIR = $mh
+    # Lower-case is the spelling author_diorama.py documents; it lower-cases anyway.
+    $env:MHLLM_RESIDENT = $Resident.ToLowerInvariant()
     $env:MHLLM_AUDIO_DIR = Join-Path $ProjectRoot 'Deployment\audio'
     # Synthesized set dressing (CRT screen texture + room tone), committed under Deployment/.
     # author_diorama.py defaults MHLLM_GEN_DIR to the GLB directory because on core-2 that is
@@ -195,11 +253,20 @@ function Invoke-StageAuthoring {
 
     if (-not (Test-Path $result)) { throw "Authoring produced no result file. See $log" }
     $lines = Get-Content $result
-    $lines | Where-Object { $_ -match 'resident:|Nia:|729|placed|SUCCESS|FAIL' } | ForEach-Object { "  $_" }
+    $lines | Where-Object { $_ -match 'resident|Nia:|729|placed|SUCCESS|FAIL' } | ForEach-Object { "  $_" }
 
     # FAIL FAST, loudly, on every condition that has previously shipped an empty stage.
     if (-not ($lines -match '^SUCCESS')) { throw "Authoring did not report SUCCESS. See $log and $result" }
-    if (-not ($lines -match 'resident: NIA placed')) { throw "Authoring placed no resident. See $result" }
+    # Gate on the resident that was ASKED for. "resident: NIA placed" is the same gate Nia builds
+    # always had; the MetaHuman line is printed only when all three parts imported, the face is
+    # tagged and the body and outfit are attached to it (author_diorama.py prints INCOMPLETE
+    # otherwise), so a partial figure cannot pass for a resident.
+    if ($Resident -eq 'Nia') {
+        if (-not ($lines -match 'resident: NIA placed')) { throw "Authoring placed no resident (Nia requested). See $result" }
+    }
+    elseif (-not ($lines -match 'resident: METAHUMAN placed')) {
+        throw "Authoring placed no complete MetaHuman resident. See $result"
+    }
     # Both of these ship in the repo now, so a miss is a regression rather than a missing optional
     # input. They used to fail SILENTLY -- try/except around the import, no line in the result
     # either way -- and the build went out with dead screens and a silent hall for weeks.
@@ -339,6 +406,6 @@ finally {
 }
 if ($uatExit -ne 0) { throw "BuildCookRun failed ($uatExit)" }
 
-Write-Host "OK -> $Archive" -ForegroundColor Green
+Write-Host "OK -> $Archive (resident: $Resident)" -ForegroundColor Green
 Write-Host 'Runtime config is environment variables, same as the container:' -ForegroundColor Cyan
 Write-Host '  OLLAMA_BASE_URL, OLLAMA_MODEL, KOKORO_SERVER_URL, MHLLM_OPENING_LINE, MHLLM_HUD=0'
