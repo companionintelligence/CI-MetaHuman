@@ -5,9 +5,13 @@
 #include "Avatar/CompanionFaceSubsystem.h"
 #include "Avatar/FaceProfile.h"
 #include "Avatar/CompanionRuntimeSubsystem.h"
+#include "Avatar/MetaHumanCompanionCharacter.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
+#include "LLM/OllamaConversation.h"
+#include "PixelStreaming2Delegates.h"
+#include "Settings/MetaHumanLLMSettings.h"
 #include "Voice/KokoroTextToSpeech.h"
 
 BEGIN_DEFINE_SPEC(FCompanionSubsystemSpec, "MetaHumanLocalLLM.Backend.CompanionSubsystems", EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
@@ -293,6 +297,107 @@ void FCompanionSubsystemSpec::Define()
 			// back reports an empty string. There is nothing to mouth and nothing to infer.
 			Invoke(Subsystem, TEXT("HandleSpeechFinished"), FString());
 			TestFalse("no text, no fallback", Face->IsSpeaking());
+		});
+	});
+
+	// One process, one conversation, viewers one after another. Before this the second viewer
+	// inherited the first one's whole conversation: in the chat log on screen, and in the history
+	// re-sent to the model with every turn. These drive the real binding -- OnWorldBeginPlay
+	// subscribes to Pixel Streaming's "all connections closed" -- by broadcasting that delegate the
+	// way the streamer does when the last viewer leaves.
+	Describe("UCompanionRuntimeSubsystem viewer lifecycle", [this]()
+	{
+		// Both guards skip rather than mutate the process: MHLLM_COMPANION=0 means no companion is
+		// spawned to reset, and with MHLLM_MEMORY=1 a reset overwrites the developer's saved
+		// transcript, which a test has no business doing.
+		auto Unsuitable = [this]() -> bool
+		{
+			if (CICompanionEnv::IsDisabled(TEXT("MHLLM_COMPANION")))
+			{
+				AddInfo(TEXT("MHLLM_COMPANION=0 in this process, so no companion is spawned; skipping."));
+				return true;
+			}
+			if (GetDefault<UMetaHumanLLMSettings>()->bPersistConversation)
+			{
+				AddInfo(TEXT("Conversation memory is on (MHLLM_MEMORY=1), and a reset would overwrite the saved transcript; skipping."));
+				return true;
+			}
+			return false;
+		};
+
+		// The companion's conversation, by reflection: it is a protected UPROPERTY, and the point here
+		// is what the reset does to it, not a new accessor.
+		auto ConversationOf = [this](AMetaHumanCompanionCharacter* Companion) -> UOllamaConversation*
+		{
+			FObjectProperty* Property = FindFProperty<FObjectProperty>(
+				AMetaHumanCompanionCharacter::StaticClass(), TEXT("Conversation"));
+			if (!Property)
+			{
+				AddError(TEXT("AMetaHumanCompanionCharacter has no reflected Conversation property"));
+				return nullptr;
+			}
+			return Cast<UOllamaConversation>(Property->GetObjectPropertyValue_InContainer(Companion));
+		};
+
+		auto CountTurns = [](const UOllamaConversation* Conversation) -> int32
+		{
+			int32 Turns = 0;
+			for (const FOllamaMessage& Message : Conversation->GetHistory())
+			{
+				Turns += Message.Role == EOllamaRole::System ? 0 : 1;
+			}
+			return Turns;
+		};
+
+		It("starts the next viewer on a fresh conversation when the last one leaves", [this, Unsuitable, ConversationOf, CountTurns]()
+		{
+			if (Unsuitable()) { return; }
+
+			UCompanionRuntimeSubsystem* Runtime = World->GetSubsystem<UCompanionRuntimeSubsystem>();
+			if (!TestNotNull("the world has a runtime subsystem", Runtime)) { return; }
+			Runtime->OnWorldBeginPlay(*World);
+			AMetaHumanCompanionCharacter* Companion = Runtime->GetCompanion();
+			if (!TestNotNull("a companion was spawned", Companion)) { return; }
+			UOllamaConversation* Conversation = ConversationOf(Companion);
+			if (!TestNotNull("the companion has a conversation", Conversation)) { return; }
+
+			Conversation->AppendUserMessage(TEXT("My name is Ada and I live at 12 Example Street."));
+			Conversation->AppendAssistantMessage(TEXT("Nice to meet you, Ada."));
+			TestEqual("the first viewer's two turns are held", CountTurns(Conversation), 2);
+
+			UPixelStreaming2Delegates* StreamDelegates = UPixelStreaming2Delegates::Get();
+			if (!TestNotNull("Pixel Streaming delegates", StreamDelegates)) { return; }
+			StreamDelegates->OnAllConnectionsClosedNative.Broadcast(TEXT("DefaultStreamer"));
+
+			TestEqual("nothing of the first viewer's conversation survives", CountTurns(Conversation), 0);
+			const UMetaHumanLLMSettings* Settings = GetDefault<UMetaHumanLLMSettings>();
+			TestTrue("the system prompt is re-seeded", Conversation->HasSystemPrompt() == !Settings->SystemPrompt.IsEmpty());
+		});
+
+		It("resets the same way through its public entry point", [this, Unsuitable, ConversationOf, CountTurns]()
+		{
+			if (Unsuitable()) { return; }
+
+			UCompanionRuntimeSubsystem* Runtime = World->GetSubsystem<UCompanionRuntimeSubsystem>();
+			if (!TestNotNull("the world has a runtime subsystem", Runtime)) { return; }
+			Runtime->OnWorldBeginPlay(*World);
+			AMetaHumanCompanionCharacter* Companion = Runtime->GetCompanion();
+			if (!TestNotNull("a companion was spawned", Companion)) { return; }
+			UOllamaConversation* Conversation = ConversationOf(Companion);
+			if (!TestNotNull("the companion has a conversation", Conversation)) { return; }
+
+			Conversation->AppendUserMessage(TEXT("hello"));
+			Runtime->ResetForNextViewer();
+			TestEqual("history cleared", CountTurns(Conversation), 0);
+		});
+
+		It("is harmless with no companion behind it", [this]()
+		{
+			// The state a world is in when MHLLM_COMPANION=0 or the spawn failed: the event can still
+			// arrive, and must not crash the streamer's callback.
+			UCompanionRuntimeSubsystem* Subsystem = NewObject<UCompanionRuntimeSubsystem>(World);
+			Subsystem->ResetForNextViewer();
+			TestNull("still no companion", Subsystem->GetCompanion());
 		});
 	});
 }

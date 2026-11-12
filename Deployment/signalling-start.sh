@@ -105,6 +105,8 @@ SERVER_ARGS+=" --serve --player_port=8090 --streamer_port=8888 --public_ip=${PUB
 # conversation and type into it. --max_players is the pinned server's own limit (SignallingWebServer
 # src/index.ts at PIXEL_STREAMING_INFRASTRUCTURE_REF, "maximum number of subscribers per streamer",
 # default 0 = unlimited): a player over it is refused at subscribe with "Streamer ... is full".
+# When that one viewer leaves, the app starts the next session on a fresh conversation
+# (UCompanionRuntimeSubsystem::ResetForNextViewer, bound to Pixel Streaming's "all connections closed").
 SERVER_ARGS+=" --max_players=1"
 SERVER_ARGS+=" --peer_options_file=${PEER_OPTIONS_FILE}${TURN_ARGS}"
 if [[ ! -z "$FRONTEND_DIR" ]]; then

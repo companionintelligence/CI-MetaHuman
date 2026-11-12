@@ -94,8 +94,9 @@ per unit of perceived aliveness. **Gaze first**: it costs least and buys most.
 - **Single session.** One UE process, one streamer, one viewer. A second visitor used to share
   the same camera and the same conversation; the signalling server now admits one player per
   streamer (`--max_players=1` in `Deployment/signalling-start.sh`) and refuses the next with
-  "Streamer … is full". Multi-tenancy is not a tuning exercise — it is a second UE instance per
-  viewer, or a redesign.
+  "Streamer … is full", and the app resets the conversation and chat log when that viewer leaves
+  (`UCompanionRuntimeSubsystem::ResetForNextViewer`), so the next one starts fresh.
+  Multi-tenancy is not a tuning exercise — it is a second UE instance per viewer, or a redesign.
 - **No auth.** `:8090` is open on the tailnet. The OIDC gate has never worked: the issuer was
   wrong, and `CI_HUB_TOKEN` is still the literal placeholder `__NEEDS__` (`HANDOFF.md` Lesson 15).
 - **No cost/roll-back story.** Deploying is a 25-minute cook; reverting is another. There is no

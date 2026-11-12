@@ -78,7 +78,26 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM")
 	void FocusChatInput();
 
+	// Clears what one viewer's session left behind, so the next viewer starts a fresh conversation:
+	// the companion's history (re-seeded with the system prompt; with MHLLM_MEMORY=1 the saved
+	// transcript too), the reply in flight, the voice and the mouth, any listening, and the chat log
+	// on screen.
+	//
+	// Called when the LAST Pixel Streaming viewer disconnects (OnWorldBeginPlay binds it to
+	// UPixelStreaming2Delegates::OnAllConnectionsClosedNative). The app is one process with one
+	// conversation, and before this a viewer who connected after someone else inherited that
+	// person's whole conversation: on screen in the chat log, and in the history re-sent to the
+	// model with every turn. The signalling server admits one viewer per streamer
+	// (Deployment/signalling-start.sh, --max_players=1), so "all connections closed" is "the viewer
+	// left". Public so a native host or a test can start a new session the same way.
+	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM")
+	void ResetForNextViewer();
+
 private:
+	// The OnAllConnectionsClosedNative binding, removed in Deinitialize: the delegates object is a
+	// rooted singleton that outlives every world.
+	FDelegateHandle ViewersLeftHandle;
+
 	void CreateHud();
 	void HandleHudTextSubmitted(const FString& Text);
 

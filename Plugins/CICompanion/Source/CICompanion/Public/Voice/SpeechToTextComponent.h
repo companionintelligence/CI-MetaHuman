@@ -24,6 +24,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM|Voice")
 	virtual void StopListening() PURE_VIRTUAL(USpeechToTextComponent::StopListening, );
 
+	// Stops listening and DISCARDS what was heard, including a transcription already on its way, so
+	// none of it ever reaches OnTranscribed. For when whoever was speaking has gone: StopListening
+	// would transcribe the clip and hand it to the next viewer's conversation. The default suits a
+	// backend that transcribes nothing on stop; one that does (UWhisperSpeechToText) overrides it.
+	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM|Voice")
+	virtual void CancelListening() { StopListening(); }
+
 	// Backends with a live capture path override this so callers can distinguish a requested
 	// mic state from an active one (for example, when no host audio device is available).
 	virtual bool IsListening() const { return false; }
