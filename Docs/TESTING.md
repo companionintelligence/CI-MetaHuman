@@ -263,8 +263,9 @@ Not tests in the usual sense; they are refusals to proceed. See
 ## 8. CI: the engine-free gate
 
 `.github/workflows/checks.yml` runs on every push to `main`, every pull request, and on demand. It
-needs no engine, no GPU and no Epic registry access, so it runs on a stock GitHub-hosted runner in
-a few minutes. It is pinned like the release builds it guards: actions by commit SHA, the Python
+needs no engine and no GPU, so it runs on a stock GitHub-hosted runner in a few minutes. Epic
+registry access is optional: one step uses it when the `EPIC_GHCR_USER` and `EPIC_GHCR_TOKEN`
+secrets are set. It is pinned like the release builds it guards: actions by commit SHA, the Python
 linters by exact version and hash (`Deployment/requirements-ci.txt`), the runner image and Python
 by exact version.
 
@@ -274,7 +275,7 @@ by exact version.
 | `kokoro-align` | the hash-locked dependencies install on the image's Python and are consistent (`pip check`); `app.py` imports and routes; its WAV header sizes agree with the payload; misaki phonemizes, through the espeak fallback, with the baked-in spaCy model and **no** runtime download | inference: the ONNX model is a runtime download and is not fetched |
 | `shell` | shellcheck at warning level over the tracked scripts (vendored plugins excepted; the findings that predate the check are excluded per file and listed in the workflow); actionlint over the workflows, including shellcheck of their `run:` scripts | anything about core-2 itself: paths, mounts, the images present there |
 | `compose` | every documented `-f` combination renders, clean and with `.env.example`; with `.env.example`, without a single warning, so the example names every variable the files interpolate | that a service starts: rendering starts nothing |
-| `pins` | the pin policy of [`BUILD-AND-DEPLOY.md`](BUILD-AND-DEPLOY.md) §7, including that every public digest still resolves; the `CHECK_MAP` stub-map gate (§2.2 there) is identical in both Dockerfiles, matches the committed stub's LFS oid, and passes or refuses six fixture maps correctly | that Epic's digests resolve: reading them needs an Epic-linked login |
+| `pins` | the pin policy of [`BUILD-AND-DEPLOY.md`](BUILD-AND-DEPLOY.md) §7, including that every public digest still resolves, and Epic's too on a run with the `EPIC_GHCR_USER` and `EPIC_GHCR_TOKEN` secrets (an Epic-linked account and its `read:packages` token); the `CHECK_MAP` stub-map gate (§2.2 there) is identical in both Dockerfiles, matches the committed stub's LFS oid, and passes or refuses six fixture maps correctly | that Epic's digests resolve on a run without those secrets, which includes every pull request from a fork: the step warns instead. §7.1 there records the last manual check |
 
 A red `checks.yml` is not a judgement on the engine-bound layers above; a green one is not
 evidence for them either.

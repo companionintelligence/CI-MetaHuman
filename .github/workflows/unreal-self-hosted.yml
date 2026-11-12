@@ -15,8 +15,9 @@ name: Unreal (self-hosted)
 #   2. Set the repository variable UNREAL_SELF_HOSTED to "enabled". Until then every job is
 #      skipped, even when the workflow is dispatched by hand.
 #   3. For the image job: add the secrets EPIC_GHCR_USER and EPIC_GHCR_TOKEN (an Epic-linked
-#      GitHub account; read:packages is enough), and author the set on the runner first
-#      (Docs/BUILD-AND-DEPLOY.md section 2.2) -- Deployment/Dockerfile refuses the committed stub.
+#      GitHub account; read:packages is enough; with them, checks.yml also verifies Epic's digests
+#      on every run), and author the set on the runner first (Docs/BUILD-AND-DEPLOY.md section
+#      2.2) -- Deployment/Dockerfile refuses the committed stub.
 #
 # workflow_dispatch ONLY. This repository is public, and a pull_request trigger would let a fork
 # run arbitrary code on the self-hosted machine. Do not add one.

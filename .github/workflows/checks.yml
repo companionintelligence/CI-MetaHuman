@@ -1,8 +1,10 @@
 name: Checks
 
 # Engine-free checks. Every job here runs on a stock GitHub-hosted runner in a few minutes, with no
-# Unreal Engine, no GPU and no access to Epic's registry. The engine-bound suites (Automation
-# specs, packaging, the container cook) are in unreal-self-hosted.yml, which is off by default.
+# Unreal Engine and no GPU. One step reads Epic's registry ("Epic digests resolve" in `pins`), and
+# only when the EPIC_GHCR_* secrets are set; without them it warns and passes. The engine-bound
+# suites (Automation specs, packaging, the container cook) are in unreal-self-hosted.yml, which is
+# off by default.
 # Docs/TESTING.md section 8 says what each job proves and what it cannot.
 #
 # Reproducible on purpose, like the release builds it guards: actions are pinned to a commit, the
@@ -346,13 +348,46 @@ jobs:
           sys.exit(1 if errors else 0)
           PY
 
-      # A digest that does not exist would otherwise surface twenty minutes into a cook. Epic's
-      # images are skipped: reading them needs an Epic-linked GHCR login this job does not have.
+      # A digest that does not exist would otherwise first show up as a failed FROM on the build
+      # host. Epic's images are the next step's: reading them needs an Epic-linked GHCR login.
       - name: Public digests resolve
         run: |
           set -euo pipefail
           refs="$(grep -rhoE '[a-z0-9][a-z0-9./_-]*:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}' \
             Deployment/Dockerfile* Deployment/*/Dockerfile | sort -u | grep -v '^ghcr.io/epicgames/')"
+          status=0
+          for ref in $refs; do
+            ok=0
+            for attempt in 1 2 3; do
+              if docker buildx imagetools inspect "$ref" > /dev/null; then ok=1; break; fi
+              sleep $((attempt * 5))
+            done
+            if [ "$ok" = 1 ]; then echo "resolves: $ref"; else echo "::error::does not resolve: $ref"; status=1; fi
+          done
+          exit "$status"
+
+      # Epic's digests: every NVIDIA, AMD and editor-preview build starts FROM one of them. Reading
+      # them needs an Epic-linked login, from the EPIC_GHCR_USER and EPIC_GHCR_TOKEN secrets that
+      # unreal-self-hosted.yml also uses (a GitHub account linked to Epic, and a classic token of
+      # it with read:packages). A run without them -- every pull request from a fork is one --
+      # warns that they went unchecked and passes. Docs/BUILD-AND-DEPLOY.md section 7.5 has the
+      # manual check, and section 7.1 the date it last passed.
+      - name: Epic digests resolve
+        env:
+          EPIC_GHCR_USER: ${{ secrets.EPIC_GHCR_USER }}
+          EPIC_GHCR_TOKEN: ${{ secrets.EPIC_GHCR_TOKEN }}
+        run: |
+          set -euo pipefail
+          refs="$(grep -rhoE 'ghcr\.io/epicgames/[a-z0-9./_-]+:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}' \
+            Deployment/Dockerfile* Deployment/*/Dockerfile Deployment/core2/pin-engine-image.sh | sort -u)"
+          test -n "$refs"
+          if [ -z "${EPIC_GHCR_USER:-}" ] || [ -z "${EPIC_GHCR_TOKEN:-}" ]; then
+            echo "::warning::Epic's image digests were NOT checked: this run has no EPIC_GHCR_USER and EPIC_GHCR_TOKEN secrets. Docs/BUILD-AND-DEPLOY.md section 7.5"
+            for ref in $refs; do echo "unchecked: $ref"; done
+            exit 0
+          fi
+          trap 'docker logout ghcr.io > /dev/null 2>&1 || true' EXIT
+          printf '%s' "$EPIC_GHCR_TOKEN" | docker login ghcr.io --username "$EPIC_GHCR_USER" --password-stdin
           status=0
           for ref in $refs; do
             ok=0
