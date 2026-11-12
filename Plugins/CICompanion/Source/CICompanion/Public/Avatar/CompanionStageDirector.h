@@ -67,13 +67,8 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM|Stage")
 	void ReplayOpening();
 
-	// The shot is STATIC unless the opening move is explicitly asked for.
-	//
-	// It used to be the other way round -- the flythrough ran unless MHLLM_OPENING_SHOT was set to
-	// 0 -- which meant every plain `run the app` began with an eleven-second camera move nobody
-	// asked for, and the only way to get the framing the set was solved for was to know an
-	// undocumented env var. A camera that moves is the special case, so it is the one that has to
-	// be requested. Accepts 1/true/yes; anything else, including unset, is static.
+	// The opening move plays on level load by default. Set MHLLM_OPENING_SHOT=0 to use the static
+	// call framing; explicit 1/true/yes/on also enables the move.
 	static bool ShouldPlayOpeningShot(TFunctionRef<FString(const TCHAR*)> Lookup);
 
 	// Free-look is likewise opt-IN. Left on, the GameModeBase DefaultPawn's default movement

@@ -34,26 +34,23 @@ it should feel like to talk to one. Putting her in that room makes the lineage t
 | **1970s machine room** | Distinguishes the product from every white-void assistant, and earns the name. It also solves a practical problem: a period room full of hard surfaces justifies the ambient hum that covers streaming artefacts. |
 | **Portrait 9:16** | The experience is a *call*. Phones are the majority case and portrait is what a call looks like there. |
 
-## 3. The opening — shot by shot ⚠️ OPT-IN
+## 3. The opening — shot by shot
 
-> **The default deployment no longer plays this.** `MHLLM_OPENING_SHOT` defaults to **0**, so a
-> normal run lands straight in the static call framing. The move below is what you get with
-> `MHLLM_OPENING_SHOT=1`, which is the launch-stream configuration. The default flipped because a
-> moving camera is a surprise for anyone iterating on conversation, and because the solved call
-> framing should not require an undocumented variable to reach.
+> **The default deployment plays this on level load.** `MHLLM_OPENING_SHOT` defaults to **1**,
+> so a normal run tours the datacenter and settles on the resident. Set it to `0` for a static
+> call frame while iterating on conversation or recording a fixed composition.
 
 Authored as timed beats in `UCompanionStageDirector`, not as a Sequencer asset (§8.2 explains
 why). Times are configurable; defaults shown.
 
 | t | Beat | Purpose |
 |---|---|---|
-| 0.0s | Hold, camera deep in the hall behind her | Establishes the room before the person. Pixel Streaming clients take ~10s to negotiate, so a delay here is what stops the opening playing to an empty room. |
+| 0.0s | Hold outside the glass frontage | Establishes the lit room and storefront before the person. |
 | 3.0s | Camera begins its move down the aisle | The set is the first character. |
-| 14.0s | Camera settles behind her shoulder | She is unaware; the viewer is a guest who has just walked in. |
+| 14.0s | Camera settles in the wide call frame | The room and resident stay together in the composition. |
 | 14.0s | She turns to the lens | The moment of address. This is the beat the whole opening exists for. |
 | 16.0s | *"Welcome to Companion Intelligence, I'm Eliza. How can I help you?"* | Verbatim, always. |
-| 16.0s+ | Hands over to live conversation | The shot ends; the assistant begins. |
-| every 40s | Replays while idle | A live stream has no other way to show its opening to someone who arrives late. |
+| 16.0s+ | Hands over to live conversation | The shot plays once per level load; the assistant begins. |
 
 **Typing interrupts it.** A visitor who speaks first is answered immediately and the camera cuts
 to live framing. Making someone wait out a camera move after they have spoken is the rudest
@@ -187,8 +184,8 @@ activity).
   stylised one. Untested with real users.
 - **Is 1.4s conversational?** It feels close. It has not been tested with anyone who was not
   waiting for it.
-- **Does the opening wear out?** It replays every 40s, which is right for a kiosk and possibly
-  wrong for a returning user.
+- **Could a returning user miss the opening?** It plays once per level load; an optional attract
+  loop can be configured for kiosk deployments.
 - **Is the dress right?** She currently wears a cocktail dress and heels in a machine room. It is
   a striking image and arguably the wrong one for an enterprise assistant. Art-direction call.
 

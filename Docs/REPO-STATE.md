@@ -270,7 +270,7 @@ Three claims had gone stale. Corrected in this pass rather than merely listed:
 |---|---|---|
 | `GAP-ANALYSIS.md` | "User input ❌ Missing — nobody can address her" | ✅ Text input works and is verified; **voice** input is what is missing |
 | `GAP-ANALYSIS.md` | "HUD ⚠️ Code only — nothing creates it" | ✅ Slate HUD live; the UMG class it referred to is dead code |
-| `GDD-WEB-EXPERIENCE.md` | §3 opening flythrough marked ✅ | ⚠️ **opt-in** — `MHLLM_OPENING_SHOT` now defaults to **0** |
+| `GDD-WEB-EXPERIENCE.md` | §3 opening flythrough marked ✅ | ✅ **default on** — `MHLLM_OPENING_SHOT` now defaults to **1**; static frame is `0` |
 
 That last one matters most: the GDD opens by describing the camera move as *the* experience, while
 the default deployment has a static camera. Anyone reading the GDD and then running the stack would

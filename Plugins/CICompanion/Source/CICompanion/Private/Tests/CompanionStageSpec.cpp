@@ -22,18 +22,15 @@ void FCompanionStageSpec::Define()
 		};
 	};
 
-	// The regression: the opening flythrough played on EVERY run because it was opt-out, so the
-	// only way to get the static framing the set was solved for was to know MHLLM_OPENING_SHOT=0.
-	// A camera that moves is the special case, so it is the one that has to be asked for.
 	Describe("the opening shot", [this, MakeLookup]()
 	{
-		It("does not play when nothing is configured", [this, MakeLookup]()
+		It("plays on first load when nothing is configured", [this, MakeLookup]()
 		{
 			TMap<FString, FString> Env;
-			TestFalse("static by default", UCompanionStageDirector::ShouldPlayOpeningShot(MakeLookup(Env)));
+			TestTrue("opening tour by default", UCompanionStageDirector::ShouldPlayOpeningShot(MakeLookup(Env)));
 		});
 
-		It("plays only when explicitly asked for", [this, MakeLookup]()
+		It("accepts explicit positive values", [this, MakeLookup]()
 		{
 			TMap<FString, FString> Env;
 			Env.Add(TEXT("MHLLM_OPENING_SHOT"), TEXT("1"));
@@ -49,10 +46,8 @@ void FCompanionStageSpec::Define()
 			TestTrue("opted in with yes", UCompanionStageDirector::ShouldPlayOpeningShot(MakeLookup(Env)));
 		});
 
-		It("stays static for the old opt-out value, an empty string, or a typo", [this, MakeLookup]()
+		It("stays static for explicit false values and typos", [this, MakeLookup]()
 		{
-			// "0" used to be the ONLY way to get a static shot; it must keep meaning static rather
-			// than becoming an accidental opt-in now that the default flipped.
 			TMap<FString, FString> Env;
 			Env.Add(TEXT("MHLLM_OPENING_SHOT"), TEXT("0"));
 			TestFalse("zero", UCompanionStageDirector::ShouldPlayOpeningShot(MakeLookup(Env)));
@@ -61,7 +56,7 @@ void FCompanionStageSpec::Define()
 			TestFalse("false", UCompanionStageDirector::ShouldPlayOpeningShot(MakeLookup(Env)));
 
 			Env.Add(TEXT("MHLLM_OPENING_SHOT"), TEXT(""));
-			TestFalse("empty", UCompanionStageDirector::ShouldPlayOpeningShot(MakeLookup(Env)));
+			TestTrue("empty uses first-load default", UCompanionStageDirector::ShouldPlayOpeningShot(MakeLookup(Env)));
 
 			// An unparseable value must fail SAFE. Compose files interpolate blanks and typos
 			// happen; neither should start a camera move nobody asked for.

@@ -19,6 +19,7 @@ def _dir(var, default):
 GLB_DIR   = _dir("MHLLM_GLB_DIR",   "/glb")      # prop GLBs (scavenged Sketchfab assets)
 MH_DIR    = _dir("MHLLM_MH_DIR",    "/mh")       # MetaHuman "Seo" FBX/TGA (fallback resident only)
 AUDIO_DIR = _dir("MHLLM_AUDIO_DIR", "/audio")    # Deployment/audio — the machine-room score
+BRAND_DIR = _dir("MHLLM_BRAND_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "generated"))
 # Deployment/generated — set dressing this repo SYNTHESIZES rather than scavenges:
 # T_CRT_Vector.png (Scripts/MakeCRTTexture.py) and S_RoomTone.wav (Scripts/MakeAmbience.py
 # --mode roomtone). Both are committed, so any checkout can author the full set.
@@ -294,19 +295,18 @@ try:
 
     # ---------- Companion Intelligence brand tokens ----------
     # Source: companionintelligence/CI-Common -> assets/brand.config.json + docs/colors.md.
-    # CI teal #0f717a is the brand's load-bearing colour and navy #041620 its ground. Both sit
-    # COOL, which is why they read against warm Olivetti amber instead of muddying it: the set is
-    # warm at eye level and CI-cool in the machine light and the deep background. Mint #58ebbf is
-    # the accent and is used sparingly -- it is the brightest thing in frame wherever it appears.
+    # Current CI-Common palette: phthalo #0a6358, sage #c5e8dc, navy #041620, mint #3ae7ba.
+    # The retro set keeps its IBM orange as the historical room finish and uses CI colors for
+    # the resident, machine indicators, signage, and cool accents.
     def srgb(h):
         h = h.lstrip("#")
         f = [int(h[i:i+2], 16) / 255.0 for i in (0, 2, 4)]
         # approximate sRGB -> linear so UE does not wash the brand colours out
         return tuple((c / 12.92) if c <= 0.04045 else (((c + 0.055) / 1.055) ** 2.4) for c in f)
-    CI_TEAL   = srgb("#0f717a")
-    CI_TEAL_L = srgb("#abd4d8")
+    CI_TEAL   = srgb("#0a6358")
+    CI_TEAL_L = srgb("#c5e8dc")
     CI_NAVY   = srgb("#041620")
-    CI_MINT   = srgb("#58ebbf")
+    CI_MINT   = srgb("#3ae7ba")
 
     floor = spawn(unreal.StaticMeshActor, (450,0,0))
     floor.static_mesh_component.set_static_mesh(plane)
@@ -341,6 +341,60 @@ try:
     # a too-bright ceiling at least reads AS a ceiling.
     paint(ceil, "M_SetCeiling", (0.90, 0.90, 0.88), 0.8)                  # see note: needs geometry
     w("shell ok (walls + ceiling)")
+
+    # ---------- glass frontage / IBM storefront entrance ----------
+    # The opening camera starts on a small exterior apron and passes through this curtain wall.
+    # Keep a central double-width entry; the glass stays lightly tinted so the first frame reads
+    # as a datacenter behind a storefront instead of a dark reflection.
+    glass_path = "/Game/Diorama/SetMats/M_FrontGlass_Tint"
+    glass_mat = unreal.EditorAssetLibrary.load_asset(glass_path)
+    if not glass_mat:
+        glass_mat = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
+            "M_FrontGlass_Tint", "/Game/Diorama/SetMats", unreal.Material, unreal.MaterialFactoryNew())
+        glass_mat.set_editor_property("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT)
+        glass_col = unreal.MaterialEditingLibrary.create_material_expression(
+            glass_mat, unreal.MaterialExpressionVectorParameter, -400, 0)
+        glass_col.set_editor_property("parameter_name", "Tint")
+        glass_col.set_editor_property("default_value", unreal.LinearColor(0.28, 0.075, 0.025, 1.0))
+        unreal.MaterialEditingLibrary.connect_material_property(
+            glass_col, "RGB", unreal.MaterialProperty.MP_BASE_COLOR)
+        glass_opacity = unreal.MaterialEditingLibrary.create_material_expression(
+            glass_mat, unreal.MaterialExpressionConstant, -400, 180)
+        glass_opacity.set_editor_property("r", 0.10)
+        unreal.MaterialEditingLibrary.connect_material_property(
+            glass_opacity, "", unreal.MaterialProperty.MP_OPACITY)
+        glass_roughness = unreal.MaterialEditingLibrary.create_material_expression(
+            glass_mat, unreal.MaterialExpressionConstant, -400, 340)
+        glass_roughness.set_editor_property("r", 0.12)
+        unreal.MaterialEditingLibrary.connect_material_property(
+            glass_roughness, "", unreal.MaterialProperty.MP_ROUGHNESS)
+        unreal.MaterialEditingLibrary.recompile_material(glass_mat)
+
+    # Plane and cube dimensions use Unreal's 100cm base scale. The apron supports the exterior
+    # establishing key; the entry opening is left clear in the centre of the front wall.
+    forecourt = spawn(unreal.StaticMeshActor, (-1250, 0, -2))
+    forecourt.static_mesh_component.set_static_mesh(plane)
+    forecourt.set_actor_scale3d(unreal.Vector(5.0, 14.0, 1.0))
+    paint(forecourt, "M_Forecourt", (0.09, 0.065, 0.05), 0.82)
+    sill = spawn(unreal.StaticMeshActor, (-990, 0, 42))
+    sill.static_mesh_component.set_static_mesh(cube)
+    sill.set_actor_scale3d(unreal.Vector(0.18, 14.0, 0.84))
+    paint(sill, "M_FrontSill_FlameRed", (0.42, 0.075, 0.032), 0.68)
+    header = spawn(unreal.StaticMeshActor, (-990, 0, 478))
+    header.static_mesh_component.set_static_mesh(cube)
+    header.set_actor_scale3d(unreal.Vector(0.18, 14.0, 0.44))
+    paint(header, "M_FrontHeader", (0.10, 0.035, 0.025), 0.78)
+    for y in (-600, -400, -200, 200, 400, 600):
+        pane = spawn(unreal.StaticMeshActor, (-990, y, 250))
+        pane.static_mesh_component.set_static_mesh(cube)
+        pane.set_actor_scale3d(unreal.Vector(0.035, 1.8, 4.2))
+        pane.static_mesh_component.set_material(0, glass_mat)
+    for y in range(-700, 701, 200):
+        mullion = spawn(unreal.StaticMeshActor, (-982, y, 250))
+        mullion.static_mesh_component.set_static_mesh(cube)
+        mullion.set_actor_scale3d(unreal.Vector(0.10, 0.075, 4.35))
+        paint(mullion, "M_FacadeMullion_%d" % (y + 700), (0.12, 0.055, 0.035), 0.42)
+    w("glass storefront frontage placed (central entry clear)")
 
     # ---------- reference match: fluorescent troffers + operator desk ----------
     # From the Old IBM Datacenter reference set. Two details do most of the work in those images
@@ -394,14 +448,69 @@ try:
     # the bottom of a 9:16 frame exactly where the reference desks do.
     console = spawn(unreal.StaticMeshActor, (250, 20, 68))
     console.static_mesh_component.set_static_mesh(cube)
-    console.set_actor_scale3d(unreal.Vector(1.5, 2.6, 0.10))
+    console.set_actor_scale3d(unreal.Vector(1.05, 1.8, 0.08))
     paint(console, "M_ConsoleTop", (0.88, 0.87, 0.84), 0.30)   # white console laminate
-    for i, dy in enumerate((-95, 95)):
+    for i, dy in enumerate((-65, 65)):
         ped = spawn(unreal.StaticMeshActor, (250, 20 + dy, 33))
         ped.static_mesh_component.set_static_mesh(cube)
-        ped.set_actor_scale3d(unreal.Vector(1.2, 0.5, 0.66))
+        ped.set_actor_scale3d(unreal.Vector(0.82, 0.34, 0.66))
         paint(ped, "M_ConsolePed_%d" % i, (0.30, 0.30, 0.31), 0.55)
+    # Compact vintage operator seating beside the desk; these stay outside the camera aisle.
+    for i, dy in enumerate((-145, 145)):
+        seat = spawn(unreal.StaticMeshActor, (275, 20 + dy, 44), yaw=90 if dy < 0 else -90)
+        seat.static_mesh_component.set_static_mesh(cube)
+        seat.set_actor_scale3d(unreal.Vector(0.48, 0.48, 0.10))
+        paint(seat, "M_OperatorChair_Seat_%d" % i, (0.22, 0.045, 0.032), 0.38)
+        back = spawn(unreal.StaticMeshActor, (235, 20 + dy, 78), yaw=90 if dy < 0 else -90)
+        back.static_mesh_component.set_static_mesh(cube)
+        back.set_actor_scale3d(unreal.Vector(0.12, 0.48, 0.48))
+        paint(back, "M_OperatorChair_Back_%d" % i, (0.22, 0.045, 0.032), 0.38)
+        for leg_i, (dx, ddy) in enumerate(((-18,-18),(-18,18),(18,-18),(18,18))):
+            leg = spawn(unreal.StaticMeshActor, (275 + dx, 20 + dy + ddy, 21))
+            leg.static_mesh_component.set_static_mesh(cube)
+            leg.set_actor_scale3d(unreal.Vector(0.045, 0.045, 0.42))
+            paint(leg, "M_OperatorChair_Leg_%d_%d" % (i, leg_i), (0.40, 0.42, 0.41), 0.3)
     w("operator console placed")
+
+    # CI-Common wordmark, rendered from the approved transparent white banner on a navy plaque.
+    # The image stays in Deployment/generated and is mounted at /brand for the container author.
+    try:
+        logo_file = BRAND_DIR + "/ci-logo-white-banner.png"
+        logo_task = unreal.AssetImportTask()
+        logo_task.filename = logo_file
+        logo_task.destination_path = "/Game/Diorama/Brand"
+        logo_task.automated = True
+        logo_task.save = True
+        logo_task.replace_existing = True
+        unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([logo_task])
+        logo_tex = unreal.load_asset("/Game/Diorama/Brand/ci-logo-white-banner")
+        if not logo_tex:
+            raise RuntimeError("CI-Common logo texture was not imported from " + logo_file)
+        logo_mat = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
+            "M_CI_Logo", "/Game/Diorama/Brand", unreal.Material, unreal.MaterialFactoryNew())
+        logo_mat.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
+        logo_mat.set_editor_property("blend_mode", unreal.BlendMode.BLEND_MASKED)
+        logo_sample = unreal.MaterialEditingLibrary.create_material_expression(
+            logo_mat, unreal.MaterialExpressionTextureSample, -400, 0)
+        logo_sample.set_editor_property("texture", logo_tex)
+        unreal.MaterialEditingLibrary.connect_material_property(
+            logo_sample, "RGB", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+        unreal.MaterialEditingLibrary.connect_material_property(
+            logo_sample, "A", unreal.MaterialProperty.MP_OPACITY_MASK)
+        unreal.MaterialEditingLibrary.recompile_material(logo_mat)
+        plaque = spawn(unreal.StaticMeshActor, (1710, 0, 390))
+        plaque.static_mesh_component.set_static_mesh(cube)
+        plaque.set_actor_scale3d(unreal.Vector(0.16, 2.4, 0.82))
+        paint(plaque, "M_CI_BrandPlaque", CI_NAVY, 0.5)
+        logo = spawn(unreal.StaticMeshActor, (1692, 0, 390), pitch=-90.0)
+        logo.static_mesh_component.set_static_mesh(plane)
+        # A plane rotated upright uses local Y for horizontal width and local X for height.
+        logo.set_actor_scale3d(unreal.Vector(0.67, 2.1, 1.0))
+        logo.static_mesh_component.set_material(0, logo_mat)
+        logo.set_actor_label("Companion Intelligence · CI-Common wordmark")
+        w("CI-Common logo plaque placed")
+    except Exception as e:
+        w("CI logo warn: %s" % e)
 
     # ---------- Olivetti + IBM + Cray: vector displays, warm grade, curved bench ----------
     # The brief is a 70s mainframe STOREFRONT, not a museum floor: Olivetti warmth (amber, cream,
@@ -577,7 +686,7 @@ try:
     #
     # The live NVIDIA stream is 1920x1080. Keep the near banks within the camera's horizontal
     # coverage so their machine faces read behind the resident; the second rank adds depth.
-    CAM_DIST = 180.0
+    CAM_DIST = 430.0
     HALL = []
     for i, x in enumerate((420, 600, 780, 980, 1200, 1440)):
         HALL.append((("ibm2401", "ibm3350", "ibm1401cpu")[i % 3], x, -105,  90, (183, 150, 170)[i % 3]))
@@ -590,8 +699,16 @@ try:
     HALL.append(("ramac305", 1690, -120, 180, 170))
     HALL.append(("ibm1401",  1690,  160, 180, 170))
 
+    # Small staffed terminals run along both side walls, filling the room beyond the mainframe
+    # ranks without narrowing the center aisle. Alternating PET and IBM 3178 silhouettes keep the
+    # perimeter legible as a working computer room rather than a solid cabinet wall.
+    WALL_COMPUTERS = []
+    for i, x in enumerate((120, 350, 580, 810, 1040, 1270, 1500)):
+        WALL_COMPUTERS.append(("pet" if i % 2 == 0 else "ibm3178", x, -535, 90, 58))
+        WALL_COMPUTERS.append(("ibm3178" if i % 2 == 0 else "pet", x, 535, -90, 58))
+
     hall = 0
-    for name, hx, hy, hyaw, tgt in HALL:
+    for name, hx, hy, hyaw, tgt in HALL + WALL_COMPUTERS:
         # The 729 tape units are the custom, animated replacement for these legacy IBM 2401
         # placeholders. Do not stack both assets at the same station: that made the reels look
         # detached from their cabinets and produced overlapping silhouettes in the streamed shot.
@@ -1056,26 +1173,9 @@ try:
         w("room tone skipped: %s" % e)
 
     # ---------- camera / player ----------
-    # The view comes from the DefaultPawn spawned at this PlayerStart — NOT from a
-    # CameraActor. An auto-activating CameraActor welds the view target to itself, so the
-    # pawn still receives input and still moves while the picture never changes: input looks
-    # dead. (The framing problem that CameraActor was added to solve was really the
-    # Rotator(roll,pitch,yaw) bug above, now fixed — PlayerStart aims correctly on its own.)
-    # PlayerStart rotation seeds the initial control rotation, so Pixel Streaming mouse/WASD
-    # fly the view from exactly this pose.
-    # The view comes from an auto-activating StageCamera, which is the only thing that has
-    # reliably framed this set. Driving the view from the GameModeBase DefaultPawn does NOT
-    # work here: the map's PlayerStart is provably correct (probed at (-250,-60,175) pitch
-    # -5.9) yet the pawn's view lands elsewhere and renders floor tiles — and re-authoring the
-    # whole set around the world origin did not change it either. Unresolved; tracked as a
-    # known issue. Framing the character beats free-look for a fixed-camera diorama, so the
-    # camera wins until the pawn spawn is understood.
-    # TRADE-OFF: an auto-activated CameraActor becomes the view target, so player input moves
-    # the pawn invisibly — free-look will stay dead until this is solved properly.
-    # LANDSCAPE FRAMING — Razer's NVIDIA Pixel Streaming stream is 1920x1080. The previous
-    # 21-degree lens at 106cm produced a tight portrait crop in this landscape stream. A 65-degree
-    # lens at 180cm gives roughly 230cm horizontal and 129cm vertical coverage at the resident,
-    # while the computer banks sit wider than the centre aisle instead of crowding the foreground.
+    # The runtime StageDirector owns the moving camera. This authored camera is only a fallback
+    # and intentionally does not auto-activate, which previously overrode the tour during stream.
+    # Keep its landscape framing consistent with the director's 430cm / 48-degree landing shot.
     #
     # She stands at (330, 20, 0) facing -X (actor yaw 90, see NIA_YAW), so the camera must be on
     # the -X side of her to see a face rather than the back of her head. Eyeline comes from the
@@ -1089,9 +1189,11 @@ try:
     cam_pitch = math.degrees(math.atan2(dz, math.sqrt(dx*dx + dy*dy)))
     cam = spawn(unreal.CameraActor, CAM_POS, yaw=cam_yaw, pitch=cam_pitch)
     cam.set_actor_label("StageCamera")
-    cam.set_editor_property("auto_activate_for_player", unreal.AutoReceiveInput.PLAYER0)
+    # The runtime StageDirector owns the view target and animates its own camera along the tour.
+    # Auto-activating this static editor camera overrode the director in Pixel Streaming, so the
+    # flythrough ran in logs while viewers stayed on the unmoving authored camera.
     try:
-        cam.camera_component.set_editor_property("field_of_view", 65.0)
+        cam.camera_component.set_editor_property("field_of_view", 48.0)
         # Let the camera fill the configured 16:9 stream without letterboxing.
         cam.camera_component.set_editor_property("constrain_aspect_ratio", False)
         cam.camera_component.set_editor_property("aspect_ratio", 1920.0 / 1080.0)
