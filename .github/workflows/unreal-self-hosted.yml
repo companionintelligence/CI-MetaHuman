@@ -1,0 +1,136 @@
+name: Unreal (self-hosted)
+
+# DISABLED BY DEFAULT, and a skeleton: no runner has executed it yet.
+#
+# The engine-bound work lives here because none of it fits a GitHub-hosted runner: it needs an
+# installed Unreal Engine (or Epic's ~85 GB engine image behind an Epic-linked GHCR login), the
+# Git LFS content, and -- to package anything worth shipping -- the inputs that author the set
+# (prop GLBs, the Nia character), which are not in this repository. The engine-free checks run on
+# every push in checks.yml.
+#
+# Turning it on:
+#   1. Register a self-hosted runner for this repository: Windows with the engine installed for
+#      the `windows` job (labels: self-hosted, windows, x64, unreal), Linux with Docker for the
+#      `image` job (labels: self-hosted, linux, x64, docker, unreal). Both need Git LFS.
+#   2. Set the repository variable UNREAL_SELF_HOSTED to "enabled". Until then every job is
+#      skipped, even when the workflow is dispatched by hand.
+#   3. For the image job: add the secrets EPIC_GHCR_USER and EPIC_GHCR_TOKEN (an Epic-linked
+#      GitHub account; read:packages is enough), and author the set on the runner first
+#      (Docs/BUILD-AND-DEPLOY.md section 2.2) -- Deployment/Dockerfile refuses the committed stub.
+#
+# workflow_dispatch ONLY. This repository is public, and a pull_request trigger would let a fork
+# run arbitrary code on the self-hosted machine. Do not add one.
+
+on:
+  workflow_dispatch:
+    inputs:
+      engine_dir:
+        description: Unreal Engine root on the Windows runner
+        type: string
+        default: 'C:\Program Files\Epic Games\UE_5.8'
+      package_win64:
+        description: Also package Win64 with Scripts/BuildNative.ps1 (authors the set; its inputs must be on the runner)
+        type: boolean
+        default: false
+      build_image:
+        description: Build the NVIDIA image from Deployment/Dockerfile on the Linux runner
+        type: boolean
+        default: false
+      authored_content_dir:
+        description: Linux runner path to the AUTHORED Content/ tree (what core2/run_author_m2.sh writes to stage-out/Content)
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+# One engine job at a time: two cooks on one machine starve each other of memory and disk.
+concurrency:
+  group: unreal-self-hosted
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    name: Automation specs and Win64 package
+    if: vars.UNREAL_SELF_HOSTED == 'enabled' && github.repository == 'companionintelligence/CI-MetaHuman'
+    runs-on: [self-hosted, windows, x64, unreal]
+    timeout-minutes: 240
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      UE_ENGINE_DIR: ${{ inputs.engine_dir }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          lfs: true
+          persist-credentials: false
+
+      # Both runners already enforce what Docs/TESTING.md section 5.1 requires: a non-zero exit,
+      # crash markers, an empty filter, Started != Completed, or any failure fails the step.
+      - name: Backend specs (MetaHumanLocalLLM.Backend)
+        run: ./Scripts/RunBackendTests.ps1 -EngineDir $env:UE_ENGINE_DIR
+
+      - name: Frontend specs (MetaHumanLocalLLM.Frontend)
+        run: ./Scripts/RunFrontendTests.ps1 -EngineDir $env:UE_ENGINE_DIR
+
+      # Authors the set with Deployment/author_diorama.py before the cook, and gates on
+      # AUTHOR_RESULT.txt (BuildNative.ps1 -GlbDir / -NiaContent, or MHLLM_* on the runner).
+      - name: Package Win64
+        if: inputs.package_win64
+        run: ./Scripts/BuildNative.ps1 -Platform Win64 -Engine $env:UE_ENGINE_DIR
+
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: unreal-windows-logs
+          path: |
+            Saved/TestLogs/
+            Saved/Logs/
+            Saved/AUTHOR_RESULT.txt
+            Saved/author_diorama.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+  image:
+    name: NVIDIA image (Deployment/Dockerfile)
+    if: inputs.build_image && vars.UNREAL_SELF_HOSTED == 'enabled' && github.repository == 'companionintelligence/CI-MetaHuman'
+    runs-on: [self-hosted, linux, x64, docker, unreal]
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          lfs: true
+          persist-credentials: false
+
+      # The prerequisite Deployment/Dockerfile cannot satisfy itself: it cooks whatever Content/
+      # the context carries and refuses the committed stub map (CHECK_MAP). See
+      # Docs/BUILD-AND-DEPLOY.md section 2.2 for producing this tree.
+      - name: Stage the authored set into Content/
+        env:
+          AUTHORED_CONTENT_DIR: ${{ inputs.authored_content_dir }}
+        run: |
+          set -euo pipefail
+          if [ -z "$AUTHORED_CONTENT_DIR" ]; then
+            echo "::error::authored_content_dir is empty; the image build would refuse the stub map."
+            exit 1
+          fi
+          test -f "$AUTHORED_CONTENT_DIR/Maps/CompanionStage.umap"
+          cp -a "$AUTHORED_CONTENT_DIR/." Content/
+          echo "map: $(stat -c %s Content/Maps/CompanionStage.umap) bytes"
+
+      - name: Log in to Epic's registry
+        env:
+          EPIC_GHCR_USER: ${{ secrets.EPIC_GHCR_USER }}
+          EPIC_GHCR_TOKEN: ${{ secrets.EPIC_GHCR_TOKEN }}
+        run: printf '%s' "$EPIC_GHCR_TOKEN" | docker login ghcr.io --username "$EPIC_GHCR_USER" --password-stdin
+
+      - name: Build
+        run: >-
+          DOCKER_BUILDKIT=1 docker build -f Deployment/Dockerfile --build-arg RELEASE=5.8
+          -t "ci/metahuman-local-llm:5.8-${GITHUB_SHA::12}" .
+
+      - name: Log out of Epic's registry
+        if: always()
+        run: docker logout ghcr.io
