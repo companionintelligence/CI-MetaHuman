@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1.27.1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 #
 # AMD Pixel Streaming image — parameterized by engine version. ONE file builds either engine:
 #
@@ -55,10 +55,20 @@
 # the two failures above depending on which way you then edit the .ini, so do not "simplify" it.
 #
 # Stage 1 packages on Epic's dev image; stage 2 is an Ubuntu+Mesa (RADV/VAAPI) runtime so the app
-# renders with Vulkan and hardware-encodes over /dev/dri. Prereq: ghcr.io/epicgames access.
+# renders with Vulkan and hardware-encodes over /dev/dri. Prereq: ghcr.io/epicgames access, and the
+# AUTHORED set in Content/ -- the build refuses to cook the committed 23 KB stub map (CHECK_MAP).
+#
+# BASE IMAGES ARE PINNED BY DIGEST (tag kept beside each for the reader). RELEASE selects one of
+# the digest-pinned engine stages below instead of the floating dev-<release> tag; BuildKit pulls
+# only the stage it names. The engine digests are shared with Dockerfile, Dockerfile.editorpreview
+# and core2/pin-engine-image.sh -- move them together (CI checks that they agree). See
+# Docs/BUILD-AND-DEPLOY.md section 7.
 
 ARG RELEASE=5.8
-FROM ghcr.io/epicgames/unreal-engine:dev-${RELEASE} AS builder
+FROM ghcr.io/epicgames/unreal-engine:dev-5.8.4@sha256:675755b3b06fc3bf450a1eafe52a75f0d043e8b060932a3e1e703f6cf91b7810 AS engine-5.8
+FROM ghcr.io/epicgames/unreal-engine:dev-5.5.4@sha256:3f7b292cda7f6066aeaea46fa95a520a0d26811810e0d082cfbf5dc85018bd82 AS engine-5.5
+
+FROM engine-${RELEASE} AS builder
 ARG RELEASE
 
 COPY --chown=ue4:ue4 . /home/ue4/project-src
@@ -83,9 +93,56 @@ RUN cd /home/ue4/project-src \
             /home/ue4/UnrealEngine/Engine/Binaries/Linux/UnrealEditor-Cmd /tmp/stage-authoring/StageAuthoring.uproject -run=pythonscript -script=/home/ue4/project-src/Deployment/author_companion_stage.py -unattended -nop4 -nosplash -nullrhi; \
             cp /tmp/stage-authoring/Content/Maps/CompanionStage.umap Content/Maps/CompanionStage.umap; \
             rm -rf /tmp/stage-authoring; \
+            touch /tmp/CompanionStage.synthesized; \
         fi; \
         test -f Content/Maps/CompanionStage.umap; \
     fi
+
+# ---- Refuse to cook the stub map -----------------------------------------------------------
+# The same gate as Dockerfile, byte-for-byte (CI runs this script against fixtures and fails if
+# the two copies differ). On core-2, m2_clean.sh copies the authored Content/ in before building,
+# so this passes; what it stops is a build from a clean checkout, whose CompanionStage.umap is
+# the 23 KB stub committed to git. A pre-5.6 build whose context has NO map still gets the
+# minimal synthesized stage above -- that branch leaves /tmp/CompanionStage.synthesized, and the
+# gate lets it through with a warning. See Docs/BUILD-AND-DEPLOY.md section 2.2.
+ARG ALLOW_STUB_MAP=0
+WORKDIR /home/ue4/project-src
+RUN <<'CHECK_MAP'
+set -eu
+map=Content/Maps/CompanionStage.umap
+stub_sha256=688fb6b8f0f6528404e9088ba389fd876c344044c947a28395ab0aac64b6fc10
+min_bytes=204800
+if [ -f /tmp/CompanionStage.synthesized ]; then
+    echo "CHECK_MAP: WARNING: $map is the minimal fallback stage this build synthesized for a"
+    echo "CHECK_MAP: pre-5.6 engine (no set, no resident). Cooking it because the context supplied no map."
+    exit 0
+fi
+problem=""
+if [ ! -f "$map" ]; then
+    problem="is missing"
+elif head -c 100 "$map" | grep -q '^version https://git-lfs'; then
+    problem="is a Git LFS pointer, not a map (the checkout was made without git-lfs)"
+elif [ "$(sha256sum "$map" | cut -d ' ' -f 1)" = "$stub_sha256" ]; then
+    problem="is the 23 KB stub committed to git (sky and ground: no set, no resident)"
+elif [ "$(wc -c < "$map")" -lt "$min_bytes" ]; then
+    problem="is only $(wc -c < "$map") bytes, which is a stub rather than the authored set"
+fi
+if [ -z "$problem" ]; then
+    echo "CHECK_MAP: OK, $map is $(wc -c < "$map") bytes"
+    exit 0
+fi
+if [ "${ALLOW_STUB_MAP:-0}" = "1" ]; then
+    echo "CHECK_MAP: WARNING: $map $problem."
+    echo "CHECK_MAP: ALLOW_STUB_MAP=1, so cooking it anyway. This image opens onto an EMPTY STAGE; never ship it."
+    exit 0
+fi
+echo "CHECK_MAP: REFUSING TO COOK: $map $problem." >&2
+echo "CHECK_MAP: This Dockerfile does not author the set. Author it, put the authored Content/ in the" >&2
+echo "CHECK_MAP: build context, and rebuild: Docs/BUILD-AND-DEPLOY.md section 2.2. (Dockerfile.amd with" >&2
+echo "CHECK_MAP: RELEASE < 5.6 instead synthesizes a minimal fallback stage when the context has NO map.)" >&2
+echo "CHECK_MAP: --build-arg ALLOW_STUB_MAP=1 builds anyway, for a toolchain smoke test only." >&2
+exit 1
+CHECK_MAP
 
 RUN /home/ue4/UnrealEngine/Engine/Build/BatchFiles/RunUAT.sh BuildCookRun \
     -project=/home/ue4/project-src/MetaHumanLocalLLM.uproject \
@@ -97,7 +154,7 @@ RUN /home/ue4/UnrealEngine/Engine/Build/BatchFiles/RunUAT.sh BuildCookRun \
 # ---- AMD runtime image ----
 # Ubuntu 26.04 matches the host's Mesa 26.x (needed for the Strix Halo / RDNA 3.5 GPU; older
 # Mesa yields VK_ERROR_INCOMPATIBLE_DRIVER). /dev/dri is passed in at runtime by the compose.
-FROM ubuntu:26.04
+FROM ubuntu:26.04@sha256:065aa8626841f16057b78b027b464cd59c4fac36c204c72dcbf48d66f5fa8a96
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         mesa-vulkan-drivers mesa-va-drivers libvulkan1 vulkan-tools vainfo \
         libva2 libva-drm2 libegl1 libgl1 libglu1-mesa \

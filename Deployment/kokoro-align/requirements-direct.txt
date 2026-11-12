@@ -1,0 +1,27 @@
+# What app.py imports, and the reason for each. This is NOT what the image installs: the
+# Dockerfile installs requirements.txt, the exact-version, hash-locked closure compiled from this
+# file. To change a dependency, edit this file, recompile the lock with the command in
+# requirements.txt's header (run it from Deployment/kokoro-align), and commit both together.
+
+# misaki is Kokoro's own G2P. It is listed WITHOUT its [en] extra on purpose: misaki[en] also
+# installs spacy-curated-transformers, which pulls the full PyTorch/CUDA stack even though app.py
+# creates G2P(trf=False). The extra's CPU-only dependencies are listed directly instead.
+misaki
+spacy
+espeakng-loader
+num2words
+phonemizer-fork
+
+# G2P(trf=False) loads spaCy's en_core_web_sm and, when it is not installed, pip-installs it AT
+# RUNTIME on the first /speak (misaki/en.py calls spacy.cli.download): a network fetch inside the
+# running container, of whatever model was current that day, lost again whenever the container is
+# recreated. Installing it here bakes a fixed model into the image instead. Keep the model on the
+# spaCy minor the lock resolves (en_core_web_sm 3.8.x needs spacy 3.8.x).
+en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
+
+onnxruntime
+numpy
+huggingface_hub
+fastapi
+uvicorn
+pydantic

@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1.27.1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 #
 # Builds Mesa `main` (mesa-git) — the newest RADV — and layers it onto the already-cooked UE
 # image (ci/metahuman-local-llm:5.8). Ubuntu 26.04's stock Mesa 26.0.3 SIGABRTs mid-render on
@@ -9,8 +9,13 @@
 #
 # Then run with LD_LIBRARY_PATH + VK_ICD_FILENAMES pointed at /opt/mesa-git (see
 # docker-compose.mesagit.yml).
+#
+# NOT a release image, and not reproducible by design: it clones Mesa and libdrm `main` to get
+# the newest RADV. Only the ubuntu base is pinned by digest (shared with Dockerfile.amd; CI
+# checks they agree). The final stage layers onto the LOCALLY built ci/metahuman-local-llm:5.8,
+# which has no registry digest to pin.
 
-FROM ubuntu:26.04 AS mesa-builder
+FROM ubuntu:26.04@sha256:065aa8626841f16057b78b027b464cd59c4fac36c204c72dcbf48d66f5fa8a96 AS mesa-builder
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
       git ca-certificates build-essential meson ninja-build pkg-config \

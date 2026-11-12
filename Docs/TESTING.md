@@ -238,6 +238,7 @@ Not tests in the usual sense; they are refusals to proceed. See
 | exposure-pin check | ship a blown frame | *"nothing in any log distinguishes a lit room from a blown one"* |
 | `DOCKERFILE_STALE` | run a Dockerfile that deletes the diorama | it used to, unconditionally |
 | `NO_MAP` / `NO_NIA_CONTENT` | start a 20-minute cook | fail fast beats failing late |
+| `CHECK_MAP` in `Dockerfile` and `Dockerfile.amd` | cook a missing, LFS-pointer, stub or sub-200 KB map | a build from a clean checkout cooked the 23 KB stub and nothing failed ([`BUILD-AND-DEPLOY.md`](BUILD-AND-DEPLOY.md) §2.2) |
 
 ---
 
@@ -251,8 +252,44 @@ Not tests in the usual sense; they are refusals to proceed. See
 
 | Gap | Note |
 |---|---|
-| No CI runner | Every suite is invoked by hand. There is no automated gate on a push |
+| Engine-bound suites have no CI runner | `checks.yml` now gates every push and pull request on the engine-free checks (§8), but L1-L4 are still invoked by hand: `unreal-self-hosted.yml` is a disabled skeleton until a runner with the engine is registered |
 | No L3-equivalent *visual* spec inside Unreal | Screenshot-based automation against the real skeletal mesh does not exist; the browser harness is the substitute, and it needs a deployed build |
 | Specs are not `#if WITH_DEV_AUTOMATION_TESTS`-guarded | Test code compiles into the shipping Runtime module. Matching house style, flagged as a separate decision |
 | The compat matrix was measured on **Windows only** | Plugin `PlatformAllowList`s demonstrably differ between versions, and the deployment target is Linux. A Linux pass of the matrix is the obvious next step |
 | Mobile | Untested on real hardware |
+
+---
+
+## 8. CI: the engine-free gate
+
+`.github/workflows/checks.yml` runs on every push to `main`, every pull request, and on demand. It
+needs no engine and no GPU, so it runs on a stock GitHub-hosted runner in a few minutes. Epic
+registry access is optional: one step uses it when the `EPIC_GHCR_USER` and `EPIC_GHCR_TOKEN`
+secrets are set. It is pinned like the release builds it guards: actions by commit SHA, the Python
+linters by exact version and hash (`Deployment/requirements-ci.txt`), the runner image and Python
+by exact version.
+
+| Job | Proves | Cannot prove |
+|---|---|---|
+| `python` | ruff (syntax errors, pyflakes) over `Deployment/` and `Scripts/` at Python 3.11, the embedded UE interpreter; every script byte-compiles; `patch_pixelstreaming_player.py` patches Epic's player page **at the ref `Dockerfile.signalling` pins**, recognises its own patch, and refuses pages it cannot patch safely without touching them | that any `unreal`/`bpy` script works: those run only inside the editor or Blender |
+| `kokoro-align` | the hash-locked dependencies install on the image's Python and are consistent (`pip check`); `app.py` imports and routes; its WAV header sizes agree with the payload; misaki phonemizes, through the espeak fallback, with the baked-in spaCy model and **no** runtime download | inference: the ONNX model is a runtime download and is not fetched |
+| `shell` | shellcheck at warning level over the tracked scripts (vendored plugins excepted; the findings that predate the check are excluded per file and listed in the workflow); actionlint over the workflows, including shellcheck of their `run:` scripts | anything about core-2 itself: paths, mounts, the images present there |
+| `compose` | every documented `-f` combination renders, clean and with `.env.example`; with `.env.example`, without a single warning, so the example names every variable the files interpolate | that a service starts: rendering starts nothing |
+| `pins` | the pin policy of [`BUILD-AND-DEPLOY.md`](BUILD-AND-DEPLOY.md) §7, including that every public digest still resolves, and Epic's too on a run with the `EPIC_GHCR_USER` and `EPIC_GHCR_TOKEN` secrets (an Epic-linked account and its `read:packages` token); the `CHECK_MAP` stub-map gate (§2.2 there) is identical in both Dockerfiles, matches the committed stub's LFS oid, and passes or refuses six fixture maps correctly | that Epic's digests resolve on a run without those secrets, which includes every pull request from a fork: the step warns instead. §7.1 there records the last manual check |
+
+A red `checks.yml` is not a judgement on the engine-bound layers above; a green one is not
+evidence for them either.
+
+### 8.1 The engine-bound jobs: `unreal-self-hosted.yml`
+
+A **disabled skeleton**. It runs only on `workflow_dispatch`, and only once the repository variable
+`UNREAL_SELF_HOSTED` is `enabled` and a self-hosted runner carries the `unreal` label: never on a
+pull request, because the repository is public and a fork's pull request would run its own code on
+that machine.
+
+| Job | Runner | Runs |
+|---|---|---|
+| `windows` | `self-hosted, windows, x64, unreal` | `RunBackendTests.ps1` and `RunFrontendTests.ps1` (with the §5.1 checks they already enforce); optionally `BuildNative.ps1 -Platform Win64`, which authors the set first; uploads `Saved/TestLogs` and the authoring logs |
+| `image` | `self-hosted, linux, x64, docker, unreal` | copies an already-authored `Content/` into the checkout, logs in to Epic's GHCR from two secrets, builds `Deployment/Dockerfile` |
+
+Its header lists the steps to turn it on.

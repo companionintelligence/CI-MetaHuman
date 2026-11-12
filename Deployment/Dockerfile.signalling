@@ -1,6 +1,12 @@
+# syntax=docker/dockerfile:1.27.1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 # Build Epic's UE 5.8 Pixel Streaming infrastructure from its public source. Epic's published
 # signalling image stops at 5.5, which makes it an unreliable default for this 5.8 project.
-FROM node:lts
+#
+# The base is pinned by digest. Upstream's own SignallingWebServer/Dockerfile uses the floating
+# `node:lts`; this is what that tag resolved to on 2026-11-12 (Node 26.13.1, Debian trixie).
+# setup.sh accepts any Node >= the NODE_VERSION file at the pinned ref (v22.14.0), so moving the
+# pin forward is safe as long as it stays at or above that.
+FROM node:26.13.1-trixie@sha256:e18c3ccdf7d71619990b0e85639f506e2028a95410999cab24cc373cbd10e0ac
 
 ARG PIXEL_STREAMING_INFRASTRUCTURE_REF=289b9542159a6ee6a5d0f62834f1f27a472397b6
 
