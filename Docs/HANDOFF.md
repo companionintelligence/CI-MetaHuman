@@ -237,7 +237,8 @@ The other characters (`mhc_crowd80/84`, and the `khaosmdf492` *outfit*) convert 
   Interchange binds the glTF base-color param; the web build renders the same GLBs correctly).
   Push era mood (CRT glow, panel lamps, patina) per GDD §2.
 - **#23** DefaultPawn ignores PlayerStart → free-look input dead (see §5). Next probe:
-  `-AllowPixelStreamingCommands=true` (container restart, no cook) + dump `PlayerCameraManager`/pawn
+  `-AllowPixelStreamingCommands=true` (container restart, no cook; a local debugging stack only,
+  since it lets any viewer run console commands, and the deployed compose no longer passes it) + dump `PlayerCameraManager`/pawn
   transform at runtime; or set a project GameMode with explicit `DefaultPawnClass`.
 - **#17** the MetaHuman swap (this is the active task, §6).
 - OIDC client registration (user).
