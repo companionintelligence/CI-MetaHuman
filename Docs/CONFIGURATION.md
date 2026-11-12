@@ -191,6 +191,15 @@ would be silently ignored on every machine that had already held one conversatio
 | `KOKORO_REPO` | `onnx-community/Kokoro-82M-v1.0-ONNX-timestamped` | Aligner sidecar model repo |
 | `KOKORO_MODEL_FILE` | `onnx/model.onnx` | **Not** `model_q8f16.onnx` — that one *segfaults* the CPU execution provider on load (exit 139, no Python traceback). Full precision runs 6× realtime on this box, so the quantized variants buy nothing |
 | `CI_PORTAL_*`, `OIDC_COOKIE_SECRET` | **no longer in `.env.example`** — moved to `.env.edge.example` and renamed to `OAUTH2_PROXY_CLIENT_SECRET` / `OAUTH2_PROXY_COOKIE_SECRET` (still the `change-me-…` placeholders), so the app container stops receiving them | oauth2-proxy, via its own `env_file`. **Never worked**, per `HANDOFF.md` lesson 15: the configured issuer `portal.companionintelligence.com` is NXDOMAIN, and the client id/secret were never registered in CI-Portal. The proxy was not run; only the file contents were checked |
+| `CI_PORTAL_ALLOWED_EMAILS_FILE` | empty — `/dev/null` is mounted in its place, an empty list | Host path to oauth2-proxy's `authenticated_emails_file`, one address per line. Keep it outside the checkout (it lists real people) and world-readable; restart `oidc-proxy` after editing. A path that does not exist stops the container rather than opening the gate |
+| `CI_PORTAL_ALLOWED_EMAIL_DOMAINS` | empty | Comma-separated domains whose addresses pass → `OAUTH2_PROXY_EMAIL_DOMAINS` |
+| `CI_PORTAL_ALLOWED_GROUPS` | empty | Comma-separated groups from the ID token's `groups` claim → `OAUTH2_PROXY_ALLOWED_GROUPS`. **Narrows** the address check rather than adding to it: oauth2-proxy requires the address to pass *and* the group to match. To admit by group alone, set `CI_PORTAL_ALLOWED_EMAIL_DOMAINS=*` with it — never `*` on its own |
+
+**The sign-in gate denies by default.** `oauth2-proxy.cfg` used to carry `email_domains = ["*"]`, so
+any account CI Portal would sign in could watch the stream. It now sets no domains at all, and with
+the three `CI_PORTAL_ALLOWED_*` keys blank every account gets a 403 after signing in. A domain list
+must not go back into the `.cfg`: oauth2-proxy treats an *empty* `OAUTH2_PROXY_EMAIL_DOMAINS` as unset
+and falls back to the file, so a value there would silently become the default.
 
 ---
 

@@ -74,6 +74,15 @@ services:
     command: ["--config=/etc/oauth2-proxy.cfg"]
     volumes:
       - "./oauth2-proxy.cfg:/etc/oauth2-proxy.cfg:ro"
+      # The address allowlist oauth2-proxy.cfg names in authenticated_emails_file: a host file, one
+      # address per line, chosen by CI_PORTAL_ALLOWED_EMAILS_FILE. Unset, /dev/null stands in, which
+      # reads as an empty list -- so the gate denies rather than failing to render. Long syntax on
+      # purpose: a path that does not exist stops the container instead of being created as an
+      # empty directory on the host.
+      - type: "bind"
+        source: "${CI_PORTAL_ALLOWED_EMAILS_FILE:-/dev/null}"
+        target: "/etc/oauth2-proxy/allowed-emails.txt"
+        read_only: true
     # The client secret and the cookie secret, and nothing else. They live in a SECOND file rather
     # than in `.env` because `.env` is handed to the `project` container whole (see the env_file
     # note on that service), and these two are wanted by this service alone.
@@ -97,6 +106,11 @@ services:
       OAUTH2_PROXY_CLIENT_ID: "${CI_PORTAL_CLIENT_ID}"
       OAUTH2_PROXY_OIDC_ISSUER_URL: "${CI_PORTAL_ISSUER_URL}"
       OAUTH2_PROXY_REDIRECT_URL: "${CI_PORTAL_REDIRECT_URL}"
+      # Who may watch. Both default to empty, and empty means nobody: oauth2-proxy.cfg sets no
+      # email_domains, so with these blank and no allowed-emails file every sign-in gets a 403.
+      # See oauth2-proxy.cfg for how the two combine (groups NARROW the address check).
+      OAUTH2_PROXY_EMAIL_DOMAINS: "${CI_PORTAL_ALLOWED_EMAIL_DOMAINS:-}"
+      OAUTH2_PROXY_ALLOWED_GROUPS: "${CI_PORTAL_ALLOWED_GROUPS:-}"
     depends_on:
       - signalling
 
