@@ -146,10 +146,12 @@ and `:8090` is open on the tailnet.
 
 CI-MetaHuman's first-party code is free for noncommercial use under the [PolyForm Noncommercial License 1.0.0](LICENSE). See the [License FAQ](Docs/License-FAQ.md). The exception is the four Blender scripts that import Blender's Python API (`Deployment/blender/make_period_props.py`, `Deployment/blender/make_ibm729.py`, `Deployment/blend_fix_mats.py` and `Deployment/ue_prop_fbx.py`): they are GPL-3.0-or-later, as their headers state. Epic Games Unreal Engine and MetaHuman assets are **not** covered by this license; they remain under Epic's EULA terms (see [NOTICE.md](NOTICE.md)).
 
-Nia's Character Creator licence states *"Allows usage with AI: No."* The user has stated licensing
-is handled; it is recorded here because this is a document about an AI-driven character. MetaHuman
-assets may be rendered and animated but **not** used to train or enhance models. Flag to counsel
-before any commercial ship.
+The resident avatar, Reallusion's "Character Creator: Nia" from Fab, is an **open licence
+blocker**. Her listing states *"Allows usage with AI: No"* and notes non-commercial use. The user
+has stated licensing is handled, but no licence covering this use is recorded in the repository;
+[NOTICE.md](NOTICE.md) has the details and the ways to close it. MetaHuman assets may be rendered
+and animated but **not** used to train or enhance models. Flag to counsel before any commercial
+ship.
 
 <!-- companion-hub-readme-deep-review -->
 

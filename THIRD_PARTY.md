@@ -11,7 +11,8 @@ Anything this repository vendors, bundles or derives from is recorded in
 ## Not in a package manifest, but still third-party
 
 The generated paragraph above covers package manifests only. The repository still vendors
-third-party code and fonts, and its Dockerfiles pull in more at build time. Licences were
+third-party code and fonts, its build scripts stage third-party character content, and its
+Dockerfiles pull in more at build time. Licences were
 checked against each project's `LICENSE` file or its registry metadata on 2026-11-12. The
 notices those licences require are in [NOTICE.md](NOTICE.md).
 
@@ -45,6 +46,16 @@ sibling, by the same author), [Montserrat](https://github.com/JulietaUla/Montser
   patches its player page. The project is MIT-licensed, Copyright Epic Games, Inc. The image
   also contains the project's npm dependencies, each under its own licence, on a `node:lts`
   (Debian) base.
+
+### Character content staged at build time (not in this repository)
+
+| Component | Source | Where it enters | Licence | Status |
+|---|---|---|---|---|
+| "Character Creator: Nia" by Reallusion Inc: skeletal mesh, materials, `CC_Shaders`, `CC_Rigs` and idle motions, about 900 MB | Fab, <https://www.fab.com/listings/366cfc84-6d6a-44ff-89ad-4bffb7347c15> | `Scripts/BuildNative.ps1` (`-NiaContent` or `MHLLM_NIA_CONTENT`) copies it into `Content/CC_ControlRig_Nia`, which `.gitignore` excludes. `Deployment/core2/run_author_m2.sh` copies `/home/ci/nia-content`. `Deployment/author_diorama.py` places `SK_Nia` as the resident, so it is cooked into every packaged build | Fab Standard License, Personal and Professional tiers, both free. The listing says "Allows usage with AI: No" (`isAiForbidden: true` in Fab's API), and its description ends "*Non-Commercial Use" | **Open licence blocker.** See [NOTICE.md](NOTICE.md), "Open licence blocker: the resident avatar" |
+| MetaHuman "Seo" (`mhc_seo.mhpkg`, exported to FBX) | not recorded | `author_diorama.py` reads it from `MHLLM_MH_DIR` (`/mh`) only when Nia is absent | MetaHuman content: Unreal Engine EULA, if it came from MetaHuman Creator | Fallback only. Confirm its provenance before relying on it |
+
+When neither is available, `author_diorama.py` places the engine's `SKM_Manny` mannequin, which is
+Unreal Engine content under the Unreal Engine EULA.
 
 ### kokoro-align sidecar image (`Deployment/kokoro-align`)
 

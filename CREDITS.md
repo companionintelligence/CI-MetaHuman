@@ -20,7 +20,7 @@ Each model below is © its author and licensed under the
 [Creative Commons Attribution 4.0 International licence (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/).
 Titles, authors and licences were read from the public Sketchfab API
 (`https://api.sketchfab.com/v3/models/<uid>`) on 2026-11-12. None of these pages carries
-Sketchfab's NoAI tag.
+Sketchfab's NoAI tag, and none of the models has `noai` among its tags in the API.
 
 | Set file | Title | Author | Source |
 |---|---|---|---|
@@ -74,7 +74,8 @@ The other set dressing is CI-generated as well: `Deployment/audio/machine_room.w
 
 These Sketchfab models used to fill set slots. They are CC BY 4.0 by
 [maxdragon](https://sketchfab.com/maxdragon), but each page carries Sketchfab's NoAI tag
-(`<meta name="robots" content="index, noAI">`). Sketchfab's Terms of Use prohibit using
+(`<meta name="robots" content="index, noAI">`), and the API lists `noai` among each model's tags.
+Sketchfab's Terms of Use prohibit using
 NoAI-tagged content "in datasets for, in the development of, or as inputs to generative AI
 programs" ([Sketchfab Help Center](https://help.sketchfab.com/en/articles/16152133)). For an AI
 companion, that was treated as a licence issue, and CI-authored props replaced the models.
@@ -90,7 +91,22 @@ companion, that was treated as a licence issue, and CI-authored props replaced t
 replacement. They show maxdragon's "IBM 1401 Central Processing Unit" in the background,
 alongside the CI-authored 729s. Until they are recaptured from a build with the CI-authored
 props, wherever they are published they need the credit "IBM 1401 Central Processing Unit" by
-maxdragon, CC BY 4.0, linked to the model page above.
+maxdragon, CC BY 4.0, linked to the model page above. Both screenshots also show the resident
+avatar, whose licence is unresolved (next section).
+
+## The resident avatar
+
+The companion appears as "Character Creator: Nia" by
+[Reallusion Inc](https://www.fab.com/sellers/Reallusion%20Inc), from Fab
+(<https://www.fab.com/listings/366cfc84-6d6a-44ff-89ad-4bffb7347c15>), with Reallusion's own
+materials, shaders and idle motions. Her content is not in this repository. The build scripts
+stage it from a local copy and cook it into the packaged app ([THIRD_PARTY.md](THIRD_PARTY.md)).
+She is also shown in `Docs/verification-2026-08-17/measurement-regions.png`.
+
+**Her licence is an open blocker.** The Fab listing says "Allows usage with AI: No", and its
+description ends "*Non-Commercial Use". Both conflict with an AI companion that may be sold.
+[NOTICE.md](NOTICE.md) sets out the problem and the ways to close it: written terms from
+Reallusion, or a different resident.
 
 ## Software and fonts
 
