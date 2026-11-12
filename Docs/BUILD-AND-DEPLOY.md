@@ -358,7 +358,7 @@ Docker's default builder since 23.0, and `m2_clean.sh` asks for it explicitly.
 | `ci/metahuman-local-llm:*` | `Dockerfile.mesagit`, `Dockerfile.vulkan-runtime` | built locally, so there is no registry digest to pin |
 | the Kokoro ONNX model and voices | `kokoro-align/app.py` downloads `onnx-community/Kokoro-82M-v1.0-ONNX-timestamped` at runtime | a `revision=` on its `hf_hub_download` calls |
 | docopt's build backend | the kokoro-align lock | docopt ships only an sdist, so pip's build isolation fetches setuptools |
-| `coturn/coturn:4.6.2`, `oauth2-proxy:v7.6.0` | `docker-compose.yml` | digests in the compose file |
+| `coturn/coturn:4.6.2`, `oauth2-proxy:v7.6.0` | `docker-compose.yml` | `tag@digest` in the compose file, and the same lines in §7.1 (the `pins` job already reads the compose files) |
 | engine and Ubuntu images in the core-2 helpers | `run_author_m2.sh` (`dev-5.8`), `run_tests_linux.sh` (`dev-5.5`), `m2_clean.sh` / `m2_full.sh` (`ubuntu:26.04`) | the same `tag@digest` references as the Dockerfiles |
 
 ### 7.5 Moving a pin

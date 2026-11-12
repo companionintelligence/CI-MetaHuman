@@ -258,9 +258,9 @@ jobs:
 
       # Docs/BUILD-AND-DEPLOY.md section 7. Every Dockerfile pins its frontend and every base by
       # digest (locally built ci/* images excepted); each image:tag has ONE digest across the
-      # Dockerfiles, core2/pin-engine-image.sh, these workflows and the docs; section 7.1 lists
-      # exactly the pinned set; the engines agree file to file; and the Pixel Streaming source ref
-      # agrees between Dockerfile.signalling, compose and .env.example.
+      # Dockerfiles, core2/pin-engine-image.sh, the compose files, these workflows and the docs;
+      # section 7.1 lists exactly the pinned set; the engines agree file to file; and the Pixel
+      # Streaming source ref agrees between Dockerfile.signalling, compose and .env.example.
       - name: Pin policy
         run: |
           python3 - <<'PY'
@@ -299,7 +299,12 @@ jobs:
               stage_refs[path.as_posix()] = stages
 
           doc = root / "Docs/BUILD-AND-DEPLOY.md"
-          code = [*dockerfiles, root / "Deployment/core2/pin-engine-image.sh", *sorted(root.glob(".github/workflows/*.yml"))]
+          code = [
+              *dockerfiles,
+              root / "Deployment/core2/pin-engine-image.sh",
+              *sorted(root.glob("Deployment/docker-compose*.yml")),
+              *sorted(root.glob(".github/workflows/*.yml")),
+          ]
           seen, in_code, in_doc = {}, set(), set()
           for path in [*code, doc]:
               for m in PINNED.finditer(path.read_text(encoding="utf-8")):
