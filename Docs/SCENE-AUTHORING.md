@@ -50,9 +50,43 @@ ONE engine version, and a 5.8-authored map cannot be loaded by the 5.5 cook.
 
 ## Assets: scavenged vs authored
 
-Eleven hero props are Sketchfab GLBs. They are imported as **GLB, never FBX** — Blender's FBX
-exporter only writes textures wired to a Principled BSDF, so several machines exported with no
-textures at all and rendered as blank white blocks.
+Eight hero props are Sketchfab GLBs under CC BY 4.0, credited in [`CREDITS.md`](../CREDITS.md).
+The 1401 processing unit, the terminal, the 3350 and the tape units are authored in Blender by
+scripts in this repo. All of them are imported as **GLB, never FBX**. Blender's FBX exporter only
+writes textures wired to a Principled BSDF, so several machines exported with no textures at all
+and rendered as blank white blocks.
+
+**Three slots are authored because their Sketchfab models carried a NoAI tag.** The models that
+used to fill `ibm-1401-cpu.glb`, `ibm-3178-terminal.glb` and `ibm-3350-disk.glb` are CC BY 4.0,
+but their pages carry Sketchfab's NoAI meta tag. Sketchfab's Terms of Use bar NoAI-tagged content
+from use as inputs to generative AI programs, and this product is an AI companion, so
+`Deployment/blender/make_period_props.py` builds replacements under the same file names:
+
+```
+blender --background --python Deployment/blender/make_period_props.py -- --out <glb dir>
+```
+
+- **IBM 1401 Processing Unit**, 4-cube: 1.475 x 0.780 x 1.527 m (Ingenium artifact 1979.0133.001).
+  The front follows Figure 8 of IBM's 1960 General Information Manual: four framed cubes, a console
+  in the upper-left cube, grey ridged panels and a blue band across the top.
+- **IBM 3277 Display Station Model 2** with keyboard: 0.457 x 0.749 x 0.483 m (IBM SY27-2349-4).
+  The slot keeps the `3178` file name, but the 3178 is a 1983 terminal. The 3277 (1971) is what
+  a 1970s machine room had on its desks.
+- **IBM 3350 dual-drive unit**, with a 3-inch end cover on each side: 1.219 x 0.851 x 1.181 m
+  (IBM GC22-7064-10). The front follows Figure 1 of the 3350 Reference Manual (GA26-1638-2): a door,
+  a smoked window and a top-mounted operator panel per drive.
+
+Each prop faces -Y like the model it replaces, so the yaws in `PROPS` and `HALL` still hold. Each
+is ONE mesh object, because `import_prop()` takes the first StaticMesh it finds. Lamps and
+phosphor get a bright base colour as well as emission, because the `M_PropGLTF` re-parent drops
+emission. The script fails if any exported bounding box drifts more than 0.5 mm from its published
+envelope, and two builds are byte-identical.
+
+`place_prop()` still normalizes each of these props to its `PROPS`/`HALL` target. They therefore
+fill the same envelope as the models they replaced, not their true size. The 3350, for example,
+comes out 1.50 m wide and 1.45 m tall instead of 1.22 x 1.18 m, and the hero 3277 at two-thirds
+of its real size. To show them at true scale, set each target to the model's largest real
+dimension (153, 75 and 122 cm). Do that with a capture, because it changes the composition.
 
 The tape units are **authored in Blender**, not scavenged, because no scavenged prop was an IBM
 729. `Deployment/blender/make_ibm729.py` rebuilds it: real proportions (0.76 x 0.74 x 1.80 m),
