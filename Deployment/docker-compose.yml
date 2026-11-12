@@ -13,12 +13,17 @@
 
 services:
 
-  # WebRTC TURN relay. Needs TCP/UDP 3478 and the UDP relay range 49152-65535 reachable.
+  # WebRTC TURN relay. Needs TCP/UDP 3478 and the UDP relay range 49152-65535 reachable, plus TCP
+  # 5349 when the TLS listener is on.
   # Configured by coturn/turnserver.conf; coturn/entrypoint.sh appends the shared secret at start.
   # There is no static account: the signalling server mints a time-limited username/credential
   # pair per connecting peer from the same TURN_STATIC_AUTH_SECRET (TURN REST API, coturn's
   # use-auth-secret), so nothing a browser is handed stays usable for long. With the secret unset
   # the entrypoint refuses to start rather than run an open relay.
+  #
+  # A relay may not reach loopback, link-local, private, CGNAT (tailnet) or multicast peers
+  # (denied-peer-ip / no-multicast-peers in turnserver.conf), except this host's own PUBLIC_IP --
+  # where the Unreal streamer's candidates are -- and whatever TURN_ALLOWED_PEER_IPS adds.
   turnserver:
     image: "coturn/coturn:4.6.2"
     init: true
@@ -27,9 +32,23 @@ services:
     command: []
     environment:
       TURN_STATIC_AUTH_SECRET: "${TURN_STATIC_AUTH_SECRET:-}"
+      PUBLIC_IP: "${PUBLIC_IP:-}"
+      TURN_ALLOWED_PEER_IPS: "${TURN_ALLOWED_PEER_IPS:-}"
     volumes:
       - "./coturn/turnserver.conf:/etc/coturn/ci/turnserver.conf:ro"
       - "./coturn/entrypoint.sh:/etc/coturn/ci/entrypoint.sh:ro"
+      # TURN over TLS on 5349. Host paths from TURN_TLS_CERT_FILE / TURN_TLS_KEY_FILE (PEM; the key
+      # readable by the container's nobody:nogroup). Unset, /dev/null stands in, reads as empty, and
+      # the entrypoint runs without the TLS listener. Long syntax so that a mistyped path stops the
+      # container instead of being created on the host as an empty directory.
+      - type: "bind"
+        source: "${TURN_TLS_CERT_FILE:-/dev/null}"
+        target: "/etc/coturn/tls/cert.pem"
+        read_only: true
+      - type: "bind"
+        source: "${TURN_TLS_KEY_FILE:-/dev/null}"
+        target: "/etc/coturn/tls/key.pem"
+        read_only: true
 
   # Pixel Streaming 5.8 signalling server built from Epic's pinned public source. Bind host ports
   # only to loopback: player HTTP on 8090 sits behind the OIDC proxy, and the UE app reaches the
@@ -48,6 +67,9 @@ services:
       PUBLIC_IP: "${PUBLIC_IP}"
       STUN_SERVER: "stun.l.google.com:19302"
       TURN_SERVER: "${PUBLIC_IP}:3478"
+      # Advertised as turns:<this>?transport=tcp when set. A NAME and port, not an address: the
+      # browser checks coturn's certificate against it. Leave blank unless TURN_TLS_CERT_FILE is set.
+      TURN_TLS_SERVER: "${TURN_TLS_SERVER:-}"
       # No TURN username or password reaches this container. signalling-start.sh hands this shared
       # secret to the server through a 0600 file (--turn_secret_file), and the server mints a
       # username/credential pair for each peer as it connects, valid for TURN_CREDENTIAL_TTL

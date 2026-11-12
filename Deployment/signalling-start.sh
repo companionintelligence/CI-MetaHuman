@@ -74,6 +74,11 @@ if [[ -n "${TURN_SERVER}" && -n "${TURN_STATIC_AUTH_SECRET:-}" ]]; then
     fi
     (umask 077 && printf '%s' "${TURN_STATIC_AUTH_SECRET}" > "${TURN_SECRET_FILE}") || exit 1
     add_ice_server "turn" "${TURN_SERVER}"
+    # coturn's TLS listener, when it has a certificate. The server fills in credentials for turns:
+    # entries exactly as for turn: ones. The browser checks the certificate against this name.
+    if [[ -n "${TURN_TLS_SERVER:-}" ]]; then
+        add_ice_server "turns" "${TURN_TLS_SERVER}" "?transport=tcp"
+    fi
     TURN_ARGS=" --turn_secret_file=${TURN_SECRET_FILE} --turn_ttl=${TURN_TTL}"
 elif [[ -n "${TURN_SERVER}" ]]; then
     echo "WARNING: TURN_STATIC_AUTH_SECRET is not set, so no TURN credentials can be issued." \
