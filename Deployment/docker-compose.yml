@@ -65,7 +65,12 @@ services:
     command: []
     environment:
       PUBLIC_IP: "${PUBLIC_IP}"
-      STUN_SERVER: "stun.l.google.com:19302"
+      # STUN comes from this stack's own coturn, which answers binding requests on 3478 without
+      # credentials. This used to be a public Google server, which told a third party the address of
+      # every viewer and of this host and contradicted "nothing leaves the tailnet". A third-party
+      # STUN server is now opt-in: EXTERNAL_STUN_SERVER, blank by default, is ADDED to this one.
+      STUN_SERVER: "${PUBLIC_IP}:3478"
+      EXTERNAL_STUN_SERVER: "${EXTERNAL_STUN_SERVER:-}"
       TURN_SERVER: "${PUBLIC_IP}:3478"
       # Advertised as turns:<this>?transport=tcp when set. A NAME and port, not an address: the
       # browser checks coturn's certificate against it. Leave blank unless TURN_TLS_CERT_FILE is set.

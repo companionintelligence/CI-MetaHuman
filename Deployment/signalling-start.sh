@@ -25,7 +25,8 @@ fi
 # --- ICE servers ---------------------------------------------------------------------------------
 # setup_turn_stun is deliberately NOT called. Without --start-turn all it does is fill in defaults,
 # and those are a public Google STUN server and Epic's well-known static TURN account -- which the
-# stock script then wrote, password included, into the peer options every browser is sent.
+# stock script then wrote, password included, into the peer options every browser is sent. Here an
+# empty STUN_SERVER means no STUN entry, never a public fallback; compose points it at coturn.
 #
 # Here the TURN entry carries NO credentials. When TURN_STATIC_AUTH_SECRET is set, the server's
 # --turn_secret_file option mints a username/credential pair for each peer as it connects (TURN
@@ -64,6 +65,15 @@ TURN_SERVER="$(complete_host "${TURN_SERVER:-}")"
 if [[ -n "${STUN_SERVER}" ]]; then
     add_ice_server "stun" "${STUN_SERVER}"
 fi
+# A third-party STUN server is opt-in only: EXTERNAL_STUN_SERVER, comma-separated host:port, empty
+# by default. Every peer that queries one discloses its public address to that server's operator.
+IFS=, read -r -a EXTERNAL_STUN_SERVERS <<< "${EXTERNAL_STUN_SERVER:-}"
+for server in "${EXTERNAL_STUN_SERVERS[@]}"; do
+    server="${server//[[:space:]]/}"
+    if [[ -n "${server}" ]]; then
+        add_ice_server "stun" "${server}"
+    fi
+done
 
 TURN_ARGS=""
 if [[ -n "${TURN_SERVER}" && -n "${TURN_STATIC_AUTH_SECRET:-}" ]]; then
