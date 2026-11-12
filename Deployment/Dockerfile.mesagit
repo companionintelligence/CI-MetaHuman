@@ -9,8 +9,13 @@
 #
 # Then run with LD_LIBRARY_PATH + VK_ICD_FILENAMES pointed at /opt/mesa-git (see
 # docker-compose.mesagit.yml).
+#
+# NOT a release image, and not reproducible by design: it clones Mesa and libdrm `main` to get
+# the newest RADV. Only the ubuntu base is pinned by digest (shared with Dockerfile.amd; CI
+# checks they agree). The final stage layers onto the LOCALLY built ci/metahuman-local-llm:5.8,
+# which has no registry digest to pin.
 
-FROM ubuntu:26.04 AS mesa-builder
+FROM ubuntu:26.04@sha256:065aa8626841f16057b78b027b464cd59c4fac36c204c72dcbf48d66f5fa8a96 AS mesa-builder
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
       git ca-certificates build-essential meson ninja-build pkg-config \

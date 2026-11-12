@@ -56,9 +56,18 @@
 #
 # Stage 1 packages on Epic's dev image; stage 2 is an Ubuntu+Mesa (RADV/VAAPI) runtime so the app
 # renders with Vulkan and hardware-encodes over /dev/dri. Prereq: ghcr.io/epicgames access.
+#
+# BASE IMAGES ARE PINNED BY DIGEST (tag kept beside each for the reader). RELEASE selects one of
+# the digest-pinned engine stages below instead of the floating dev-<release> tag; BuildKit pulls
+# only the stage it names. The engine digests are shared with Dockerfile, Dockerfile.editorpreview
+# and core2/pin-engine-image.sh -- move them together (CI checks that they agree). See
+# Docs/BUILD-AND-DEPLOY.md section 7.
 
 ARG RELEASE=5.8
-FROM ghcr.io/epicgames/unreal-engine:dev-${RELEASE} AS builder
+FROM ghcr.io/epicgames/unreal-engine:dev-5.8.4@sha256:675755b3b06fc3bf450a1eafe52a75f0d043e8b060932a3e1e703f6cf91b7810 AS engine-5.8
+FROM ghcr.io/epicgames/unreal-engine:dev-5.5.4@sha256:3f7b292cda7f6066aeaea46fa95a520a0d26811810e0d082cfbf5dc85018bd82 AS engine-5.5
+
+FROM engine-${RELEASE} AS builder
 ARG RELEASE
 
 COPY --chown=ue4:ue4 . /home/ue4/project-src
@@ -97,7 +106,7 @@ RUN /home/ue4/UnrealEngine/Engine/Build/BatchFiles/RunUAT.sh BuildCookRun \
 # ---- AMD runtime image ----
 # Ubuntu 26.04 matches the host's Mesa 26.x (needed for the Strix Halo / RDNA 3.5 GPU; older
 # Mesa yields VK_ERROR_INCOMPATIBLE_DRIVER). /dev/dri is passed in at runtime by the compose.
-FROM ubuntu:26.04
+FROM ubuntu:26.04@sha256:065aa8626841f16057b78b027b464cd59c4fac36c204c72dcbf48d66f5fa8a96
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         mesa-vulkan-drivers mesa-va-drivers libvulkan1 vulkan-tools vainfo \
         libva2 libva-drm2 libegl1 libgl1 libglu1-mesa \
