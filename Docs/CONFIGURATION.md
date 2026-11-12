@@ -97,7 +97,7 @@ Applied strictly in this order, each overwriting the last when non-empty:
 
 | Variable | Compose default | C++ default | What it does |
 |---|---|---|---|
-| `KOKORO_SERVER_URL` | `http://127.0.0.1:13305` | **empty** | AMD Lemonade base URL. **Empty ⇒ the character keeps `UNullTextToSpeech` and is mute** while the audio track still negotiates and carries digital silence forever |
+| `KOKORO_SERVER_URL` | blank in base; `http://127.0.0.1:13305` in face override | **empty** | Optional AMD Lemonade base URL. The base project passes the value from `.env`; when empty, the character keeps `UNullTextToSpeech` and the audio track carries digital silence |
 | `KOKORO_MODEL` | `kokoro-v1` | `kokoro-v1` | TTS model id. The C++ default **used to be** `Kokoro-82M-ONNX` — the upstream model's own name, which Lemonade rejects. Only the face compose carried the working override, so every path that skipped that file (a native build, `BuildNative.ps1`, a bare editor run) got a 404 per utterance and a companion that never spoke. The two now agree |
 | `KOKORO_VOICE` | `af_sky` | `af_sky` | Per-request; change freely. `af_sky` measured cleanest of those tried. Note the aligner below times against the same voice, so changing it changes both |
 | `KOKORO_ALIGNER_URL` | `http://127.0.0.1:13400` (face) | **empty** | `kokoro-align` sidecar. **No longer in flight**: `UKokoroPhonemeAligner` is committed, and `UCompanionRuntimeSubsystem` constructs it whenever this is non-empty, binds its `OnAlignmentReady` delegate and asks it to align each reply. Blank means precision loss, never failure — lip-sync falls back to rescaling the spelling estimate to the clip's measured length, and the log names which of the two it used |

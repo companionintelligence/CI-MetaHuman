@@ -234,9 +234,9 @@ comments explain each case.
   `UNullTextToSpeech`, which is silent. Silence is invisible from the client — the WebRTC audio
   track still negotiates and goes live — so a connected player is no evidence of speech; the app
   logs a Warning naming both variables when neither is set. `WHISPER_SERVER_URL` likewise swaps
-  `UNullSpeechToText` for `UWhisperSpeechToText`. Note that `KOKORO_SERVER_URL` is **not** in the
-  interpolated ten above: set it in `.env`, or bring the stack up with `docker-compose.face.yml`,
-  which supplies it along with `KOKORO_VOICE`, the aligner URL and `WHISPER_MODEL`.
+  `UNullSpeechToText` for `UWhisperSpeechToText`. The base project now passes the optional
+  `KOKORO_SERVER_URL`, `KOKORO_MODEL`, `KOKORO_VOICE` and `KOKORO_ALIGNER_URL` values from `.env`;
+  `docker-compose.face.yml` supplies its face-stack defaults, including `WHISPER_MODEL`.
 - **OIDC** — handled entirely by `oidc-proxy`; the UE app needs no auth code. The proxy takes its
   client id, issuer and redirect URL from `.env` by interpolation and its two secrets from
   `.env.edge` by `env_file`. Restrict who can connect via `email_domains` / group claims in

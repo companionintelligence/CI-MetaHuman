@@ -231,6 +231,13 @@ services:
       OPENAI_API_KEY: "${OPENAI_API_KEY:-${CI_HUB_TOKEN}}"
       OPENAI_MODEL: "${OPENAI_MODEL:-${CI_HUB_MODEL}}"
 
+      # Optional audio path. The app emits a live WebRTC audio track even when TTS is unset,
+      # so a connected browser alone does not verify that the resident can speak.
+      KOKORO_SERVER_URL: "${KOKORO_SERVER_URL:-}"
+      KOKORO_MODEL: "${KOKORO_MODEL:-}"
+      KOKORO_VOICE: "${KOKORO_VOICE:-af_sky}"
+      KOKORO_ALIGNER_URL: "${KOKORO_ALIGNER_URL:-}"
+
       WHISPER_SERVER_URL: "${WHISPER_SERVER_URL}"
       PIPER_SERVER_URL: "${PIPER_SERVER_URL}"
       MHLLM_SYSTEM_PROMPT: "${MHLLM_SYSTEM_PROMPT}"
