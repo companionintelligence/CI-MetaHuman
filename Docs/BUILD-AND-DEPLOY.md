@@ -325,6 +325,25 @@ rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f
 | `docker/dockerfile:1.27.1` | the `# syntax=` line of every Dockerfile | the BuildKit frontend that parses the file; what `docker/dockerfile:1` resolved to |
 | `rhysd/actionlint:1.7.12` | `checks.yml` | lints the workflows |
 
+**How the Epic digests were checked.** Epic's images refuse an anonymous registry read (401), and
+`gh api` refuses a token without `read:packages` (403; gh's default login scopes lack it), so
+neither the CI runner nor a workstation with a default login can see them. On 2026-11-12 all three
+were read from Epic's package listing on github.com, signed in with an Epic-linked account. Each
+version's page, `https://github.com/orgs/EpicGames/packages/container/unreal-engine/<version>`,
+shows the digest pinned above:
+
+| Version | Its tags that day | Digest |
+|---|---|---|
+| `1416248123` | `dev-5.8.4`, `dev-5.8` | `sha256:675755b3…` |
+| `381236776` | `dev-5.5.4`, `dev-5.5` | `sha256:3f7b292c…` |
+| `1416168007` | `runtime-pixel-streaming` | `sha256:dd692751…` |
+
+The floating tags the Dockerfiles used before named these same versions, so pinning changed no
+bytes against a fresh pull that day. The `pins` job re-checks the three on every run that has the
+`EPIC_GHCR_USER` and `EPIC_GHCR_TOKEN` secrets, and warns on every run without them (§7.5). Until
+those secrets are added, nothing re-checks them automatically: a digest Epic withdraws would first
+show up as a failed `FROM` on core-2 or the NVIDIA host.
+
 `RELEASE` is still a build-arg (compose passes `UE_RELEASE`), but it now selects the
 digest-pinned stage `engine-${RELEASE}` rather than the tag `dev-${RELEASE}`. BuildKit only pulls
 the stage it uses, and a `RELEASE` with no stage fails to resolve instead of building on whatever
@@ -364,13 +383,29 @@ Docker's default builder since 23.0, and `m2_clean.sh` asks for it explicitly.
 ### 7.5 Moving a pin
 
 1. Look the new digest up. Public images: `docker buildx imagetools inspect <image>:<tag>`.
-   Epic's need an Epic-linked login: `docker login ghcr.io`, then the same command; or, with a
-   GitHub token that has `read:packages`,
-   `gh api /orgs/EpicGames/packages/container/unreal-engine/versions` lists each digest with its
-   tags.
-2. Replace it in **every** file that names the image, and in §7.1. The `pins` job fails on any
+   Epic's need the Epic-linked account, in one of three ways:
+   - `docker login ghcr.io` as that account, then the same command;
+   - a token of that account with `read:packages` (`gh auth refresh -h github.com -s read:packages`
+     adds the scope to gh's own), then
+
+     ```
+     gh api --paginate /orgs/EpicGames/packages/container/unreal-engine/versions \
+       --jq '.[] | select(.metadata.container.tags != []) | "\(.name) \(.metadata.container.tags | join(" "))"'
+     ```
+
+     which prints each tagged version's digest and tags (`--paginate` matters: one page holds
+     only 30 of the package's versions);
+   - signed in to github.com as that account, the package's
+     [tagged versions](https://github.com/orgs/EpicGames/packages/container/unreal-engine/versions?filters%5Bversion_type%5D=tagged);
+     each version's own page shows its full digest.
+2. Replace it in **every** file that names the image, and in §7.1; for an Epic image, also the
+   version, tags and date under "How the Epic digests were checked". The `pins` job fails on any
    image:tag that carries two digests, on engine stages that differ between `Dockerfile` and
    `Dockerfile.amd`, on a `pin-engine-image.sh` default that is not the cook's `engine-5.8`, and on
-   §7.1 disagreeing with the files. It also checks that every public digest still resolves.
+   §7.1 disagreeing with the files. It also checks that every digest resolves: the public ones on
+   every run, and Epic's on every run that has the `EPIC_GHCR_USER` and `EPIC_GHCR_TOKEN` secrets
+   (the Epic-linked account and a classic token of it with `read:packages`, the pair
+   `unreal-self-hosted.yml` logs in with). Without them that step warns that Epic's went
+   unchecked, and passes: add the secrets, or check by hand as in step 1.
 3. Moving an engine digest: run `core2/pin-engine-image.sh` on core-2 afterwards, so the interlock
    protects the image the cook now uses (§6).
