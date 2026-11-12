@@ -73,7 +73,7 @@ void FCompanionSubsystemSpec::Define()
 	});
 
 	// Which rig the face driver assumes. This used to be a hard-coded "CC" -- Nia's Reallusion rig --
-	// for every map, which stopped being true the moment the default resident became a MetaHuman.
+	// for every map, which is wrong the moment the resident is a MetaHuman (an ARKit face).
 	// Precedence is MHLLM_FACE_PROFILE, then the resident's FaceProfile= tag, then CC. The env var is
 	// process-wide and a developer may well have it exported, so the tag cases skip (and say so)
 	// rather than mutate the environment under every other spec in the run.

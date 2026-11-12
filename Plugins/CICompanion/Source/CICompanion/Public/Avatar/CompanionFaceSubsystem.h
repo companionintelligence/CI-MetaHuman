@@ -28,8 +28,9 @@ public:
 
 	// Prefix of the second tag author_diorama.py stamps on the resident, naming the rig its face
 	// carries: "FaceProfile=CC" on the Reallusion "Nia" resident, "FaceProfile=ARKit" on the
-	// MetaHuman one. The map says which rig it placed because the authoring script is the only
-	// thing that knows; before this the C++ assumed CC (Nia's rig) for every map.
+	// MetaHuman one, none on the default mannequin (no facial rig, so whatever resolves, 0 curves
+	// bind). The map says which rig it placed because the authoring script is the only thing that
+	// knows; before this the C++ assumed CC (Nia's rig) for every map.
 	static const FString ProfileTagPrefix;
 
 	// The face profile to drive the resident with, by precedence:

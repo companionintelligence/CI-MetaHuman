@@ -137,7 +137,7 @@ struct CICOMPANION_API FFaceProfile
 
 	// Looks up a profile by name ("CC" / "ARKit"), defaulting to CC for anything unrecognised. Which
 	// name to ask for is no longer assumed here: the authored map declares its resident's rig (see
-	// UCompanionFaceSubsystem::ResolveProfileName) -- ARKit for the default MetaHuman resident, CC
-	// for the opt-in Reallusion "Nia".
+	// UCompanionFaceSubsystem::ResolveProfileName) -- ARKit for the opt-in MetaHuman resident, CC
+	// for the opt-in Reallusion "Nia". The default mannequin has no facial rig and declares none.
 	static const FFaceProfile& ByName(const FString& Name);
 };

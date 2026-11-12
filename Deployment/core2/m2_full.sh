@@ -16,8 +16,8 @@
 # build produced :5.5-m2 while the ue55 override started :5.5 -- two different tags.
 RELEASE=5.8
 export UE_RELEASE="${RELEASE}-m2"
-# metahuman (default) or nia -- read by run_author_m2.sh, which explains the choice.
-MHLLM_RESIDENT="$(printf '%s' "${MHLLM_RESIDENT:-metahuman}" | tr '[:upper:]' '[:lower:]')"
+# mannequin (default), metahuman or nia -- read by run_author_m2.sh, which explains the choice.
+MHLLM_RESIDENT="$(printf '%s' "${MHLLM_RESIDENT:-mannequin}" | tr '[:upper:]' '[:lower:]')"
 export MHLLM_RESIDENT
 
 echo "===== M2v3 START $(date -u) ====="

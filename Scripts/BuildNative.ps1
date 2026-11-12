@@ -53,21 +53,28 @@
     C:\devel\llm-metahuman\scene\glb.
 
 .PARAMETER Resident
-    Who stands in the diorama: MetaHuman (default) or Nia.
+    Who stands in the diorama: Mannequin (default), MetaHuman or Nia.
+
+    Mannequin places Epic's UE mannequin (SKM_Manny with its idle, from the engine's MoverTests
+    plugin). It needs no input outside the engine, and it is the only choice whose licence clears
+    this use: content installed with Unreal Engine is Licensed Technology under the Unreal Engine
+    EULA, which carries no AI restriction. It is a placeholder with no facial rig, so there is no
+    lip-sync or expression.
 
     MetaHuman places the MetaHuman "Seo" export (see -MetaHumanDir). Nia places the Reallusion
     Character Creator "Nia" content (see -NiaContent) exactly as every build did before this switch
-    existed. Nia is opt-in because of her licence: her Fab listing ("Character Creator: Nia",
-    Reallusion Inc) is Standard License with "Allows usage with AI: No", and this product is an AI
-    companion. Epic's MetaHuman terms explicitly allow MetaHuman characters in workflows that
-    incorporate AI. README.md "Licensing" carries the citations; read it before choosing Nia for
-    anything you distribute.
+    existed. Both are opt-in because of their licences: both are Fab Standard License content tagged
+    "Allows usage with AI: No" ("Seo - Editable MetaHuman Character" by Groomchenko; "Character
+    Creator: Nia" by Reallusion Inc), and this product is an AI companion. Epic's MetaHuman terms do
+    not clear Seo, because the Unreal Engine EULA does not cover assets bought or downloaded on Fab.
+    README.md "Licensing" carries the citations; do not distribute a build with either of them
+    without a licence that permits this use.
 
 .PARAMETER MetaHumanDir
     The MetaHuman "Seo" FBX export: a folder holding fbx\SKM_MHC_Seo_BodyMesh.fbx,
     fbx\SKM_MHC_Seo_FaceMesh.fbx and fbx\MHC_Seo_Outfits.fbx. Defaults to $env:MHLLM_MH_DIR, then
     to C:\devel\_mh-convert\out\seo, where Deployment/metahuman/03_export_fbx_from_GUI.py writes it.
-    Required with -Resident MetaHuman. (This used to be hard-wired to Deployment\metahuman, which
+    Only read with -Resident MetaHuman. (This used to be hard-wired to Deployment\metahuman, which
     holds the conversion SCRIPTS and no FBX, so a native build could never place Seo at all.)
 
 .PARAMETER NiaContent
@@ -77,6 +84,9 @@
 
 .EXAMPLE
     ./Scripts/BuildNative.ps1 -Platform Win64 -Engine "C:\Program Files\Epic Games\UE_5.8"
+
+.EXAMPLE
+    ./Scripts/BuildNative.ps1 -Resident MetaHuman -MetaHumanDir "D:\mh-export\seo"
 
 .EXAMPLE
     ./Scripts/BuildNative.ps1 -Resident Nia -NiaContent "D:\CharacterCreatorNia\Content\CC_ControlRig_Nia"
@@ -90,8 +100,8 @@ param(
     [switch]$SkipAuthoring,
     [switch]$KeepAuthoredMap,
     [string]$GlbDir = '',
-    [ValidateSet('MetaHuman', 'Nia')]
-    [string]$Resident = 'MetaHuman',
+    [ValidateSet('Mannequin', 'MetaHuman', 'Nia')]
+    [string]$Resident = 'Mannequin',
     [string]$MetaHumanDir = '',
     [string]$NiaContent = ''
 )
@@ -155,7 +165,27 @@ function Invoke-StageAuthoring {
         throw "Prop GLBs not found: $glb. Pass -GlbDir <path> or set MHLLM_GLB_DIR."
     }
 
-    if ($Resident -eq 'MetaHuman') {
+    # A checkout that once built with -Resident Nia keeps her staged under Content\ (the folder is
+    # gitignored, not deleted). It is not referenced by a Mannequin or MetaHuman map and not cooked --
+    # DefaultGame.ini cooks only /Game/Maps/CompanionStage and what it references -- but say so, so
+    # nobody mistakes its presence for her being in the build.
+    if ($Resident -ne 'Nia' -and (Test-Path (Join-Path $ProjectRoot 'Content\CC_ControlRig_Nia'))) {
+        Write-Host ('Note: Content\CC_ControlRig_Nia is still staged from an earlier -Resident Nia build. ' +
+                    "The $Resident map does not reference it, so it is not cooked. Delete it to be sure.") -ForegroundColor Yellow
+    }
+
+    if ($Resident -eq 'Mannequin') {
+        # Engine content, so the only thing to check is that this engine still ships it. The authoring
+        # gate below would catch a miss too, but only after several minutes in the editor.
+        $manny = Join-Path $Engine 'Engine\Plugins\Experimental\MoverTests\Content\Characters\Mannequins\Meshes\SKM_Manny.uasset'
+        if (-not (Test-Path $manny)) {
+            throw ("Default resident not found: $manny. The Mannequin resident is SKM_Manny from the " +
+                   "engine's MoverTests plugin; pass -Engine <root> for an engine that has it.")
+        }
+        Write-Host ('Resident: Mannequin (default). A placeholder with no facial rig: no lip-sync or ' +
+                    'expression until a resident licensed for AI use replaces it (README.md "Licensing").') -ForegroundColor Cyan
+    }
+    elseif ($Resident -eq 'MetaHuman') {
         # All three parts, checked up front. author_diorama.py would otherwise skip a missing FBX,
         # place what it found, and the gate below would stop the build several minutes later with a
         # less specific message. The outfit is not optional either: MetaHuman removes the body
@@ -169,16 +199,10 @@ function Invoke-StageAuthoring {
                    'mhc_seo.mhpkg in the 5.8 editor (GUI), assemble MHC_Seo, then run ' +
                    'Deployment/metahuman/03_export_fbx_from_GUI.py from Tools > Execute Python ' +
                    '(headless export deadlocks; see Docs/HANDOFF-METAHUMAN-SKIN.md). ' +
-                   'Or build the opt-in Nia resident with -Resident Nia.')
+                   'Or build the default resident by leaving out -Resident.')
         }
-        # A checkout that once built with -Resident Nia keeps her staged under Content\ (the folder
-        # is gitignored, not deleted). It is not referenced by a MetaHuman map and not cooked --
-        # DefaultGame.ini cooks only /Game/Maps/CompanionStage and what it references -- but say so,
-        # so nobody mistakes its presence for her being in the build.
-        if (Test-Path (Join-Path $ProjectRoot 'Content\CC_ControlRig_Nia')) {
-            Write-Host ('Note: Content\CC_ControlRig_Nia is still staged from an earlier -Resident Nia build. ' +
-                        'The MetaHuman map does not reference it, so it is not cooked. Delete it to be sure.') -ForegroundColor Yellow
-        }
+        Write-Host ('Resident: MetaHuman "Seo" (opt-in). Her Fab listing ("Seo - Editable MetaHuman Character") ' +
+                    'is tagged "Allows usage with AI: No"; see README.md "Licensing" before distributing this build.') -ForegroundColor Yellow
     }
     else {
         $nia = if ($NiaContent) { $NiaContent } elseif ($env:MHLLM_NIA_CONTENT) { $env:MHLLM_NIA_CONTENT }
@@ -260,12 +284,16 @@ function Invoke-StageAuthoring {
     # Gate on the resident that was ASKED for. "resident: NIA placed" is the same gate Nia builds
     # always had; the MetaHuman line is printed only when all three parts imported, the face is
     # tagged and the body and outfit are attached to it (author_diorama.py prints INCOMPLETE
-    # otherwise), so a partial figure cannot pass for a resident.
+    # otherwise), so a partial figure cannot pass for a resident. The mannequin line is printed only
+    # by the default path, never by the last-resort fall-back after a failed Seo import.
     if ($Resident -eq 'Nia') {
         if (-not ($lines -match 'resident: NIA placed')) { throw "Authoring placed no resident (Nia requested). See $result" }
     }
-    elseif (-not ($lines -match 'resident: METAHUMAN placed')) {
-        throw "Authoring placed no complete MetaHuman resident. See $result"
+    elseif ($Resident -eq 'MetaHuman') {
+        if (-not ($lines -match 'resident: METAHUMAN placed')) { throw "Authoring placed no complete MetaHuman resident. See $result" }
+    }
+    elseif (-not ($lines -match 'resident: MANNEQUIN placed')) {
+        throw "Authoring placed no mannequin resident (the default). See $result"
     }
     # Both of these ship in the repo now, so a miss is a regression rather than a missing optional
     # input. They used to fail SILENTLY -- try/except around the import, no line in the result

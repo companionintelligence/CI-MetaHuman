@@ -15,10 +15,11 @@ services:
       # ARKit = MetaHuman. The two share no curve names, so this is not cosmetic.
       #
       # EMPTY BY DEFAULT, so the authored map decides: author_diorama.py tags the resident with the
-      # rig it placed (FaceProfile=ARKit on the default MetaHuman resident, FaceProfile=CC on the
-      # opt-in Nia), and an empty value here falls through to that tag. This used to be a literal
-      # "CC", which was right only while every build was Nia; on the MetaHuman it would select a
-      # profile that shares no curve names with the face. Set CC or ARKit to override.
+      # rig it placed (FaceProfile=ARKit on the opt-in MetaHuman, FaceProfile=CC on the opt-in Nia;
+      # the default mannequin has no facial rig and no tag), and an empty value here falls through
+      # to that tag. This used to be a literal "CC", which was right only while every build was Nia;
+      # on the MetaHuman it would select a profile that shares no curve names with the face. Set CC
+      # or ARKit to override.
       MHLLM_FACE_PROFILE: "${MHLLM_FACE_PROFILE:-}"
 
       # Viseme cycling. Leave OFF here: with it on, the mouth moves whether or not the LLM ever

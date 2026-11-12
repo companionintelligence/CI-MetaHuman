@@ -17,10 +17,10 @@ set -o pipefail
 
 RELEASE=5.8
 IMAGE="ci/metahuman-local-llm:${RELEASE}-face"
-# Which resident to author: metahuman (default) or nia. Exported so run_author_m2.sh sees it; see
-# that script for what each means and why Nia is opt-in. Lower-cased HERE as well as there, so the
-# gates below compare the same spelling the authoring run was given.
-MHLLM_RESIDENT="$(printf '%s' "${MHLLM_RESIDENT:-metahuman}" | tr '[:upper:]' '[:lower:]')"
+# Which resident to author: mannequin (default), metahuman or nia. Exported so run_author_m2.sh sees
+# it; see that script for what each means and why Seo and Nia are opt-in. Lower-cased HERE as well
+# as there, so the gates below compare the same spelling the authoring run was given.
+MHLLM_RESIDENT="$(printf '%s' "${MHLLM_RESIDENT:-mannequin}" | tr '[:upper:]' '[:lower:]')"
 export MHLLM_RESIDENT
 
 echo "===== FACE COOK START $(date -u) ====="
@@ -45,12 +45,14 @@ grep -q SUCCESS /home/ci/stage-out/AUTHOR_RESULT.txt || { echo AUTHOR_FAIL; exit
 grep -E "resident|Nia:|tag" /home/ci/stage-out/AUTHOR_RESULT.txt
 # Gate on the resident that was ASKED for, the same lines Scripts/BuildNative.ps1 gates on. The
 # MetaHuman line is printed only when all three Seo parts imported, the face is tagged and the body
-# and outfit are attached to it; anything less prints "METAHUMAN INCOMPLETE" instead.
-if [ "$MHLLM_RESIDENT" = nia ]; then
-  grep -q "resident: NIA placed" /home/ci/stage-out/AUTHOR_RESULT.txt || { echo "NO_RESIDENT (nia requested)"; exit 1; }
-else
-  grep -q "resident: METAHUMAN placed" /home/ci/stage-out/AUTHOR_RESULT.txt || { echo "NO_RESIDENT (metahuman requested)"; exit 1; }
-fi
+# and outfit are attached to it; anything less prints "METAHUMAN INCOMPLETE" instead. The mannequin
+# line is printed only by the default path, never by the fall-back after a failed Seo import.
+case "$MHLLM_RESIDENT" in
+  nia)       GATE="resident: NIA placed" ;;
+  metahuman) GATE="resident: METAHUMAN placed" ;;
+  *)         GATE="resident: MANNEQUIN placed" ;;
+esac
+grep -q "$GATE" /home/ci/stage-out/AUTHOR_RESULT.txt || { echo "NO_RESIDENT (${MHLLM_RESIDENT} requested)"; exit 1; }
 
 # 3. Move authored content into the cook tree, as root (see header).
 docker run --rm --user root -v /home/ci:/host --entrypoint bash ubuntu:26.04 -c '
@@ -65,12 +67,21 @@ if [ "$MHLLM_RESIDENT" = nia ]; then
   test -d /home/ci/cook-clean/Content/CC_ControlRig_Nia || { echo "NO_NIA_CONTENT — aborting"; exit 1; }
   echo "NIA_CONTENT_PRESENT"
 else
-  test -d /home/ci/cook-clean/Content/Seo || { echo "NO_METAHUMAN_CONTENT — aborting"; exit 1; }
-  echo "METAHUMAN_CONTENT_PRESENT"
+  if [ "$MHLLM_RESIDENT" = metahuman ]; then
+    test -d /home/ci/cook-clean/Content/Seo || { echo "NO_METAHUMAN_CONTENT — aborting"; exit 1; }
+    echo "METAHUMAN_CONTENT_PRESENT"
+  else
+    # The mannequin is engine plugin content, so there is nothing under Content/ to require -- only
+    # things to refuse. A mannequin build authors nothing under /Game/Seo, so Seo here is stale too.
+    if [ -d /home/ci/cook-clean/Content/Seo ]; then
+      echo "UNEXPECTED_SEO_CONTENT in the cook tree for a mannequin build — aborting"; exit 1
+    fi
+    echo "MANNEQUIN_BUILD (no resident content under Content/)"
+  fi
   # The opposite check matters as much: run_author_m2.sh no longer copies Nia in, so finding her here
   # means a stale tree, and a stale tree is how she would ride into an image nobody asked her into.
   if [ -d /home/ci/cook-clean/Content/CC_ControlRig_Nia ]; then
-    echo "UNEXPECTED_NIA_CONTENT in the cook tree for a metahuman build — aborting"; exit 1
+    echo "UNEXPECTED_NIA_CONTENT in the cook tree for a ${MHLLM_RESIDENT} build — aborting"; exit 1
   fi
 fi
 
