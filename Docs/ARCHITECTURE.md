@@ -83,10 +83,14 @@ has (the core-2 tunnels are a core-2 arrangement, not part of the app).
 
 ### 2.2 The two hosts
 
+Machine names only. Their tailnet addresses and MagicDNS names are deployment configuration
+(`PUBLIC_IP`, `CI_PORTAL_REDIRECT_URL`, the tunnel units' targets) and are deliberately not written
+here.
+
 | Host | Hardware | Runs | Why |
 |---|---|---|---|
-| **core-2** `100.101.156.33` | Ryzen AI Max+ 395 "Strix Halo" iGPU (gfx1151), shared memory | UE app, Pixel Streaming, signalling, TURN | Renders and encodes. **Measured: not a cognition host** — `gemma4:e2b` takes ~12 s a reply here because inference contends with the same silicon that is rendering and VP8-encoding a live stream |
-| **beta-1** `100.124.211.75` | 2× discrete Navi 31, 2×25.7 GB VRAM, ROCm 6.4, 64c Threadripper PRO | Ollama, Lemonade (Kokoro + Whisper), kokoro-align | Moving inference here turned a 12 s reply into **814 ms while going from a 2 B model to a 27 B one** — measured at the time on `qwen3.6:27b`, which beta-1 no longer serves; the current model is `qwen3.8:27b`. The accelerator was the bottleneck, never the model size |
+| **core-2** (streaming host) | Ryzen AI Max+ 395 "Strix Halo" iGPU (gfx1151), shared memory | UE app, Pixel Streaming, signalling, TURN | Renders and encodes. **Measured: not a cognition host** — `gemma4:e2b` takes ~12 s a reply here because inference contends with the same silicon that is rendering and VP8-encoding a live stream |
+| **beta-1** (inference host) | 2× discrete Navi 31, 2×25.7 GB VRAM, ROCm 6.4, 64c Threadripper PRO | Ollama, Lemonade (Kokoro + Whisper), kokoro-align | Moving inference here turned a 12 s reply into **814 ms while going from a 2 B model to a 27 B one** — measured at the time on `qwen3.6:27b`, which beta-1 no longer serves; the current model is `qwen3.8:27b`. The accelerator was the bottleneck, never the model size |
 
 ### 2.3 The tunnels
 

@@ -45,8 +45,9 @@ services:
       # (Deployment/core2/ollama-tunnel.service). beta-1's ollama.service declares
       # OLLAMA_HOST=0.0.0.0 but its running process predates that edit and is still bound to
       # 127.0.0.1; restarting it needs root on a box that serves other work, so this tunnels
-      # instead. If that service is ever restarted, point straight at http://100.124.211.75:11434
-      # and drop the tunnel.
+      # instead. If that service is ever restarted, point OLLAMA_BASE_URL straight at the inference
+      # host's tailnet address on :11434 (set it in .env; addresses are not recorded in this public
+      # repo) and drop the tunnel.
       OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://127.0.0.1:11435}"
       # qwen3.8, not qwen3.6. beta-1 was upgraded and now serves exactly one model; the old
       # default 404s against it, which is a silent mute -- the same failure the KokoroModel default
