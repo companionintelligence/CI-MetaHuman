@@ -1222,8 +1222,16 @@ try:
     # and every downstream gate (m2_clean.sh's `grep -q SUCCESS`) believed it.
     if not ok:
         raise RuntimeError("save_current_level returned False; no .umap was written")
-    map_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                            "Content", "Maps", "CompanionStage.umap")
+    # Ask the ENGINE where Content/ is rather than deriving it from this file's location. The old
+    # derivation (two directories up from __file__) is right for Deployment/author_diorama.py in a
+    # checkout, and wrong on core-2, where run_author_m2.sh copies the script to /proj/ and runs it
+    # from there: it resolved to /Content/Maps/CompanionStage.umap, which never exists, so every
+    # container run that reached this check would have reported FAIL after writing a good map.
+    try:
+        content_dir = unreal.SystemLibrary.get_project_content_directory()
+    except Exception:
+        content_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Content")
+    map_file = os.path.join(content_dir, "Maps", "CompanionStage.umap")
     if not os.path.isfile(map_file) or os.path.getsize(map_file) < 200_000:
         size = os.path.getsize(map_file) if os.path.isfile(map_file) else 0
         raise RuntimeError("saved map artifact missing or incomplete (%d bytes): %s" % (size, map_file))
