@@ -76,7 +76,7 @@ PROJECT_DOCKERFILE=Deployment/Dockerfile.amd \
 docker compose -f docker-compose.yml -f docker-compose.amd.yml up -d
 
 # 4. verify
-docker compose logs -f project           # look for "Streamer connected" / encoder init
+docker compose logs -f project           # the image is Shipping: no engine log here; open :8090 instead
 vainfo --display drm --device /dev/dri/renderD128 | grep H264   # host-side encode sanity
 ```
 

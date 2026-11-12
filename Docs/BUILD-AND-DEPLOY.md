@@ -101,6 +101,14 @@ Notes that are not obvious from the scripts:
   `ue4` is uid **1001**.
 - **The 5.8-only plugin set is stripped** when the engine minor is < 6, and `GameFeatures` is
   explicitly *added* — see [`LEARNINGS.md`](LEARNINGS.md) L9.
+- **Both images are Shipping builds** (`-clientconfig=Shipping` in `Dockerfile` and
+  `Dockerfile.amd`): no console, cheat or stat commands for a viewer to reach. Shipping ignores
+  `-ExecCmds`, `-ini:` and `-dpcvars`, so the RADV cvars that `docker-compose.amd.yml` used to pass
+  on the command line are written into the AMD image's `Config/Linux/LinuxEngine.ini` by
+  `Dockerfile.amd`. Shipping also compiles out the engine log, and an installed engine cannot add it
+  back (`bUseLoggingInShipping` needs a unique build environment), so `docker logs` shows no
+  `Log*` lines and the log greps in `m2_clean.sh` print nothing. Debug from a local Development
+  build, never a published one.
 
 ### 2.1 Deployment
 

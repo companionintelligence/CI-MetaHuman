@@ -90,11 +90,19 @@ exit 1
 CHECK_MAP
 
 # Package for Linux. Pixel Streaming is already enabled in MetaHumanLocalLLM.uproject, so no
-# in-Dockerfile plugin patching is needed. Development config keeps iteration fast; switch to
-# -clientconfig=Shipping for a production image.
+# in-Dockerfile plugin patching is needed.
+#
+# SHIPPING, because this image is what viewers reach. A Development build carries the console,
+# cheat and stat commands and honours every command-line override; Shipping compiles them out.
+# What that changes for operators: -ExecCmds, -ini: and -dpcvars are ignored (so runtime cvars
+# have to live in the image's config, as Dockerfile.amd does for its RADV workarounds), and
+# UE_LOG output is compiled out, so `docker logs` no longer shows the engine log. An installed
+# engine cannot build Shipping with logging (bUseLoggingInShipping needs a unique build
+# environment). For a debuggable image, change -clientconfig to Development in a local copy and
+# never publish the result.
 RUN /home/ue4/UnrealEngine/Engine/Build/BatchFiles/RunUAT.sh BuildCookRun \
     -project=/home/ue4/project-src/MetaHumanLocalLLM.uproject \
-    -clientconfig=Development -utf8output -nodebuginfo -allmaps -noP4 \
+    -clientconfig=Shipping -utf8output -nodebuginfo -allmaps -noP4 \
     -cook -build -stage -prereqs -pak -archive \
     -archivedirectory=/home/ue4/project-src/dist \
     -platform=Linux

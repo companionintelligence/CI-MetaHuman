@@ -144,9 +144,38 @@ echo "CHECK_MAP: --build-arg ALLOW_STUB_MAP=1 builds anyway, for a toolchain smo
 exit 1
 CHECK_MAP
 
+# ---- RADV workarounds, baked into the image's config ---------------------------------------
+# docker-compose.amd.yml used to pass these as -ExecCmds. This image is now a Shipping build (see
+# the cook below), and Shipping compiles out every command-line route to a cvar (-ExecCmds, -ini:
+# and -dpcvars), so they would have been dropped without a word. They go into the project's Linux
+# engine config instead: [SystemSettings] is read at startup by every build configuration, and only
+# this AMD image writes the file, so the NVIDIA image keeps the engine defaults. Two differences
+# from -ExecCmds, both in the direction the list intends: the values hold from the first frame
+# rather than after it (so read-only cvars such as r.RayTracing now apply too), and the cook sees
+# them as well. -noraytracing stays on the compose command line; Shipping honours it.
+# Not yet measured on the Strix Halo host: verify the stream there before relying on it.
+RUN mkdir -p Config/Linux \
+ && printf '%s\n' '' \
+        '; Written by Deployment/Dockerfile.amd: the RADV workarounds from docker-compose.amd.yml.' \
+        '[SystemSettings]' \
+        'r.RayTracing=0' \
+        'r.Lumen.HardwareRayTracing=0' \
+        'r.DynamicGlobalIlluminationMethod=0' \
+        'r.ReflectionMethod=0' \
+        'r.SkyLight.RealTimeReflectionCapture=0' \
+        'r.SkyAtmosphere=0' \
+        'r.ReflectionCaptureResolution=0' \
+        'r.Vulkan.WaitForIdleOnSubmit=2' \
+        'r.GenerateMeshDistanceFields=0' \
+        'r.Nanite=0' \
+    >> Config/Linux/LinuxEngine.ini \
+ && cat Config/Linux/LinuxEngine.ini
+
+# Shipping, like Dockerfile: no console, cheat or stat commands, no command-line overrides, and no
+# engine log on stdout (Dockerfile's cook step says why an installed engine cannot add it back).
 RUN /home/ue4/UnrealEngine/Engine/Build/BatchFiles/RunUAT.sh BuildCookRun \
     -project=/home/ue4/project-src/MetaHumanLocalLLM.uproject \
-    -clientconfig=Development -utf8output -nodebuginfo -map=/Game/Maps/CompanionStage -noP4 \
+    -clientconfig=Shipping -utf8output -nodebuginfo -map=/Game/Maps/CompanionStage -noP4 \
     -cook -build -stage -prereqs -pak -archive \
     -archivedirectory=/home/ue4/project-src/dist \
     -platform=Linux

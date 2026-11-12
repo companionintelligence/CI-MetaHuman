@@ -45,8 +45,12 @@ services:
       # RADV on the Strix Halo iGPU crashes in hardware ray tracing (Lumen HWRT / RT dynamic
       # geometry) — disable RT and force software Lumen off; a talking-head avatar needs
       # neither, and this keeps the GPU stable.
+      #
+      # The rest of that workaround (r.Lumen.HardwareRayTracing 0, r.SkyAtmosphere 0,
+      # r.Vulkan.WaitForIdleOnSubmit 2, ...) used to be an -ExecCmds line here. The image is a
+      # Shipping build now, which ignores -ExecCmds, so Dockerfile.amd bakes those cvars into
+      # the image's Config/Linux/LinuxEngine.ini instead. Change them there, not here.
       - "-noraytracing"
-      - "-ExecCmds=r.RayTracing 0; r.Lumen.HardwareRayTracing 0; r.DynamicGlobalIlluminationMethod 0; r.ReflectionMethod 0; r.SkyLight.RealTimeReflectionCapture 0; r.SkyAtmosphere 0; r.ReflectionCaptureResolution 0; r.Vulkan.WaitForIdleOnSubmit 2; r.GenerateMeshDistanceFields 0; r.Nanite 0"
       # -ForceRes IS REQUIRED, and its previous absence meant the composed shot never shipped.
       #
       # The old comment here said "portrait 9:16 by default" and left -ForceRes off so the

@@ -109,6 +109,9 @@ docker compose -f docker-compose.yml -f docker-compose.amd.yml -f docker-compose
                -f docker-compose.face.yml up -d project
 sleep 40
 echo "--- face driver ---"
+# Dockerfile.amd cooks Shipping, which compiles the engine log out, so these two greps print nothing
+# for that image. They still report a Development image built by hand for debugging.
+echo "(a Shipping image writes no engine log; empty output below is expected for it)"
 docker logs deployment-project-1 2>&1 | grep -iE "LogCompanionFace|resident|profile curves|self-test" | tail -8
 docker logs deployment-project-1 2>&1 | grep -iE "LoadMap complete|joined" | tail -2
 curl -s -o /dev/null -w "http :8090 = %{http_code}\n" http://localhost:8090/

@@ -139,6 +139,10 @@ Two methodological points:
   received it"** from **"the app received it and Slate dropped it"** — which is what settled the
   entire chat-box investigation.
 
+  Both lines need a **Development** image. The images `Deployment/Dockerfile` and
+  `Dockerfile.amd` build are Shipping, which compiles the engine log out (and ignores `-LogCmds`),
+  so run this check against a Development build made for the purpose, never a published one.
+
 ---
 
 ## 5. The verification discipline
