@@ -78,8 +78,8 @@ Canonical path is `stage.sh` → `m2_clean.sh`. `m2_full.sh` is the older `cook-
 | Step | Script | Cost | What it does |
 |---|---|---|---|
 | 0 | `core2/stage.sh` | ~30 s | tar the committed source, `scp` to core-2 under **one canonical name**, expand into `/home/ci/cook-clean`, then **verify the expanded tree** (§4) |
-| 1 | `core2/run_author_m2.sh` | ~3 min | author the map in `ghcr.io/epicgames/unreal-engine:dev-5.5` with `-nullrhi`; write `stage-out/Content` + `AUTHOR_RESULT.txt` |
-| 2 | `core2/m2_clean.sh` | ~20 min | gate on `SUCCESS`, copy content as **root**, fail fast on a missing map or missing Nia content, `docker build -f Dockerfile.amd`, deploy, grep the logs, curl `:8090` |
+| 1 | `core2/run_author_m2.sh` | ~3 min | author the map in `ghcr.io/epicgames/unreal-engine:dev-5.8` (the script's header says why it moved off 5.5) with `-nullrhi`; write `stage-out/Content` + `AUTHOR_RESULT.txt` |
+| 2 | `core2/m2_clean.sh` | ~20 min | gate on `SUCCESS`, copy content as **root**, fail fast on a missing map or missing Nia content, `docker build -f Dockerfile.amd` (whose own `CHECK_MAP` gate, §2.2, then refuses a stub), deploy, grep the logs, curl `:8090` |
 | — | `core2/gpu_preview.sh` | ~3–5 min | render the **uncooked** authored map on the real GPU. Skips the cook entirely — the fast lighting/material loop |
 
 Notes that are not obvious from the scripts:
@@ -130,6 +130,53 @@ Two switches with reasons:
 
 ⚠️ **`docker compose up -d project` is a no-op when the config hash is unchanged.** It reports
 `Running` and restarts nothing. Cycling a container needs an explicit `docker restart`.
+
+### 2.2 Author first: the `CHECK_MAP` gate, and building anywhere but core-2
+
+**Neither Dockerfile authors the set.** Each cooks whatever `Content/` the build context carries,
+and the `CompanionStage.umap` committed to git is the 23 KB stub. On core-2 that never showed,
+because `m2_clean.sh` copies the authored `stage-out/Content` over the tree before it builds. A
+build from a plain checkout -- which is what the NVIDIA path is: `Deployment/Dockerfile`, built by
+`docker compose -f docker-compose.yml -f docker-compose.nvidia.yml build project` -- cooked the stub
+and streamed an empty stage, and nothing anywhere failed.
+
+So both `Dockerfile` and `Dockerfile.amd` now run the same `CHECK_MAP` step before the cook. It
+refuses a `Content/Maps/CompanionStage.umap` that is:
+
+| The map | Build log says | Typical cause |
+|---|---|---|
+| absent | `is missing` | authored content never copied in |
+| a Git LFS pointer | `is a Git LFS pointer` | cloned without `git lfs` |
+| byte-identical to the committed stub (its LFS oid) | `is the 23 KB stub committed to git` | a clean checkout: nothing was authored |
+| under 200 KB | `is only N bytes` | an editor re-saved the stub, or authoring failed; 200 KB is `BuildNative.ps1`'s floor for an authored map |
+
+Each refusal prints `CHECK_MAP: REFUSING TO COOK` and fails the build before the cook starts,
+instead of shipping an empty stage twenty minutes later. A passing build logs
+`CHECK_MAP: OK, … N bytes`.
+
+- `--build-arg ALLOW_STUB_MAP=1` cooks the stub anyway, with a warning: for a smoke test of the
+  toolchain only. Never ship that image.
+- `Dockerfile.amd` with `RELEASE` < 5.6 keeps its old fallback: when the context has **no** map it
+  synthesizes a minimal stage with `author_companion_stage.py` (sky, floor, a mannequin), and the
+  gate lets that through with a warning.
+- The script is byte-for-byte the same in both Dockerfiles; CI fails if they differ, runs it
+  against fixtures, and checks its stub hash against the committed stub's LFS oid.
+
+**The prerequisite, on any build host:**
+
+1. **Author** with the engine the image will cook with (5.8 by default; a `.umap` is
+   engine-version-specific, §1). The reference route is `core2/run_author_m2.sh`: it runs
+   `author_diorama.py` headlessly in `dev-5.8` with its inputs mounted -- the Nia character
+   (`nia-content`), the prop GLBs, the Seo FBX/textures, `Deployment/audio` and
+   `Deployment/generated` -- and writes `stage-out/Content` plus `AUTHOR_RESULT.txt`. The Nia
+   content and the GLBs are not in this repository, which is why no Dockerfile can author on its
+   own. On Windows, `Scripts/BuildNative.ps1 -KeepAuthoredMap` authors in place through the same
+   script and leaves the result in `Content/` (do not commit it).
+2. **Gate** on `AUTHOR_RESULT.txt` (§4.2), as `m2_clean.sh` and `BuildNative.ps1` do.
+3. **Copy** the authored `Content/` into the build context, as root where the authoring container
+   wrote it as root (`m2_clean.sh` step 3 is the reference; §2's first note says why).
+4. **Build** the image. `.github/workflows/unreal-self-hosted.yml` has a disabled job that does
+   steps 3 and 4 on a self-hosted runner from an `authored_content_dir` input.
 
 ---
 
@@ -238,3 +285,92 @@ box reboots. Each occurrence destroys the cooked app, the 24 GB preview image an
 | Nothing restarts the stream after a reboot | **Open.** The CI ecosystem containers come back because they carry restart policies; ours do not |
 | The build scripts once existed only on the server | **Fixed** — they are committed under `Deployment/core2/`. *"Filesystem content survives those wipes, so nothing has been lost yet. That is luck rather than design."* Copy them to `/home/ci/`; do not edit the server copies in place |
 | Shell scripts are pinned to LF via `.gitattributes` | **Fixed.** Checked out with CRLF on Windows and shipped there, bash fails with errors that name the shell rather than the line endings — `set: pipefail: invalid option name` off the very first line |
+| `core2/pin-engine-image.sh` protected `dev-5.5` | **Changed.** It now defaults to the digest-pinned `dev-5.8.4` engine the cook builds `FROM` (§7), and replaces an interlock left on an older digest. Pass another reference to protect a second image |
+
+---
+
+## 7. Pinned inputs: what a release build is made of
+
+The same commit used to build on different bytes from one day to the next: the Dockerfiles
+started `FROM` floating tags (`dev-${RELEASE}`, `runtime-pixel-streaming`, `ubuntu:26.04`,
+`node:lts`, `python:3.12-slim`), and the kokoro-align sidecar ran an unpinned `pip install`. Since
+2026-11-12 the inputs in §7.1-7.3 are named exactly, and CI (`.github/workflows/checks.yml`, job
+`pins`) fails when they drift apart; §7.4 lists what is still not pinned.
+
+### 7.1 Images, by digest
+
+Each is `tag@digest`: the tag is for the reader, Docker resolves the digest and ignores the tag.
+This list is checked against the files: an entry missing here, or left here after the files move
+on, fails CI.
+
+```
+ghcr.io/epicgames/unreal-engine:dev-5.8.4@sha256:675755b3b06fc3bf450a1eafe52a75f0d043e8b060932a3e1e703f6cf91b7810
+ghcr.io/epicgames/unreal-engine:dev-5.5.4@sha256:3f7b292cda7f6066aeaea46fa95a520a0d26811810e0d082cfbf5dc85018bd82
+ghcr.io/epicgames/unreal-engine:runtime-pixel-streaming@sha256:dd6927514c845ca6431003dfdee081c1c33e7e3cbfbffaaab79a176fa9934c79
+ubuntu:26.04@sha256:065aa8626841f16057b78b027b464cd59c4fac36c204c72dcbf48d66f5fa8a96
+node:26.13.1-trixie@sha256:e18c3ccdf7d71619990b0e85639f506e2028a95410999cab24cc373cbd10e0ac
+python:3.12.16-slim-trixie@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
+docker/dockerfile:1.27.1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
+```
+
+| Image | Pinned in | Note |
+|---|---|---|
+| `dev-5.8.4` | `Dockerfile`, `Dockerfile.amd` (stage `engine-5.8`); `core2/pin-engine-image.sh` default | was `dev-5.8`; the default `RELEASE` |
+| `dev-5.5.4` | `Dockerfile`, `Dockerfile.amd` (stage `engine-5.5`); `Dockerfile.editorpreview` | was `dev-5.5` |
+| `runtime-pixel-streaming` | `Dockerfile` runtime stage (NVIDIA) | Epic publishes no versioned tag for it |
+| `ubuntu:26.04` | `Dockerfile.amd` runtime, `Dockerfile.editorpreview`, `Dockerfile.mesagit` builder | |
+| `node:26.13.1-trixie` | `Dockerfile.signalling` | what `node:lts` resolved to; `setup.sh` needs Node ≥ the pinned ref's `NODE_VERSION` (v22.14.0) |
+| `python:3.12.16-slim-trixie` | `kokoro-align/Dockerfile` | what `python:3.12-slim` resolved to; stay on 3.12, misaki requires < 3.13 |
+| `docker/dockerfile:1.27.1` | the `# syntax=` line of every Dockerfile | the BuildKit frontend that parses the file; what `docker/dockerfile:1` resolved to |
+| `rhysd/actionlint:1.7.12` | `checks.yml` | lints the workflows |
+
+`RELEASE` is still a build-arg (compose passes `UE_RELEASE`), but it now selects the
+digest-pinned stage `engine-${RELEASE}` rather than the tag `dev-${RELEASE}`. BuildKit only pulls
+the stage it uses, and a `RELEASE` with no stage fails to resolve instead of building on whatever
+a tag points at that day. It needs BuildKit, as the `CHECK_MAP` heredoc does; that has been
+Docker's default builder since 23.0, and `m2_clean.sh` asks for it explicitly.
+
+### 7.2 Python
+
+- **kokoro-align.** `kokoro-align/requirements-direct.txt` names what `app.py` needs and why;
+  `kokoro-align/requirements.txt` is the lock compiled from it -- every package, transitive ones
+  included, at an exact version with its sha256 -- and the image installs it with
+  `pip install --require-hashes`, which refuses anything not in it. spaCy's `en_core_web_sm` is in
+  the lock too: misaki used to `pip install` it at runtime on the first `/speak`. To change a
+  dependency, edit `requirements-direct.txt` and run the command in the lock's header from
+  `Deployment/kokoro-align`; CI installs the new lock and smoke-tests `app.py` against it.
+- **CI tools.** `Deployment/requirements-ci.txt` pins ruff and shellcheck the same way.
+
+### 7.3 Source refs
+
+- Epic's `PixelStreamingInfrastructure` is fetched at commit `289b954…`, named in three places
+  (`Dockerfile.signalling`'s `ARG`, `docker-compose.yml`'s default, `.env.example`); CI checks they
+  agree.
+- GitHub Actions are pinned to commit SHAs, with the release tag in a comment.
+
+### 7.4 Still not pinned
+
+| Input | Where | What pinning it would take |
+|---|---|---|
+| apt packages | every `apt-get install` | archives drop superseded versions, so `pkg=version` pins break builds; a snapshot mirror (`snapshot.ubuntu.com`, `snapshot.debian.org`) is the real fix |
+| Mesa and libdrm `main` | `Dockerfile.mesagit` | nothing: it is the newest-driver experiment by design, not a release image |
+| `ci/metahuman-local-llm:*` | `Dockerfile.mesagit`, `Dockerfile.vulkan-runtime` | built locally, so there is no registry digest to pin |
+| the Kokoro ONNX model and voices | `kokoro-align/app.py` downloads `onnx-community/Kokoro-82M-v1.0-ONNX-timestamped` at runtime | a `revision=` on its `hf_hub_download` calls |
+| docopt's build backend | the kokoro-align lock | docopt ships only an sdist, so pip's build isolation fetches setuptools |
+| `coturn/coturn:4.6.2`, `oauth2-proxy:v7.6.0` | `docker-compose.yml` | digests in the compose file |
+| engine and Ubuntu images in the core-2 helpers | `run_author_m2.sh` (`dev-5.8`), `run_tests_linux.sh` (`dev-5.5`), `m2_clean.sh` / `m2_full.sh` (`ubuntu:26.04`) | the same `tag@digest` references as the Dockerfiles |
+
+### 7.5 Moving a pin
+
+1. Look the new digest up. Public images: `docker buildx imagetools inspect <image>:<tag>`.
+   Epic's need an Epic-linked login: `docker login ghcr.io`, then the same command; or, with a
+   GitHub token that has `read:packages`,
+   `gh api /orgs/EpicGames/packages/container/unreal-engine/versions` lists each digest with its
+   tags.
+2. Replace it in **every** file that names the image, and in §7.1. The `pins` job fails on any
+   image:tag that carries two digests, on engine stages that differ between `Dockerfile` and
+   `Dockerfile.amd`, on a `pin-engine-image.sh` default that is not the cook's `engine-5.8`, and on
+   §7.1 disagreeing with the files. It also checks that every public digest still resolves.
+3. Moving an engine digest: run `core2/pin-engine-image.sh` on core-2 afterwards, so the interlock
+   protects the image the cook now uses (§6).
