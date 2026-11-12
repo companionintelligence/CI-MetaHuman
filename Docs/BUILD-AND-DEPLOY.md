@@ -15,7 +15,7 @@ Two reasons, both stated in `Scripts/BuildNative.ps1`:
 
 > The set is DEFINED by ~960 lines of layout, lighting and material logic. Committing the `.umap`
 > would freeze a build artifact as source and guarantee it drifts from the script the moment anyone
-> edits the set […] It is also ~900 MB of Nia content behind it, and a `.umap` is
+> edits the set […] It is also the resident's content behind it (~900 MB when that is Nia), and a `.umap` is
 > **ENGINE-VERSION-SPECIFIC**: one authored by 5.8 here cannot be loaded by the 5.5 cook on core-2.
 > So the map stays generated, and this function makes the native build generate it the same way the
 > container does — **one source of truth, two consumers**.
@@ -79,7 +79,7 @@ Canonical path is `stage.sh` → `m2_clean.sh`. `m2_full.sh` is the older `cook-
 |---|---|---|---|
 | 0 | `core2/stage.sh` | ~30 s | tar the committed source, `scp` to core-2 under **one canonical name**, expand into `/home/ci/cook-clean`, then **verify the expanded tree** (§4) |
 | 1 | `core2/run_author_m2.sh` | ~3 min | author the map in `ghcr.io/epicgames/unreal-engine:dev-5.5` with `-nullrhi`; write `stage-out/Content` + `AUTHOR_RESULT.txt` |
-| 2 | `core2/m2_clean.sh` | ~20 min | gate on `SUCCESS`, copy content as **root**, fail fast on a missing map or missing Nia content, `docker build -f Dockerfile.amd`, deploy, grep the logs, curl `:8090` |
+| 2 | `core2/m2_clean.sh` | ~20 min | gate on `SUCCESS` and on the requested resident's line, copy content as **root**, fail fast on a missing map or missing resident content (`Content/Seo` by default, `CC_ControlRig_Nia` with `MHLLM_RESIDENT=nia`), `docker build -f Dockerfile.amd`, deploy, grep the logs, curl `:8090` |
 | — | `core2/gpu_preview.sh` | ~3–5 min | render the **uncooked** authored map on the real GPU. Skips the cook entirely — the fast lighting/material loop |
 
 Notes that are not obvious from the scripts:
@@ -143,7 +143,7 @@ Two switches with reasons:
 | Strip 5.8-only plugins **in place**, restore in `finally` | Cooking a *renamed* copy writes output to `Saved/Cooked/Windows/<name>.build/` while staging still looks under `<name>/` — *"Cook and stage disagreed on the project name and only the second one noticed"* |
 | Delete `Intermediate/ShaderAutogen` | Written by whichever **engine** last opened the project. A 5.8-generated `AutogenShaderHeaders.ush` reused by the 5.5 shader compiler fails with errors naming engine internals and nothing about this project |
 | Back up the committed stub map | Restored in `finally`; `-KeepAuthoredMap` opts out. *"Do not commit it."* |
-| `Invoke-StageAuthoring` | Copies Nia's content (**copied, not junctioned** — authoring re-saves what it loads, and a junction would rewrite the source project's own assets), purges stale imports, runs the same `author_diorama.py` |
+| `Invoke-StageAuthoring` | Checks the resident's inputs before launching anything: the three Seo FBX files for the default `-Resident MetaHuman`, or — with `-Resident Nia` only — copies Nia's content (**copied, not junctioned** — authoring re-saves what it loads, and a junction would rewrite the source project's own assets). Then purges stale imports and runs the same `author_diorama.py` with `MHLLM_RESIDENT` set |
 | **The authoring gate** | §4.2 |
 | `RunUAT.bat BuildCookRun … -ubtargs=-NoHotReloadFromIDE` | Live Coding's mutex is keyed on the **executable**, and every project's editor target is the same `UnrealEditor.exe` — so an editor open on an *unrelated* project blocks packaging this one |
 
@@ -191,13 +191,17 @@ empty:
 | Assertion | The failure it catches |
 |---|---|
 | starts with `SUCCESS` | `new_level()` **refuses to overwrite**, returns `False`, the run authors into an untitled transient level, the save fails — and the script printed SUCCESS anyway because that line was unconditional |
-| `resident: NIA placed` | a cooked build with sky, ground and nobody in it |
+| `resident: METAHUMAN placed` (default) or `resident: NIA placed` (`-Resident Nia`) | a cooked build with sky, ground and nobody in it. The MetaHuman line is printed only when all three Seo parts imported, the face is tagged and the body and outfit are attached to it |
 | `CRT vector displays placed: [1-9]` | *"Match the COUNT, not just the words"* — three empty actors and a cheerful success line |
 | `room tone placed` | a silent machine hall |
 | `exposure PINNED at EV100` | 3.5 stops of overexposure that **failed silently for weeks**, because nothing in any log distinguishes a lit room from a blown one |
 | map exists and is **> 200 KB** | *"that is the empty stub, not the set"* |
 
-`m2_clean.sh` adds its own fail-fast pair before the cook: `NO_MAP` and `NO_NIA_CONTENT`.
+`m2_clean.sh` adds its own fail-fast checks before the cook: `AUTHOR_NOT_STARTED` (an unknown
+`MHLLM_RESIDENT`, which would otherwise leave the previous run's result file to be gated on),
+`NO_RESIDENT`, `NO_MAP`, and `NO_METAHUMAN_CONTENT` (or `NO_NIA_CONTENT` with
+`MHLLM_RESIDENT=nia`). A MetaHuman build also refuses a cook tree that still contains
+`CC_ControlRig_Nia` (`UNEXPECTED_NIA_CONTENT`).
 
 ---
 

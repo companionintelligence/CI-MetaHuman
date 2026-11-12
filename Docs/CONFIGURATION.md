@@ -119,7 +119,7 @@ implies — verified by probe against a running instance, not assumed.
 | `MHLLM_HUD` | *(unset = on)* | `0` suppresses the chat HUD |
 | `MHLLM_CONSOLE` | `0` | `1` opens the operator console at startup. `/console` toggles it live |
 | `MHLLM_GREETING` | `none` | An LLM-generated opening turn on a 5 s timer. **Default `none`** because the opening is now scripted, and two greetings collide |
-| `MHLLM_FACE_PROFILE` | `CC` (hard-coded) | `CC` = Reallusion Character Creator; `ARKit` = MetaHuman. **The two share no curve names** — anything unrecognised silently becomes `CC` |
+| `MHLLM_FACE_PROFILE` | *(empty)* | `CC` = Reallusion Character Creator; `ARKit` = MetaHuman. **The two share no curve names** — anything unrecognised silently becomes `CC`. Empty means *the rig the map declares*: the resident's `FaceProfile=` tag (`ARKit` on the default MetaHuman, `CC` on Nia), and `CC` for a map authored before that tag existed. It used to be a hard-coded `CC` |
 | `MHLLM_FACE_SELFTEST` | `0` (hard-coded) | Cycles all 15 visemes. Off deliberately: with it on the mouth moves whether or not the LLM ever replies, masking the exact failure the deployment exists to expose |
 | `MHLLM_EMOTION` | `1` | `0` disables facial emotion. Deliberately opt-**out**, unlike `MHLLM_OPENING_SHOT`: *"an expressionless face is the regression"*. Set to `0` to isolate a lip-sync problem from an expression problem in a capture |
 | `MHLLM_GAZE` | *(unset = on)* | `0` disables eye aim, saccades and the planning aversion. Opt-**out** for the same reason `MHLLM_EMOTION` is: a dead stare is the regression this fixes. Set to `0` to isolate an eye problem from a lip-sync one |
@@ -163,12 +163,13 @@ would be silently ignored on every machine that had already held one conversatio
 
 | Variable | Container default | Windows value |
 |---|---|---|
+| `MHLLM_RESIDENT` | `metahuman` | `metahuman` (default) or `nia`, set by `-Resident`. `nia` is opt-in for licence reasons (README *Licensing*); anything else fails the authoring run |
 | `MHLLM_GLB_DIR` | `/glb` | `C:\devel\llm-metahuman\scene\glb` or `-GlbDir` |
-| `MHLLM_MH_DIR` | `/mh` | `Deployment\metahuman` |
+| `MHLLM_MH_DIR` | `/mh` | the Seo FBX export: `-MetaHumanDir`, else `C:\devel\_mh-convert\out\seo`. Was `Deployment\metahuman`, which holds the conversion scripts and no FBX |
 | `MHLLM_AUDIO_DIR` | `/audio` | `Deployment\audio` |
 | `MHLLM_GEN_DIR` | `MHLLM_GLB_DIR` | `Deployment\generated` |
 | `MHLLM_AUTHOR_RESULT` | `/out/AUTHOR_RESULT.txt` | `Saved\AUTHOR_RESULT.txt` |
-| `MHLLM_NIA_CONTENT` | — | `..\CharacterCreatorNia\Content\CC_ControlRig_Nia` or `-NiaContent` |
+| `MHLLM_NIA_CONTENT` | — | `..\CharacterCreatorNia\Content\CC_ControlRig_Nia` or `-NiaContent`; read only with `-Resident Nia` |
 
 ---
 

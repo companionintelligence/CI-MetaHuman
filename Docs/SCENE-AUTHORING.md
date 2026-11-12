@@ -22,8 +22,10 @@ must, or you ship an empty room:
 
 | consumer | how | inputs |
 |---|---|---|
-| the Linux cook on core-2 | `Deployment/core2/run_author_m2.sh` -> `dev-5.5` container, `-nullrhi` | mounted at `/glb`, `/mh`, `/audio`, `/nia` |
-| the native Windows build | `Scripts/BuildNative.ps1` -> installed `UnrealEditor-Cmd.exe`, `-nullrhi` | `MHLLM_GLB_DIR` / `MHLLM_MH_DIR` / `MHLLM_AUDIO_DIR` / `MHLLM_GEN_DIR`, Nia staged into `Content/CC_ControlRig_Nia` |
+| the Linux cook on core-2 | `Deployment/core2/run_author_m2.sh` -> `dev-5.8` container, `-nullrhi` | mounted at `/glb`, `/mh`, `/audio`; `/nia` **only** with `MHLLM_RESIDENT=nia` |
+| the native Windows build | `Scripts/BuildNative.ps1` -> installed `UnrealEditor-Cmd.exe`, `-nullrhi` | `MHLLM_GLB_DIR` / `MHLLM_MH_DIR` (`-MetaHumanDir`) / `MHLLM_AUDIO_DIR` / `MHLLM_GEN_DIR`; Nia staged into `Content/CC_ControlRig_Nia` **only** with `-Resident Nia` |
+
+Both pass the resident choice to the script as `MHLLM_RESIDENT` — see [The resident](#the-resident).
 
 The script reads every external path through `MHLLM_*` environment variables whose **defaults are
 the container mount points**, so the server pipeline is unchanged and the local build simply
@@ -47,6 +49,81 @@ what the native build did until `BuildNative.ps1` learned to author. `BuildNativ
 fails loudly if the authoring did not report `SUCCESS`, did not place a resident, or produced a
 map under 200 KB, and it puts the stub back afterwards: an authored `.umap` is a build artifact of
 ONE engine version, and a 5.8-authored map cannot be loaded by the 5.5 cook.
+
+## The resident
+
+The default resident is the **MetaHuman "Seo"**. The Reallusion Character Creator **"Nia"** is
+still fully supported, but only when asked for by name:
+
+| | MetaHuman "Seo" (default) | Reallusion "Nia" (opt-in) |
+|---|---|---|
+| select it | nothing, or `-Resident MetaHuman` / `MHLLM_RESIDENT=metahuman` | `-Resident Nia` / `MHLLM_RESIDENT=nia` |
+| input | FBX export: `fbx/SKM_MHC_Seo_BodyMesh.fbx`, `fbx/SKM_MHC_Seo_FaceMesh.fbx`, `fbx/MHC_Seo_Outfits.fbx` | the `CC_ControlRig_Nia` content folder |
+| where it lives | core-2 `/home/ci/mh-seo` (`/mh`); Windows `-MetaHumanDir`, `MHLLM_MH_DIR`, default `C:\devel\_mh-convert\out\seo` | core-2 `/home/ci/nia-content`; Windows `-NiaContent` / `MHLLM_NIA_CONTENT` |
+| placed as | three `SkeletalMeshActor`s (Face, Body, Outfit) at one transform; **Body and Outfit attached to the Face** | one `SkeletalMeshActor` (`SK_Nia`) with her baked idle |
+| tags | `CompanionFace`, `FaceProfile=ARKit` on the Face | `CompanionFace`, `FaceProfile=CC` |
+| gate line | `resident: METAHUMAN placed` (else `METAHUMAN INCOMPLETE`) | `resident: NIA placed` — unchanged |
+
+**Why Nia is opt-in.** Her Fab listing, *Character Creator: Nia* by Reallusion Inc (checked
+2026-11-12), is under the Fab Standard License and reads **"Allows usage with AI: No"** — the `NoAI`
+tag — and its description marks her *"Non-Commercial Use"*. Under the Fab EULA (§6(b)(vii), defined in
+§16(l)(i)), NoAI content may not be used "(a) in datasets utilized by Generative AI Programs, (b) in
+the development of Generative AI Programs, or (c) as training inputs to Generative AI Programs". An
+LLM companion that speaks through her is, at best, unclear against (b), and an unclear licence is
+treated as a licence problem. Epic's MetaHuman licence answers the same question directly: *"You can
+use MetaHuman characters and animation in workflows that incorporate artificial intelligence
+technology"*, with the one restriction being use to build databases or to train or test AI — and
+the Unreal Engine EULA's change log records that restriction as **removed** from Section 6(e) in EULA
+update 22 (October 30, 2026). This build does neither under either version. The README's
+*Licensing* section has the links, the quotes and what is still open.
+
+Nia is **not even loaded** unless requested. A checkout that once built with `-Resident Nia` keeps her
+staged in `Content/CC_ControlRig_Nia` (gitignored, not deleted); the old script loaded her
+unconditionally and would have made her the resident of every later build. A leftover copy is not
+cooked into a MetaHuman build either: `DefaultGame.ini`'s `MapsToCook` lists only
+`/Game/Maps/CompanionStage`, so the cook takes that map and what it references, and a MetaHuman map
+references nothing of hers. `m2_clean.sh` additionally refuses to cook a MetaHuman build whose tree
+contains her.
+
+**Why the Face carries the tags.** The runtime treats the *tagged actor* as the whole character:
+`UCompanionFaceSubsystem` drives the morph targets on its skeletal mesh, and `UCompanionStageDirector`
+turns it to meet the camera and frames the shot on it. Seo's facial morph targets (849) are on the
+Face mesh, so the Face is tagged; Body and Outfit are **attached** to it so the opening turn rotates the
+whole figure rather than a head above a still body; and the director measures the eyeline over the
+resident *plus its attached actors*, because the face's own bounds are a head-sized box. Before this,
+Seo carried no tag at all: the face driver reached her only through its "most morph targets" fallback,
+and the stage director found no resident.
+
+**Which rig the face assumes.** `MHLLM_FACE_PROFILE` if set, else the resident's `FaceProfile=` tag,
+else `CC` — so an old Nia map with no profile tag behaves exactly as before.
+`docker-compose.face.yml` now leaves the variable empty for that reason; it used to pin `CC`.
+
+**Producing the Seo export.** The export is not committed (it is a build input, like the prop GLBs).
+core-2's authoring mounts it from `/home/ci/mh-seo`; if that folder is intact, copying it is the
+quickest way to a local one. To make it from source, `mhc_seo.mhpkg` (a UE 5.6 MetaHuman
+EditableCharacter) has to be imported and **assembled in the interactive 5.8 editor** and exported
+with `Deployment/metahuman/03_export_fbx_from_GUI.py` from *Tools > Execute Python*, which writes
+`C:\devel\_mh-convert\out\seo\fbx\`. Both steps deadlock headless — see `HANDOFF-METAHUMAN-SKIN.md`.
+`BuildNative.ps1` checks for all three FBX files before it launches the editor and names the missing
+ones; the outfit is not optional, because MetaHuman removes the body geometry under clothing.
+
+**What the MetaHuman resident does not have yet** — none of this blocks a build, all of it is visible:
+
+- **The face mapping is unverified.** Her face is tagged `FaceProfile=ARKit`, the profile this codebase
+  designates for MetaHuman faces, but nobody has listed the morph-target names on the *FBX-exported*
+  `SKM_MHC_Seo_FaceMesh`. A MetaHuman face is normally driven through RigLogic (joints plus corrective
+  shapes); an FBX round-trip keeps the blend shapes, possibly under DNA-style names rather than ARKit
+  ones. The runtime log settles it: `Face driver bound to '…': R/N profile curves resolved`, followed
+  by either `Face profile 'ARKit': all N curves resolved on '…'` or the list of missing curves. If R is
+  0, the resident needs a MetaHuman-specific profile.
+  `Deployment/metahuman/09_probe_face_rig.py` lists a mesh's morph names and counts the ARKit and CC
+  samples it carries; set `MHLLM_PROBE_MESH` to the Seo face under `/Game/Seo/Face` (it defaults to
+  Nia) and `MHLLM_PROBE_OUT` to where the report should go.
+- **No idle animation.** She stands in the export's bind pose. Nia ships a baked idle; Seo does not.
+- **Flat skin.** The constant-colour `M_SeoSkin` instances from the original port, not MetaHuman's
+  skin shader (`HANDOFF-METAHUMAN-SKIN.md` §4 ranks the fixes).
+- **Eyeline literal.** The authored fallback `StageCamera` uses `EYE_Z = 165` because only Nia's height
+  is measured in the script. The runtime director, which owns the shot, measures it.
 
 ## Assets: scavenged vs authored
 

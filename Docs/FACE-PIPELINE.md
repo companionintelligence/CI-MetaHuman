@@ -96,8 +96,12 @@ Each profile carries four *deliberately separate* curve sets:
 | `GazeCurves` | eye look directions | declared; **no driver yet** |
 
 Selection is `FFaceProfile::ByName` — `"ARKit"` case-insensitively, **anything else silently
-becomes CC**. Two call sites: `MHLLM_FACE_PROFILE` at `UCompanionFaceSubsystem` startup, and the
-operator console's live `ApplySettings`.
+becomes CC**. Which name it is asked for comes from `UCompanionFaceSubsystem::ResolveProfileName`:
+`MHLLM_FACE_PROFILE` if set, else the resident's `FaceProfile=` actor tag (`author_diorama.py` stamps
+`ARKit` on the default MetaHuman resident and `CC` on the opt-in Nia), else `CC`, which is what every
+map authored before the tag existed was built for. Two call sites: `UCompanionFaceSubsystem` startup,
+and the operator console's live `ApplySettings`, whose initial value is seeded from the same
+resolution so the first console change cannot swap the rig.
 
 ### 3.1 The resident is CC-named, not ARKit-named
 
