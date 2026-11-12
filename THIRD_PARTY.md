@@ -77,6 +77,12 @@ in [NOTICE.md](NOTICE.md).
 | Mesa and libdrm (built from source) | `Deployment/Dockerfile.mesagit` | MIT for the core libraries; other components carry their own licences (see Mesa's licence documentation) |
 | Ubuntu 26.04 base | `Deployment/Dockerfile.amd`, `Dockerfile.editorpreview`, `Dockerfile.mesagit` | Ubuntu packages under their own licences, many GPL or LGPL |
 
+### Build tools that set licence terms
+
+| Tool | Used for | Licence | Effect on this repository |
+|---|---|---|---|
+| Blender 5.1 | runs `Deployment/blender/make_period_props.py`, `Deployment/blender/make_ibm729.py`, `Deployment/blend_fix_mats.py` and `Deployment/ue_prop_fbx.py` on a workstation to make the prop GLBs; not shipped | GPL-3.0-or-later | The four scripts import Blender's Python API, so they are GPL-3.0-or-later rather than PolyForm Noncommercial. See [NOTICE.md](NOTICE.md) |
+
 ### 3D assets
 
 The machine-room props are listed with their licences and attributions in

@@ -8,11 +8,38 @@ for acknowledgements.
 <!-- hand-authored: do not regenerate this section -->
 ## Copyleft components and the source-offer duty
 
-**The repository itself** contains one reciprocal-licence component: the Montserrat fonts in
-`Content/Fonts`, under the SIL Open Font License 1.1. Modified versions of the fonts must stay
-under the OFL, and each copy of the fonts must carry their copyright notice and licence, so
-ship `Content/Fonts/OFL-Montserrat.txt` with any packaged build. Using the fonts in software is
-unrestricted. The repository contains no GPL code.
+**The repository itself** contains two copyleft or reciprocal-licence components.
+
+- **Four Blender scripts, GPL-3.0-or-later.** `Deployment/blender/make_period_props.py`,
+  `Deployment/blender/make_ibm729.py`, `Deployment/blend_fix_mats.py` and
+  `Deployment/ue_prop_fbx.py` run inside Blender and import its Python API (`bpy`, with `bmesh`
+  and `mathutils`). Blender is GPL-3.0-or-later (`license/license.md` in the Blender
+  installation), and the `bpy` package carries `SPDX-License-Identifier: GPL-2.0-or-later`. The
+  FSF holds that a program which reaches GPL-covered facilities through an interpreter's
+  bindings is linked to them and must be released in a GPL-compatible way
+  ([GPL FAQ](https://www.gnu.org/licenses/gpl-faq.html#IfInterpreterIsGPL)). Blender's
+  [FAQ](https://www.blender.org/support/faq/) and [licence page](https://www.blender.org/about/license/)
+  apply this to scripts: published scripts that use the Blender Python API must be shared under
+  the GPL. The Blender manual requires GPL-3.0-or-later for add-ons
+  ([Extension Licenses](https://docs.blender.org/manual/en/latest/advanced/extensions/licenses.html)).
+  PolyForm Noncommercial is not GPL-compatible. These four files are therefore licensed under the
+  GNU General Public License v3.0 or later, not PolyForm Noncommercial, as their
+  `SPDX-License-Identifier` headers state. The full text is in
+  [`LICENSES/GPL-3.0-or-later.txt`](LICENSES/GPL-3.0-or-later.txt). Anyone may use, change and
+  redistribute these files under the GPL, commercially or not. They are source code, so
+  publishing them here already provides their source. Anyone who redistributes them must keep
+  their notices and pass the GPL on. The packaged app and the runtime images do not contain them.
+  The GPL does not extend to the GLBs the scripts write. GPL-3.0 section 2 covers the output of a
+  covered work only when the output is itself a covered work, and the Blender manual states that
+  the GPL does not apply to artwork made with Blender
+  ([About Free Software and the GPL](https://docs.blender.org/manual/en/latest/getting_started/about/license.html)).
+  The props remain CI-authored works ([CREDITS.md](CREDITS.md)).
+- **Montserrat, SIL Open Font License 1.1**, in `Content/Fonts`. Modified versions of the fonts
+  must stay under the OFL, and each copy of the fonts must carry their copyright notice and
+  licence, so ship `Content/Fonts/OFL-Montserrat.txt` with any packaged build. Using the fonts in
+  software is unrestricted.
+
+No other file in the repository is under a GPL-family licence.
 
 **Images built from `Deployment/kokoro-align` contain copyleft software:**
 
@@ -149,8 +176,9 @@ repository, for example through a credits link on the streaming page.
 ## Epic Games Unreal Engine, MetaHuman and Fab content (not covered)
 
 The PolyForm Noncommercial License 1.0.0 applies to Companion Intelligence's own code and content
-only. It does **not** cover Epic Games' Unreal Engine, Unreal Engine source or tools, MetaHuman
-characters, or any other Epic Games or Fab/Marketplace assets used or referenced by this project.
+only, apart from the four GPL-3.0-or-later Blender scripts listed above. It does **not** cover
+Epic Games' Unreal Engine, Unreal Engine source or tools, MetaHuman characters, or any other Epic
+Games or Fab/Marketplace assets used or referenced by this project.
 Those remain under the Epic Games End User License Agreement and the applicable Unreal Engine,
 MetaHuman and Fab terms, and you must obtain and comply with them yourself. Nothing here grants
 any right in Epic's or any third party's materials.

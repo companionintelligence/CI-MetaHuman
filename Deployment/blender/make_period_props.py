@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 LifeScope INC, DBA Companion Intelligence (https://ci.computer)
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# This script imports Blender's Python API (bpy), so it is licensed under the GNU General Public
+# License v3.0 or later (LICENSES/GPL-3.0-or-later.txt), not under the PolyForm Noncommercial
+# licence that covers the rest of this repository. NOTICE.md explains why. The GPL does not
+# extend to the GLB files the script writes.
 """Builds the CI-authored machines that replace the scavenged props the set could not keep, and
 exports each under the file name Deployment/author_diorama.py already loads. Blender, headless.
 
