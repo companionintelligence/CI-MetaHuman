@@ -8,6 +8,10 @@ CI-MetaHuman is a locally hosted embodied companion built with Unreal Engine. Th
 
 CI-MetaHuman uses the [PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0). The full text is in [`LICENSE`](../LICENSE).
 
+### Is any of Companion Intelligence's own code under a different license?
+
+Yes, four Blender scripts: `Deployment/blender/make_period_props.py`, `Deployment/blender/make_ibm729.py`, `Deployment/blend_fix_mats.py` and `Deployment/ue_prop_fbx.py`. They import Blender's Python API, which is GPL-licensed, so they are licensed under the GNU GPL v3.0 or later instead, as their headers state. The full text is in [`LICENSES/GPL-3.0-or-later.txt`](../LICENSES/GPL-3.0-or-later.txt), and [`NOTICE.md`](../NOTICE.md) explains why.
+
 ### What freedoms do you have as a CI-MetaHuman user?
 
 If you use CI-MetaHuman for personal or nonprofit purposes, you can view, modify, and redistribute the source under the same license terms, subject to the PolyForm Noncommercial restrictions.

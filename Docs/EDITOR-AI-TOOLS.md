@@ -34,7 +34,9 @@ available.
 
 ## MetaHuman generation requirements
 
-The included project asset `DefaultCompanion` is rigged, but MetaHuman assembly still requires
+The repository no longer ships a MetaHuman asset. `DefaultCompanion` was removed from the public
+tree for licensing reasons (see [NOTICE.md](../NOTICE.md)), and earlier commits still hold it.
+Keep characters you create in private storage, not in this repository. MetaHuman assembly needs
 valid texture sources. Creating a new character from an engine preset produces an editable
 MetaHuman Character asset; it still needs Epic's MetaHuman service to auto-rig and download texture
 sources before it can be assembled into an actor Blueprint. Sign in to the MetaHuman service in

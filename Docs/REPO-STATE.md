@@ -202,7 +202,21 @@ after the Slate HUD went live, because the dead class kept answering the questio
 
 **Deleted.** Both files removed and the two comments that named it updated; zero references remain.
 
-## 9. 262 MB of LFS the cook throws away — **DO NOT DELETE**
+## 9. 262 MB of LFS the cook throws away — removed from the tree, kept in history
+
+> **Superseded, 2026-11-12: these 28 files are now removed from the tree.** The reasoning below
+> was about losing the assets. The deciding problem turned out to be distributing them: this repo
+> is public, and these are Epic MetaHuman and outfit source assets (`.uasset`, uncooked) that
+> `NOTICE.md` had already flagged for legal review. The removal was checked first. Nothing in
+> `Config/`, `Source/`, `Plugins/`, `Deployment/`, `Scripts/` or the `.uproject` names them,
+> except `Dockerfile.amd`'s strip list, which only deletes them. No other asset's import table
+> references them, and the project has no redirectors.
+>
+> Removing them from the tree does not lose them, which addresses the concern below. **Every
+> earlier commit still contains them in Git LFS**, so `git checkout <commit> -- <path>` restores
+> them. If the history is ever rewritten to purge them from the public repo, copy them to private
+> storage first: that rewrite is what would make them unrecoverable. The strip list in
+> `Dockerfile.amd` is now a harmless no-op.
 
 28 tracked LFS files, all matched by `Dockerfile.amd`'s strip list for pre-5.6 targets:
 

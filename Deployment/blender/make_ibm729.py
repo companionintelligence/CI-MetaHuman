@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 LifeScope INC, DBA Companion Intelligence (https://ci.computer)
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# This script imports Blender's Python API (bpy), so it is licensed under the GNU General Public
+# License v3.0 or later (LICENSES/GPL-3.0-or-later.txt), not under the PolyForm Noncommercial
+# licence that covers the rest of this repository. NOTICE.md explains why. The GPL does not
+# extend to the GLB file the script writes.
 """Builds the IBM 729 tape unit and exports it as ibm-729-tape.glb. Blender, headless.
 
     blender --background --python Deployment/blender/make_ibm729.py -- --out <dir_or_file>
