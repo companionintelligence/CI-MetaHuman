@@ -1,7 +1,7 @@
 # Documentation index
 
 **Eliza** — a locally-hosted embodied AI companion. A Reallusion Character Creator avatar in a
-1970s mainframe room, rendered in Unreal Engine 5.5, delivered two ways: a Linux container cook
+1970s mainframe room, rendered in Unreal Engine 5.8, delivered two ways: a Linux container cook
 streamed to browsers via Pixel Streaming, and a native Windows executable. All inference is local:
 Ollama for cognition, Kokoro for speech, Whisper for hearing, on AMD ROCm hardware we own.
 
@@ -23,6 +23,7 @@ Ollama for cognition, Kokoro for speech, Whisper for hearing, on AMD ROCm hardwa
 | [`USER-FLOWS.md`](USER-FLOWS.md) | Kiosk visitor and native desktop user; the scripted opening; the chat box and its focus behaviour over Pixel Streaming |
 | [`BUILD-AND-DEPLOY.md`](BUILD-AND-DEPLOY.md) | The Linux container cook, the native Windows build, the shared definition of the set, and the verification gates that refuse a stale tree |
 | [`CONFIGURATION.md`](CONFIGURATION.md) | Every `MHLLM_*`, `OLLAMA_*`, `KOKORO_*`, `WHISPER_*`, `CI_*` variable: default, effect, precedence |
+| [`EDITOR-AI-TOOLS.md`](EDITOR-AI-TOOLS.md) | UE 5.8 editor setup, VibeUE and VibeMetaHumans, and the loopback-only MCP workflow |
 | [`TESTING.md`](TESTING.md) | The five verification layers, and the discipline: exit codes **and** `Started == Completed`, pixels not logs, audio energy not track existence |
 | [`ROADMAP.md`](ROADMAP.md) | What does not exist yet, ranked — and the buy-vs-build conclusion |
 

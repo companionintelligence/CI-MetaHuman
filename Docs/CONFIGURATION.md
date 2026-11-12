@@ -179,7 +179,7 @@ would be silently ignored on every machine that had already held one conversatio
 | `UE_RELEASE` | `5.8` (from `.env.example`) | The base compose's image tag and its `--build-arg RELEASE`. **It does not reach every stack**: `docker-compose.face.yml` pins `ci/metahuman-local-llm:5.8-face` and `docker-compose.ue55.yml` pins `:5.5`, both literals that override the tag this builds. The face pin now names the same 5.8 this variable carries — deliberately, since `m2_clean.sh` builds `…:5.8-face` and hard-fails with `COMPOSE_IMAGE_MISMATCH` if the two drift — so only the ue55 stack still diverges |
 | `UE_RELEASE_SHORT` | `5.8` (from `.env.example`) | **Nothing reads it.** Repo-wide the name occurs only in `.env.example`, in a `docker-compose.yml` comment recording that it is dead, and in this table — no compose file consumes it and no source file reads it. Dead rather than merely undelivered |
 | `PROJECT_DOCKERFILE` | `Deployment/Dockerfile` | Set to `Deployment/Dockerfile.amd` on core-2 |
-| `SIGNALLING_IMAGE` | `…signalling-server:5.5` | Epic publishes only `:5.5` |
+| `SIGNALLING_IMAGE` | `ci/pixelstreaming-signalling:ue5.8` | Built from the pinned Epic Pixel Streaming Infrastructure source |
 | `PUBLIC_IP` | auto-detected by `run.sh` (via `api.ipify.org`, curl or wget) | `--publicIp` and the TURN ICE URL. `docker-compose.ollama.yml` defaults the signalling service's copy to `127.0.0.1` |
 | `TURN_USER` / `TURN_PASSWORD` | `ci-agent` / `change-me-turn-password`, both from `.env.example` — the compose interpolates them with no fallback | coturn credentials |
 | `STREAM_RES_X` / `STREAM_RES_Y` | `720` / `1280` (AMD override) | **Portrait** — the product is a video call |

@@ -1,0 +1,17 @@
+# Add the headless EGL/GLVND libraries required by NVIDIA's Vulkan ICD to an existing packaged
+# UE application image without repeating the editor cook. Example:
+#
+#   docker build --build-arg BASE_IMAGE=ci/metahuman-local-llm:5.8 \
+#     -f Deployment/Dockerfile.vulkan-runtime \
+#     -t ci/metahuman-local-llm:5.8-vulkan .
+
+ARG BASE_IMAGE=ci/metahuman-local-llm:5.8
+FROM ${BASE_IMAGE}
+
+USER root
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        libegl1 libgl1 libx11-6 libx11-xcb1 libxext6 \
+    && rm -rf /var/lib/apt/lists/*
+
+USER ue4

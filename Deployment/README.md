@@ -33,7 +33,7 @@ configure against.
 | Service      | Image                                                       | Role |
 |--------------|-------------------------------------------------------------|------|
 | `project`    | built from `Deployment/Dockerfile`                          | The packaged UE app; renders offscreen, streams, and talks to the chat endpoint |
-| `signalling` | `ghcr.io/epicgames/pixel-streaming-signalling-server`       | WebRTC signalling + player page |
+| `signalling` | `ci/pixelstreaming-signalling:ue5.8` (built locally) | UE 5.8 WebRTC signalling + patched player page |
 | `oidc-proxy` | `quay.io/oauth2-proxy/oauth2-proxy`                          | CI-portal OIDC login in front of the stream; the only reader of `.env.edge` |
 | `turnserver` | `coturn/coturn`                                             | WebRTC relay for NAT/firewall traversal |
 
@@ -43,8 +43,10 @@ ports 8090, 8888, and 8889 published only on `127.0.0.1`; oauth2-proxy is the on
 ## Prerequisites
 
 1. **Epic image access** — link your GitHub account to Epic Games and accept the UE EULA,
-   then `docker login ghcr.io`. Grants access to `ghcr.io/epicgames/unreal-engine:*` and the
-   signalling-server image.
+   then `docker login ghcr.io` for the Unreal Engine image. The signalling server is built from
+   Epic's public `PixelStreamingInfrastructure` source pinned in `.env.example`.
+   The NVIDIA runtime includes EGL/GLVND libraries for headless Vulkan. If you need to reuse an
+   older packaged image without recooking, add them with `Deployment/Dockerfile.vulkan-runtime`.
 2. **GPU host** — a Linux host that can render (Vulkan) and encode video. Two GPU paths:
    - **NVIDIA** — GPU with Vulkan and NVENC. Use the default `Dockerfile` +
      `docker-compose.nvidia.yml` and NVIDIA Container Toolkit CDI. The default stream codec is VP8:
@@ -256,8 +258,8 @@ comments explain each case.
 - **Pixel Streaming 2** is the plugin enabled in the `.uproject`
   (`-PixelStreamingUrl=ws://127.0.0.1:8888`). For the legacy Pixel Streaming plugin, substitute
   `-PixelStreamingIP`/`-PixelStreamingPort`.
-- **Encoder and player codec must match.** The mounted `pixelstreaming/player.html` selects VP8 unless
-  the URL explicitly sets `PreferredCodec`; the NVIDIA and AMD previews use VP8 when H.264 hardware
+- **Encoder and player codec must match.** The pinned signalling image build patches the upstream
+  frontend to select VP8 unless the URL explicitly sets `PreferredCodec`; the NVIDIA and AMD previews use VP8 when H.264 hardware
   encoder initialization is unavailable. This avoids the misleading state where WebRTC connects
   and audio flows, but the browser waits forever for video.
 - **Runtime validation.** On 2026-11-02 the Linux build and cook completed on core-2; the UE 5.8

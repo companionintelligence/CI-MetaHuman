@@ -128,7 +128,7 @@ negotiated audio track, UE logs `OnAudioTrackUpdate`, WebRTC internals show byte
 up only in `video.srcObject.getAudioTracks()`, which was empty. Measuring exactly that is what
 settled it.
 
-Fixed in `Deployment/pixelstreaming/player.html` (the page already mounted over the stock one).
+Fixed by `Deployment/patch_pixelstreaming_player.py` in the pinned signalling image build.
 Measured with `Deployment/core2/bank_chat_audio.mjs`, same container, before and after:
 
 ```

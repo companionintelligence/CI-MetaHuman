@@ -142,8 +142,8 @@ What *was* broken:
 - **Pointer lock froze the coordinates.** The stock player page defaults to the locked-mouse
   control scheme and calls `requestPointerLock` on first click. Clicks at `(300,1269)` and
   `(657,1269)` reached the app as **`(0,640)`** and **`(720,1280)`** — the left edge and the far
-  corner. `Deployment/pixelstreaming/player.html` is Epic's page byte-for-byte plus one inline
-  script setting `HoveringMouse=true` before `player.js` parses. The same clicks then arrive at
+  corner. `Deployment/patch_pixelstreaming_player.py` adds the `HoveringMouse=true` default to
+  Epic's pinned player source before the player bundle is built. The same clicks then arrive at
   `(299,1269)` and `(657,1269)`. Append `?HoveringMouse=false` to get the stock behaviour back.
 - **A streamed tap is not a local click.** Epic's fake-touch controller turns one tap into
   `MouseEnter`/`MouseDown`/`MouseUp`/`MouseLeave` with no `MouseMove`, and the input handler drains
