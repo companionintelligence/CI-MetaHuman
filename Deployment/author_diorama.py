@@ -342,6 +342,60 @@ try:
     paint(ceil, "M_SetCeiling", (0.90, 0.90, 0.88), 0.8)                  # see note: needs geometry
     w("shell ok (walls + ceiling)")
 
+    # ---------- glass frontage / IBM storefront entrance ----------
+    # The opening camera starts on a small exterior apron and passes through this curtain wall.
+    # Keep a central double-width entry; the glass stays lightly tinted so the first frame reads
+    # as a datacenter behind a storefront instead of a dark reflection.
+    glass_path = "/Game/Diorama/SetMats/M_FrontGlass_Tint"
+    glass_mat = unreal.EditorAssetLibrary.load_asset(glass_path)
+    if not glass_mat:
+        glass_mat = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
+            "M_FrontGlass_Tint", "/Game/Diorama/SetMats", unreal.Material, unreal.MaterialFactoryNew())
+        glass_mat.set_editor_property("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT)
+        glass_col = unreal.MaterialEditingLibrary.create_material_expression(
+            glass_mat, unreal.MaterialExpressionVectorParameter, -400, 0)
+        glass_col.set_editor_property("parameter_name", "Tint")
+        glass_col.set_editor_property("default_value", unreal.LinearColor(0.28, 0.075, 0.025, 1.0))
+        unreal.MaterialEditingLibrary.connect_material_property(
+            glass_col, "RGB", unreal.MaterialProperty.MP_BASE_COLOR)
+        glass_opacity = unreal.MaterialEditingLibrary.create_material_expression(
+            glass_mat, unreal.MaterialExpressionConstant, -400, 180)
+        glass_opacity.set_editor_property("r", 0.10)
+        unreal.MaterialEditingLibrary.connect_material_property(
+            glass_opacity, "", unreal.MaterialProperty.MP_OPACITY)
+        glass_roughness = unreal.MaterialEditingLibrary.create_material_expression(
+            glass_mat, unreal.MaterialExpressionConstant, -400, 340)
+        glass_roughness.set_editor_property("r", 0.12)
+        unreal.MaterialEditingLibrary.connect_material_property(
+            glass_roughness, "", unreal.MaterialProperty.MP_ROUGHNESS)
+        unreal.MaterialEditingLibrary.recompile_material(glass_mat)
+
+    # Plane and cube dimensions use Unreal's 100cm base scale. The apron supports the exterior
+    # establishing key; the entry opening is left clear in the centre of the front wall.
+    forecourt = spawn(unreal.StaticMeshActor, (-1250, 0, -2))
+    forecourt.static_mesh_component.set_static_mesh(plane)
+    forecourt.set_actor_scale3d(unreal.Vector(5.0, 14.0, 1.0))
+    paint(forecourt, "M_Forecourt", (0.09, 0.065, 0.05), 0.82)
+    sill = spawn(unreal.StaticMeshActor, (-990, 0, 42))
+    sill.static_mesh_component.set_static_mesh(cube)
+    sill.set_actor_scale3d(unreal.Vector(0.18, 14.0, 0.84))
+    paint(sill, "M_FrontSill_FlameRed", (0.42, 0.075, 0.032), 0.68)
+    header = spawn(unreal.StaticMeshActor, (-990, 0, 478))
+    header.static_mesh_component.set_static_mesh(cube)
+    header.set_actor_scale3d(unreal.Vector(0.18, 14.0, 0.44))
+    paint(header, "M_FrontHeader", (0.10, 0.035, 0.025), 0.78)
+    for y in (-600, -400, -200, 200, 400, 600):
+        pane = spawn(unreal.StaticMeshActor, (-990, y, 250))
+        pane.static_mesh_component.set_static_mesh(cube)
+        pane.set_actor_scale3d(unreal.Vector(0.035, 1.8, 4.2))
+        pane.static_mesh_component.set_material(0, glass_mat)
+    for y in range(-700, 701, 200):
+        mullion = spawn(unreal.StaticMeshActor, (-982, y, 250))
+        mullion.static_mesh_component.set_static_mesh(cube)
+        mullion.set_actor_scale3d(unreal.Vector(0.10, 0.075, 4.35))
+        paint(mullion, "M_FacadeMullion_%d" % (y + 700), (0.12, 0.055, 0.035), 0.42)
+    w("glass storefront frontage placed (central entry clear)")
+
     # ---------- reference match: fluorescent troffers + operator desk ----------
     # From the Old IBM Datacenter reference set. Two details do most of the work in those images
     # and neither is prop geometry, which is why they are worth doing even though we do not own
@@ -577,7 +631,7 @@ try:
     #
     # The live NVIDIA stream is 1920x1080. Keep the near banks within the camera's horizontal
     # coverage so their machine faces read behind the resident; the second rank adds depth.
-    CAM_DIST = 180.0
+    CAM_DIST = 430.0
     HALL = []
     for i, x in enumerate((420, 600, 780, 980, 1200, 1440)):
         HALL.append((("ibm2401", "ibm3350", "ibm1401cpu")[i % 3], x, -105,  90, (183, 150, 170)[i % 3]))
@@ -1056,26 +1110,9 @@ try:
         w("room tone skipped: %s" % e)
 
     # ---------- camera / player ----------
-    # The view comes from the DefaultPawn spawned at this PlayerStart — NOT from a
-    # CameraActor. An auto-activating CameraActor welds the view target to itself, so the
-    # pawn still receives input and still moves while the picture never changes: input looks
-    # dead. (The framing problem that CameraActor was added to solve was really the
-    # Rotator(roll,pitch,yaw) bug above, now fixed — PlayerStart aims correctly on its own.)
-    # PlayerStart rotation seeds the initial control rotation, so Pixel Streaming mouse/WASD
-    # fly the view from exactly this pose.
-    # The view comes from an auto-activating StageCamera, which is the only thing that has
-    # reliably framed this set. Driving the view from the GameModeBase DefaultPawn does NOT
-    # work here: the map's PlayerStart is provably correct (probed at (-250,-60,175) pitch
-    # -5.9) yet the pawn's view lands elsewhere and renders floor tiles — and re-authoring the
-    # whole set around the world origin did not change it either. Unresolved; tracked as a
-    # known issue. Framing the character beats free-look for a fixed-camera diorama, so the
-    # camera wins until the pawn spawn is understood.
-    # TRADE-OFF: an auto-activated CameraActor becomes the view target, so player input moves
-    # the pawn invisibly — free-look will stay dead until this is solved properly.
-    # LANDSCAPE FRAMING — Razer's NVIDIA Pixel Streaming stream is 1920x1080. The previous
-    # 21-degree lens at 106cm produced a tight portrait crop in this landscape stream. A 65-degree
-    # lens at 180cm gives roughly 230cm horizontal and 129cm vertical coverage at the resident,
-    # while the computer banks sit wider than the centre aisle instead of crowding the foreground.
+    # The runtime StageDirector owns the moving camera. This authored camera is only a fallback
+    # and intentionally does not auto-activate, which previously overrode the tour during stream.
+    # Keep its landscape framing consistent with the director's 430cm / 48-degree landing shot.
     #
     # She stands at (330, 20, 0) facing -X (actor yaw 90, see NIA_YAW), so the camera must be on
     # the -X side of her to see a face rather than the back of her head. Eyeline comes from the
@@ -1089,9 +1126,11 @@ try:
     cam_pitch = math.degrees(math.atan2(dz, math.sqrt(dx*dx + dy*dy)))
     cam = spawn(unreal.CameraActor, CAM_POS, yaw=cam_yaw, pitch=cam_pitch)
     cam.set_actor_label("StageCamera")
-    cam.set_editor_property("auto_activate_for_player", unreal.AutoReceiveInput.PLAYER0)
+    # The runtime StageDirector owns the view target and animates its own camera along the tour.
+    # Auto-activating this static editor camera overrode the director in Pixel Streaming, so the
+    # flythrough ran in logs while viewers stayed on the unmoving authored camera.
     try:
-        cam.camera_component.set_editor_property("field_of_view", 65.0)
+        cam.camera_component.set_editor_property("field_of_view", 48.0)
         # Let the camera fill the configured 16:9 stream without letterboxing.
         cam.camera_component.set_editor_property("constrain_aspect_ratio", False)
         cam.camera_component.set_editor_property("aspect_ratio", 1920.0 / 1080.0)

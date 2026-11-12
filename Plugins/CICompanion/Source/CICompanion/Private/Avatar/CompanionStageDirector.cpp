@@ -18,9 +18,8 @@
 
 namespace
 {
-	// Shared by both opt-in switches. Only an affirmative value counts: unset, empty, "0" and
-	// anything unrecognised all mean "no", so the safe/static behaviour is what you get by default
-	// and by typo.
+	// Explicit positive values for the opt-in free-look switch. The opening shot has its own
+	// default-on policy and uses this parser only when a value is actually supplied.
 	bool StageOptedIn(const FString& RawValue)
 	{
 		const FString V = RawValue.TrimStartAndEnd();
@@ -30,8 +29,7 @@ namespace
 			|| V.Equals(TEXT("on"), ESearchCase::IgnoreCase);
 	}
 
-	// Smoothstep. Linear interpolation between keys makes the camera start and stop abruptly at
-	// every waypoint, which reads as a machine executing moves rather than as a shot.
+	// Smoothstep eases the camera at the overall move endpoints and turns the resident gently.
 	// Named uniquely because Unreal's unity build merges anonymous namespaces across the .cpp
 	// files it concatenates, so a bare "Ease" here can collide with one in a neighbouring file.
 	float StageEase(float T)
@@ -52,7 +50,10 @@ bool UCompanionStageDirector::ShouldCreateSubsystem(UObject* Outer) const
 
 bool UCompanionStageDirector::ShouldPlayOpeningShot(TFunctionRef<FString(const TCHAR*)> Lookup)
 {
-	return StageOptedIn(Lookup(TEXT("MHLLM_OPENING_SHOT")));
+	const FString Value = Lookup(TEXT("MHLLM_OPENING_SHOT")).TrimStartAndEnd();
+	// A level load is the opening's natural trigger: show the room tour, then settle on the
+	// resident. Explicit false values still give editor and capture workflows a static frame.
+	return Value.IsEmpty() || StageOptedIn(Value);
 }
 
 bool UCompanionStageDirector::ShouldAllowFreeLook(TFunctionRef<FString(const TCHAR*)> Lookup)
@@ -136,7 +137,7 @@ void UCompanionStageDirector::OnWorldBeginPlay(UWorld& InWorld)
 	}
 	if (UCameraComponent* Cam = Camera->GetCameraComponent())
 	{
-		Cam->SetFieldOfView(28.0f);
+		Cam->SetFieldOfView(48.0f);
 		// Portrait needs BOTH the resolution and this: a CameraComponent constrains its aspect
 		// ratio by default, which letterboxes a 16:9 image inside the 9:16 canvas.
 		Cam->SetConstraintAspectRatio(false);
@@ -165,7 +166,7 @@ void UCompanionStageDirector::OnWorldBeginPlay(UWorld& InWorld)
 		LockPlayerView();
 
 		UE_LOG(LogCompanionStage, Log,
-			TEXT("Static shot: camera pinned to the call framing (free-look %s). Set MHLLM_OPENING_SHOT=1 for the opening move."),
+			TEXT("Static shot: camera pinned to the call framing (free-look %s; set MHLLM_OPENING_SHOT=1 to replay the tour)."),
 			bFreeLook ? TEXT("ON") : TEXT("locked"));
 		return;
 	}
@@ -251,27 +252,22 @@ void UCompanionStageDirector::LockPlayerView()
 
 void UCompanionStageDirector::BuildPath(const FVector& Subject, float EyeZ)
 {
-	// The move: begin deep in the hall looking down the rank of machines, sweep forward and
-	// around, and arrive at the call framing. The final key MUST match the framing solved for the
-	// static shot (300cm back, 28-degree FOV, aimed below and just left of the eyeline) or the
-	// shot would jump at handover.
-	// The closer 160cm shot made the resident dominate the 16:9 frame and left too little of the
-	// room visible around her. The moderate FOV and small look-point offset leave space for the
-	// persistent chat HUD without turning the resident into a distant background figure.
-	const float FinalDist = 300.0f;
+	// Begin just outside the glass frontage, enter down the aisle, pass the tape and disk rows,
+	// then arc into a roomy call frame. The positions follow the authored +X hall axis. A wider
+	// final lens retains enough cabinet context to read as a datacenter rather than an avatar crop.
+	const float FinalDist = 430.0f;
 	const FVector Settle(Subject.X - FinalDist, Subject.Y, EyeZ - 8.0f);
-	const FVector SettleLook(Subject.X, Subject.Y - 18.0f, EyeZ - 25.0f);
-	UE_LOG(LogCompanionStage, Log, TEXT("Call framing measured: %.0fcm from subject, FOV 28 degrees."),
+	const FVector SettleLook(Subject.X, Subject.Y - 8.0f, EyeZ - 18.0f);
+	UE_LOG(LogCompanionStage, Log, TEXT("Call framing measured: %.0fcm from subject, FOV 48 degrees."),
 		FVector::Dist(Settle, FVector(Subject.X, Subject.Y, EyeZ)));
 
 	Path.Reset();
-	// Wide, high, deep in the hall — establishes the room before it establishes her.
-	Path.Add({ FVector(Subject.X + 950.0f, Subject.Y - 520.0f, 300.0f), FVector(Subject.X + 400.0f, Subject.Y - 120.0f, 140.0f), 0.0f });
-	// Drop and swing across the aisle, machines passing camera-left.
-	Path.Add({ FVector(Subject.X + 620.0f, Subject.Y + 430.0f, 225.0f), FVector(Subject.X + 250.0f, Subject.Y + 40.0f, 130.0f), 0.34f });
-	// Come around behind her shoulder — she is still facing away here.
-	Path.Add({ FVector(Subject.X + 150.0f, Subject.Y + 250.0f, 190.0f), FVector(Subject.X, Subject.Y, EyeZ - 30.0f), 0.68f });
-	// Arrive.
+	// Uniform normalized times make the Catmull-Rom tangents predictable and easy to tune.
+	Path.Add({ FVector(Subject.X - 1550.0f, Subject.Y - 220.0f, 280.0f), FVector(Subject.X + 450.0f, Subject.Y - 80.0f, 185.0f), 0.00f });
+	Path.Add({ FVector(Subject.X - 760.0f, Subject.Y - 240.0f, 255.0f), FVector(Subject.X + 220.0f, Subject.Y - 120.0f, 165.0f), 0.20f });
+	Path.Add({ FVector(Subject.X + 80.0f, Subject.Y - 560.0f, 230.0f), FVector(Subject.X + 360.0f, Subject.Y - 250.0f, 145.0f), 0.40f });
+	Path.Add({ FVector(Subject.X + 720.0f, Subject.Y + 480.0f, 220.0f), FVector(Subject.X + 390.0f, Subject.Y + 250.0f, 145.0f), 0.60f });
+	Path.Add({ FVector(Subject.X + 400.0f, Subject.Y + 220.0f, 185.0f), FVector(Subject.X + 90.0f, Subject.Y + 40.0f, EyeZ - 25.0f), 0.80f });
 	Path.Add({ Settle, SettleLook, 1.0f });
 }
 
@@ -290,10 +286,18 @@ FVector UCompanionStageDirector::SampleSpline(const TArray<FStageCameraKey>& Key
 		if (T <= Keys[i].Time)
 		{
 			const float Span = FMath::Max(Keys[i].Time - Keys[i - 1].Time, KINDA_SMALL_NUMBER);
-			const float Alpha = StageEase((T - Keys[i - 1].Time) / Span);
+			const float Alpha = FMath::Clamp((T - Keys[i - 1].Time) / Span, 0.0f, 1.0f);
 			const FVector A = bLookAt ? Keys[i - 1].LookAt : Keys[i - 1].Position;
 			const FVector B = bLookAt ? Keys[i].LookAt : Keys[i].Position;
-			return FMath::Lerp(A, B, Alpha);
+			const int32 PreviousIndex = FMath::Max(i - 2, 0);
+			const int32 NextIndex = FMath::Min(i + 1, Keys.Num() - 1);
+			const FVector Previous = bLookAt ? Keys[PreviousIndex].LookAt : Keys[PreviousIndex].Position;
+			const FVector Next = bLookAt ? Keys[NextIndex].LookAt : Keys[NextIndex].Position;
+			const float StartSpan = i == 1 ? Span : FMath::Max(Keys[i].Time - Keys[PreviousIndex].Time, KINDA_SMALL_NUMBER);
+			const float EndSpan = i == Keys.Num() - 1 ? Span : FMath::Max(Keys[NextIndex].Time - Keys[i - 1].Time, KINDA_SMALL_NUMBER);
+			const FVector StartTangent = (i == 1 ? (B - A) / Span : (B - Previous) / StartSpan) * Span * 0.5f;
+			const FVector EndTangent = (i == Keys.Num() - 1 ? (B - A) / Span : (Next - A) / EndSpan) * Span * 0.5f;
+			return FMath::CubicInterp(A, StartTangent, B, EndTangent, Alpha);
 		}
 	}
 	const FStageCameraKey& Last = Keys.Last();
@@ -306,7 +310,9 @@ void UCompanionStageDirector::ApplyCameraAt(float TimeSeconds)
 	{
 		return;
 	}
-	const float T = FMath::Clamp(TimeSeconds / FMath::Max(FlyDuration, KINDA_SMALL_NUMBER), 0.0f, 1.0f);
+	// Ease only at the shot's endpoints. The interior samples stay on a continuous cubic spline,
+	// rather than stopping and restarting at every key.
+	const float T = StageEase(FMath::Clamp(TimeSeconds / FMath::Max(FlyDuration, KINDA_SMALL_NUMBER), 0.0f, 1.0f));
 	const FVector Pos = SampleSpline(Path, T, false);
 	const FVector Look = SampleSpline(Path, T, true);
 	Camera->SetActorLocation(Pos);
