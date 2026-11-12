@@ -22,8 +22,8 @@ notices those licences require are in [NOTICE.md](NOTICE.md).
 |---|---|---|---|---|
 | VibeUE | `Plugins/VibeUE` | 5.0 | MIT ([`LICENSE`](Plugins/VibeUE/LICENSE)) | Copyright (c) 2025 Kevin Buckley / Buckley Builds LLC |
 | VibeMetaHumans | `Plugins/VibeMetaHumans` | 0.1 | MIT ([`LICENSE`](Plugins/VibeMetaHumans/LICENSE)) | Copyright (c) 2025 Kevin Buckley / Buckley Builds LLC |
-| Montserrat Light, Regular, SemiBold (`.ttf` and the imported `.uasset` fonts) | `Content/Fonts` | — | SIL Open Font License 1.1 ([`OFL-Montserrat.txt`](Content/Fonts/OFL-Montserrat.txt)) | Copyright 2024 The Montserrat.Git Project Authors |
-| Pixel Streaming player page (Epic's stock page plus one inline script) | `Deployment/pixelstreaming/player.html` | from `pixel-streaming-signalling-server:5.5` | MIT | Copyright Epic Games, Inc. |
+| Montserrat Light, Regular, SemiBold (`.ttf` and the imported `.uasset` fonts); SemiBold again for the player page | `Content/Fonts`; `Deployment/pixelstreaming/fonts` | — | SIL Open Font License 1.1 ([`OFL-Montserrat.txt`](Content/Fonts/OFL-Montserrat.txt)) | Copyright 2024 The Montserrat.Git Project Authors |
+| Pixel Streaming player page (Epic's stock page plus one inline script, its Google Fonts links replaced by the self-hosted Montserrat) | `Deployment/pixelstreaming/player.html` | from `pixel-streaming-signalling-server:5.5` | MIT | Copyright Epic Games, Inc. |
 
 Upstream projects: [VibeUE](https://github.com/kevinpbuckley/VibeUE) (VibeMetaHumans is its
 sibling, by the same author), [Montserrat](https://github.com/JulietaUla/Montserrat) and
@@ -45,7 +45,8 @@ sibling, by the same author), [Montserrat](https://github.com/JulietaUla/Montser
   (`PIXEL_STREAMING_INFRASTRUCTURE_REF`), and `Deployment/patch_pixelstreaming_player.py`
   patches its player page. The project is MIT-licensed, Copyright Epic Games, Inc. The image
   also contains the project's npm dependencies, each under its own licence, on a `node:lts`
-  (Debian) base.
+  (Debian) base, and serves Montserrat SemiBold (SIL OFL 1.1, licence file alongside) from
+  `www/fonts/`, so the player page loads nothing from Google Fonts.
 
 ### The resident: engine content by default, Fab characters only on request (not in this repository)
 

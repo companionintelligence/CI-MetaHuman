@@ -33,4 +33,11 @@ RUN cp /src/NODE_VERSION . \
     && cp -a /src/Common /src/Signalling /src/SignallingWebServer /src/Frontend . \
     && SignallingWebServer/platform_scripts/bash/setup.sh --build
 
+# The player page's font, served from this image instead of Google Fonts: the patched page names
+# fonts/Montserrat-SemiBold.ttf relative to itself (patch_pixelstreaming_player.py). Copied AFTER
+# the frontend build because webpack empties www/ when it builds; start.sh only rebuilds the
+# frontend when www/ is missing or --build is passed, and without this file the page falls back to
+# a system sans-serif rather than to Google. The OFL licence travels with the font, as it requires.
+COPY pixelstreaming/fonts/ /SignallingWebServer/SignallingWebServer/www/fonts/
+
 EXPOSE 8090 8888 8889

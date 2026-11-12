@@ -1,7 +1,21 @@
 #!/usr/bin/env python3
-"""Patch Epic's pinned Pixel Streaming player defaults and attach inbound audio."""
+"""Patch Epic's pinned Pixel Streaming player defaults, attach inbound audio, and self-host its font.
+
+Two independent patches, each applied once and recognised by its marker:
+
+- the stream fixes (HoveringMouse and VP8 URL defaults, inbound audio attached to the <video>);
+- the font: Epic's page loads Montserrat and Michroma from Google Fonts, so every viewer's
+  browser contacted fonts.googleapis.com and fonts.gstatic.com before the stream started. Those
+  links are removed and Montserrat SemiBold (the one weight the page asked Google for, SIL Open Font
+  License 1.1) is served by the signalling image itself from fonts/ next to the page:
+  Dockerfile.signalling copies Deployment/pixelstreaming/fonts/ there. Michroma is not vendored, so
+  the UI library's own "'Michroma', sans-serif" falls back to the browser's sans-serif.
+
+A page that still references a Google Fonts host after patching is refused rather than written.
+"""
 
 from pathlib import Path
+import re
 import sys
 
 
@@ -48,16 +62,75 @@ SCRIPT = r"""<script data-ci-companion="ci-companion-stream-fixes-v1">
 </script>
 """
 
+FONT_MARKER = "ci-companion-self-hosted-font-v1"
+# fonts/ is relative to the page, like the page's own player.js and images/. An inline <style> is
+# left alone by the frontend's html-loader, which only rewrites attributes such as <link href>, so
+# the URL reaches the browser exactly as written.
+FONT_STYLE = """<style data-ci-companion="ci-companion-self-hosted-font-v1">
+/* Montserrat SemiBold, served from this image (fonts/OFL-Montserrat.txt: SIL Open Font License 1.1).
+   It replaces the Google Fonts stylesheet Epic's page loads. */
+@font-face {
+  font-family: 'Montserrat';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('fonts/Montserrat-SemiBold.ttf') format('truetype');
+}
+</style>
+"""
+
+GOOGLE_FONT_HOSTS = ("fonts.googleapis.com", "fonts.gstatic.com")
+# Any <link> whose href points at a Google Fonts host: the two preconnects and the stylesheet.
+GOOGLE_FONT_LINK = re.compile(
+    r"[ \t]*<link\b[^>]*\bhref=[\"']https?://fonts\.(?:googleapis|gstatic)\.com[^>]*>[ \t]*\r?\n?",
+    re.IGNORECASE)
+# The page body names Montserrat with no fallback at all; give it one, so a missing font file
+# degrades to a sans-serif instead of the browser's default serif.
+BODY_FONT = re.compile(r"font-family:\s*'?Montserrat'?\s*;")
+BODY_FONT_STACK = "font-family: 'Montserrat', system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;"
+
+
+def check_page(html: str) -> None:
+    """Raises ValueError for a page this script cannot patch safely."""
+    if html.count("</head>") != 1:
+        raise ValueError("expected exactly one </head>")
+    if "pixel streaming" not in html.lower():
+        raise ValueError("not an Unreal Pixel Streaming player page")
+
+
+def patch_fonts(html: str) -> str:
+    """The font patch alone: drop the Google Fonts links, serve Montserrat from fonts/."""
+    patched = GOOGLE_FONT_LINK.sub("", html)
+    if FONT_MARKER not in patched:
+        # Before the style block goes in: its @font-face also says font-family: 'Montserrat';.
+        patched = BODY_FONT.sub(BODY_FONT_STACK, patched)
+        patched = patched.replace("</head>", FONT_STYLE + "</head>", 1)
+    left = [h for h in GOOGLE_FONT_HOSTS if h in patched]
+    if left:
+        raise ValueError("still references {} after patching".format(", ".join(left)))
+    return patched
+
+
+def patch_html(html: str) -> str:
+    """Returns the fully patched page; raises ValueError for a page it cannot patch safely."""
+    if MARKER in html and FONT_MARKER in html and not any(h in html for h in GOOGLE_FONT_HOSTS):
+        return html
+    check_page(html)
+    patched = html
+    if MARKER not in patched:
+        patched = patched.replace("</head>", SCRIPT + "\n</head>", 1)
+    return patch_fonts(patched)
+
 
 def patch_player(path: Path) -> bool:
     html = path.read_text(encoding="utf-8")
-    if MARKER in html:
+    try:
+        patched = patch_html(html)
+    except ValueError as error:
+        raise ValueError("{}: {}".format(error, path)) from None
+    if patched == html:
         return False
-    if html.count("</head>") != 1:
-        raise ValueError("expected exactly one </head> in {}".format(path))
-    if "pixel streaming" not in html.lower():
-        raise ValueError("not an Unreal Pixel Streaming player page: {}".format(path))
-    path.write_text(html.replace("</head>", SCRIPT + "\n</head>", 1), encoding="utf-8")
+    path.write_text(patched, encoding="utf-8")
     return True
 
 

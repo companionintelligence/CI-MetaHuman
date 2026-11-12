@@ -128,7 +128,7 @@ would: a MetaHuman created in-house, or written terms from the seller.
 The Unreal editor tooling in `Plugins/VibeUE` and `Plugins/VibeMetaHumans` is by Kevin Buckley /
 Buckley Builds LLC ([VibeUE](https://github.com/kevinpbuckley/VibeUE), MIT). The interface font is
 [Montserrat](https://github.com/JulietaUla/Montserrat) by the Montserrat Project Authors (SIL Open
-Font License 1.1). The streaming page builds on Epic Games'
+Font License 1.1), which the signalling image also serves to the stream page. The streaming page builds on Epic Games'
 [Pixel Streaming Infrastructure](https://github.com/EpicGames/PixelStreamingInfrastructure) (MIT).
 The CI-authored props are built with [Blender](https://www.blender.org) (GPL-3.0-or-later).
 [THIRD_PARTY.md](THIRD_PARTY.md) lists everything vendored here or pulled in at build time, and

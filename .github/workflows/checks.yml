@@ -73,6 +73,21 @@ jobs:
           test "$(python "$patch" "$work/player.html")" = "patched"
           test "$(python "$patch" "$work/player.html")" = "already patched"
           test "$(grep -c 'data-ci-companion="ci-companion-stream-fixes-v1"' "$work/player.html")" -eq 1
+          # The font is served by the signalling image, not Google: no Google Fonts host may survive,
+          # the @font-face block goes in once, and the file it names is the one the image copies.
+          if grep -nE 'fonts\.(googleapis|gstatic)\.com' "$work/player.html"; then
+            echo "::error file=$patch::the patched page still loads Google Fonts"
+            exit 1
+          fi
+          test "$(grep -c 'data-ci-companion="ci-companion-self-hosted-font-v1"' "$work/player.html")" -eq 1
+          grep -q "url('fonts/Montserrat-SemiBold.ttf')" "$work/player.html"
+          test -s Deployment/pixelstreaming/fonts/Montserrat-SemiBold.ttf
+          test -s Deployment/pixelstreaming/fonts/OFL-Montserrat.txt
+          grep -q '^COPY pixelstreaming/fonts/ ' Deployment/Dockerfile.signalling
+          if grep -nE 'fonts\.(googleapis|gstatic)\.com' Deployment/pixelstreaming/player.html; then
+            echo "::error file=Deployment/pixelstreaming/player.html::still loads Google Fonts"
+            exit 1
+          fi
 
           # It must refuse a page it cannot patch safely, for the right reason, and leave it untouched.
           printf '<html><head></head><head></head><title>Pixel Streaming</title></html>\n' > "$work/two-heads.html"

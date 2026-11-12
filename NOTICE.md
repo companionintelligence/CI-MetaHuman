@@ -34,10 +34,13 @@ for acknowledgements.
   the GPL does not apply to artwork made with Blender
   ([About Free Software and the GPL](https://docs.blender.org/manual/en/latest/getting_started/about/license.html)).
   The props remain CI-authored works ([CREDITS.md](CREDITS.md)).
-- **Montserrat, SIL Open Font License 1.1**, in `Content/Fonts`. Modified versions of the fonts
-  must stay under the OFL, and each copy of the fonts must carry their copyright notice and
-  licence, so ship `Content/Fonts/OFL-Montserrat.txt` with any packaged build. Using the fonts in
-  software is unrestricted.
+- **Montserrat, SIL Open Font License 1.1**, in `Content/Fonts`, and a copy of
+  `Montserrat-SemiBold.ttf` in `Deployment/pixelstreaming/fonts/`, which the signalling image
+  serves to the player page instead of Google Fonts. Modified versions of the fonts must stay
+  under the OFL, and each copy of the fonts must carry their copyright notice and licence, so ship
+  `Content/Fonts/OFL-Montserrat.txt` with any packaged build; the signalling image carries
+  `Deployment/pixelstreaming/fonts/OFL-Montserrat.txt` next to the font it serves. Using the fonts
+  in software is unrestricted.
 
 No other file in the repository is under a GPL-family licence.
 
@@ -116,8 +119,9 @@ Both plugins also carry this text in their own `LICENSE` files.
 ### Epic Games Pixel Streaming Infrastructure (MIT)
 
 `Deployment/pixelstreaming/player.html` is Epic's stock Pixel Streaming player page with one
-added script. `Deployment/Dockerfile.signalling` builds Epic's Pixel Streaming Infrastructure
-from source, and `Deployment/patch_pixelstreaming_player.py` patches its player page. Upstream:
+added script, and with its Google Fonts links replaced by a self-hosted Montserrat.
+`Deployment/Dockerfile.signalling` builds Epic's Pixel Streaming Infrastructure from source, and
+`Deployment/patch_pixelstreaming_player.py` patches its player page the same two ways. Upstream:
 <https://github.com/EpicGames/PixelStreamingInfrastructure>.
 
 ```
@@ -145,8 +149,10 @@ below).
 
 ### Montserrat (SIL Open Font License 1.1)
 
-`Content/Fonts/Montserrat-Light.ttf`, `-Regular.ttf` and `-SemiBold.ttf`, and the Unreal font
-assets imported from them: Copyright 2024 The Montserrat.Git Project Authors
+`Content/Fonts/Montserrat-Light.ttf`, `-Regular.ttf` and `-SemiBold.ttf`, the Unreal font
+assets imported from them, and the byte-identical copy of `Montserrat-SemiBold.ttf` in
+`Deployment/pixelstreaming/fonts/` (with its own copy of the licence) that the signalling image
+serves to the player page: Copyright 2024 The Montserrat.Git Project Authors
 (<https://github.com/JulietaUla/Montserrat.git>). The fonts are licensed under the SIL Open Font
 License, Version 1.1, whose full text is in
 [`Content/Fonts/OFL-Montserrat.txt`](Content/Fonts/OFL-Montserrat.txt) and at
