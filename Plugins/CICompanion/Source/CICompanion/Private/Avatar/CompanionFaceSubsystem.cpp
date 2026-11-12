@@ -12,7 +12,35 @@
 
 
 const FName UCompanionFaceSubsystem::ResidentTag(TEXT("CompanionFace"));
+const FString UCompanionFaceSubsystem::ProfileTagPrefix(TEXT("FaceProfile="));
 
+
+FString UCompanionFaceSubsystem::ResolveProfileName(const AActor* Resident)
+{
+	const FString FromEnv = CICompanionEnv::Get(TEXT("MHLLM_FACE_PROFILE"), FString());
+	if (!FromEnv.IsEmpty())
+	{
+		return FromEnv;
+	}
+
+	if (Resident)
+	{
+		for (const FName& Tag : Resident->Tags)
+		{
+			const FString TagString = Tag.ToString();
+			if (TagString.StartsWith(ProfileTagPrefix, ESearchCase::IgnoreCase))
+			{
+				const FString Name = TagString.Mid(ProfileTagPrefix.Len()).TrimStartAndEnd();
+				if (!Name.IsEmpty())
+				{
+					return Name;
+				}
+			}
+		}
+	}
+
+	return TEXT("CC");
+}
 
 bool UCompanionFaceSubsystem::ShouldCreateSubsystem(UObject* Outer) const
 {
@@ -88,7 +116,10 @@ void UCompanionFaceSubsystem::OnWorldBeginPlay(UWorld& InWorld)
 
 	Face = NewObject<UCompanionFaceComponent>(Resident, TEXT("CompanionFace"));
 	Face->RegisterComponent();
-	Face->SetProfile(FFaceProfile::ByName(CICompanionEnv::Get(TEXT("MHLLM_FACE_PROFILE"), TEXT("CC"))));
+	// Env first, then the rig the map declares on the resident, then CC. A Nia map resolves to CC
+	// exactly as before; the MetaHuman resident declares ARKit, which a hard-coded CC default would
+	// have overridden with a profile that shares no curve names with its face.
+	Face->SetProfile(FFaceProfile::ByName(ResolveProfileName(Resident)));
 	Face->SetTargetMesh(Mesh);
 
 	// TICK AFTER THE MESH'S ANIMATION, or none of this is visible.

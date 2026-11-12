@@ -26,6 +26,22 @@ public:
 	// The tag author_diorama.py stamps on the resident actor.
 	static const FName ResidentTag;
 
+	// Prefix of the second tag author_diorama.py stamps on the resident, naming the rig its face
+	// carries: "FaceProfile=CC" on the Reallusion "Nia" resident, "FaceProfile=ARKit" on the
+	// MetaHuman one. The map says which rig it placed because the authoring script is the only
+	// thing that knows; before this the C++ assumed CC (Nia's rig) for every map.
+	static const FString ProfileTagPrefix;
+
+	// The face profile to drive the resident with, by precedence:
+	//   1. MHLLM_FACE_PROFILE, when set and non-empty (an explicit operator choice always wins);
+	//   2. the resident's "FaceProfile=<name>" tag;
+	//   3. "CC" -- what every map authored before the tag existed was built for, so an old map
+	//      behaves exactly as it always did.
+	// Returned as a name rather than a profile so the console can show it; FFaceProfile::ByName
+	// resolves it. Static and side-effect free so the runtime console and the specs can ask the
+	// same question the face driver does.
+	static FString ResolveProfileName(const AActor* Resident);
+
 	virtual bool ShouldCreateSubsystem(UObject* Outer) const override;
 	virtual void OnWorldBeginPlay(UWorld& InWorld) override;
 

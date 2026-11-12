@@ -1,7 +1,9 @@
 #include "Misc/AutomationTest.h"
 
+#include "CICompanionEnv.h"
 #include "Avatar/CompanionFaceComponent.h"
 #include "Avatar/CompanionFaceSubsystem.h"
+#include "Avatar/FaceProfile.h"
 #include "Avatar/CompanionRuntimeSubsystem.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/World.h"
@@ -67,6 +69,63 @@ void FCompanionSubsystemSpec::Define()
 			// author_diorama.py writes this literal. If the two ever disagree the face silently
 			// never binds -- there is no error, the mouth simply does not move.
 			TestEqual("tag", UCompanionFaceSubsystem::ResidentTag.ToString(), FString(TEXT("CompanionFace")));
+		});
+	});
+
+	// Which rig the face driver assumes. This used to be a hard-coded "CC" -- Nia's Reallusion rig --
+	// for every map, which stopped being true the moment the default resident became a MetaHuman.
+	// Precedence is MHLLM_FACE_PROFILE, then the resident's FaceProfile= tag, then CC. The env var is
+	// process-wide and a developer may well have it exported, so the tag cases skip (and say so)
+	// rather than mutate the environment under every other spec in the run.
+	Describe("UCompanionFaceSubsystem::ResolveProfileName", [this]()
+	{
+		auto EnvOverrides = [this]() -> bool
+		{
+			if (CICompanionEnv::Get(TEXT("MHLLM_FACE_PROFILE"), FString()).IsEmpty())
+			{
+				return false;
+			}
+			AddInfo(TEXT("MHLLM_FACE_PROFILE is set in this process, so it wins by design; skipping."));
+			return true;
+		};
+
+		It("falls back to CC with no resident at all", [this, EnvOverrides]()
+		{
+			if (EnvOverrides()) { return; }
+			TestEqual("no resident", UCompanionFaceSubsystem::ResolveProfileName(nullptr), FString(TEXT("CC")));
+		});
+
+		It("keeps CC for a resident authored before the profile tag existed", [this, EnvOverrides]()
+		{
+			if (EnvOverrides()) { return; }
+			// Exactly what an older Nia map carries: the resident tag and nothing else. It must keep
+			// resolving to the profile it was built for.
+			AActor* OldResident = World->SpawnActor<AActor>();
+			OldResident->Tags.Add(UCompanionFaceSubsystem::ResidentTag);
+			TestEqual("pre-tag map", UCompanionFaceSubsystem::ResolveProfileName(OldResident), FString(TEXT("CC")));
+		});
+
+		It("reads the rig the authored map declares on the resident", [this, EnvOverrides]()
+		{
+			if (EnvOverrides()) { return; }
+			AActor* MetaHuman = World->SpawnActor<AActor>();
+			MetaHuman->Tags.Add(UCompanionFaceSubsystem::ResidentTag);
+			MetaHuman->Tags.Add(FName(*(UCompanionFaceSubsystem::ProfileTagPrefix + TEXT("ARKit"))));
+			const FString Name = UCompanionFaceSubsystem::ResolveProfileName(MetaHuman);
+			TestTrue(*FString::Printf(TEXT("ARKit expected, got %s"), *Name), Name.Equals(TEXT("ARKit"), ESearchCase::IgnoreCase));
+			TestEqual("and it resolves to the ARKit profile", FFaceProfile::ByName(Name).ProfileName, FName(TEXT("ARKit")));
+
+			AActor* Nia = World->SpawnActor<AActor>();
+			Nia->Tags.Add(UCompanionFaceSubsystem::ResidentTag);
+			Nia->Tags.Add(FName(*(UCompanionFaceSubsystem::ProfileTagPrefix + TEXT("CC"))));
+			TestEqual("Nia's map declares CC", FFaceProfile::ByName(UCompanionFaceSubsystem::ResolveProfileName(Nia)).ProfileName, FName(TEXT("CC")));
+		});
+
+		It("uses the tag prefix the authoring script actually stamps", [this]()
+		{
+			// author_diorama.py builds "FaceProfile=" + name. A drift here does not fail loudly: the
+			// tag is ignored and the face falls back to CC, which on a MetaHuman resolves nothing.
+			TestEqual("prefix", UCompanionFaceSubsystem::ProfileTagPrefix, FString(TEXT("FaceProfile=")));
 		});
 	});
 

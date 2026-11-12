@@ -135,6 +135,9 @@ struct CICOMPANION_API FFaceProfile
 	// Apple ARKit naming, as used by MetaHuman faces.
 	static const FFaceProfile& ARKit();
 
-	// Looks up a profile by name ("CC" / "ARKit"), defaulting to CC — the resident's rig.
+	// Looks up a profile by name ("CC" / "ARKit"), defaulting to CC for anything unrecognised. Which
+	// name to ask for is no longer assumed here: the authored map declares its resident's rig (see
+	// UCompanionFaceSubsystem::ResolveProfileName) -- ARKit for the default MetaHuman resident, CC
+	// for the opt-in Reallusion "Nia".
 	static const FFaceProfile& ByName(const FString& Name);
 };

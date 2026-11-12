@@ -184,7 +184,29 @@ void UCompanionRuntimeSubsystem::CreateHud()
 	Initial.TtsVoice = CICompanionEnv::Get(TEXT("KOKORO_VOICE"), Initial.TtsVoice);
 	Initial.TtsModel = CICompanionEnv::Get(TEXT("KOKORO_MODEL"), Initial.TtsModel);
 	Initial.LlmModel = CICompanionEnv::Get(TEXT("OLLAMA_MODEL"), Initial.LlmModel);
-	Initial.FaceProfile = CICompanionEnv::Get(TEXT("MHLLM_FACE_PROFILE"), Initial.FaceProfile);
+	// The SAME resolution the face driver uses -- MHLLM_FACE_PROFILE, then the resident's
+	// FaceProfile= tag, then CC -- so the console opens on the profile actually driving the face.
+	// Seeding it from the env var alone (default "CC") was harmless while every resident was the CC
+	// rig Nia. With the MetaHuman resident it would show CC while the face ran ARKit, and the first
+	// unrelated console change (a voice, say) would re-apply CC through ApplySettings and silently
+	// swap the face onto curve names its rig does not have.
+	{
+		const AActor* Resident = nullptr;
+		if (const UCompanionFaceComponent* BoundFace = ResolveFace())
+		{
+			Resident = BoundFace->GetOwner();
+		}
+		else if (UWorld* World = GetWorld())
+		{
+			// The face subsystem may not have run its BeginPlay yet: world subsystems are not
+			// ordered. FindResident is the same const query it will make, so ask it directly.
+			if (const UCompanionFaceSubsystem* FaceSubsystem = World->GetSubsystem<UCompanionFaceSubsystem>())
+			{
+				Resident = FaceSubsystem->FindResident(*World);
+			}
+		}
+		Initial.FaceProfile = UCompanionFaceSubsystem::ResolveProfileName(Resident);
+	}
 	Initial.bVoiceEnabled = !CICompanionEnv::Get(TEXT("KOKORO_SERVER_URL"), FString()).IsEmpty();
 	// Seeded from the SAME env var UCompanionFaceSubsystem reads, because otherwise the two
 	// disagree and this one wins. The face subsystem starts the self-test on MHLLM_FACE_SELFTEST=1
