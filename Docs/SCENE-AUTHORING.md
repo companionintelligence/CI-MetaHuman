@@ -143,12 +143,16 @@ brand register as *light* rather than only as paint. IBM orange keeps the hero b
 the colour the reference is built around.
 
 Brand tokens come from `companionintelligence/CI-Common` (`assets/brand.config.json`,
-`docs/colors.md`): CI teal `#0f717a`, light `#abd4d8`, navy `#041620`, mint `#58ebbf`.
+`docs/colors.md`): phthalo `#0a6358`, sage `#c5e8dc`, navy `#041620`, mint `#3ae7ba`.
+The approved white-banner wordmark is staged from `CI-Common/assets/logos/rendered/` as
+`Deployment/generated/ci-logo-white-banner.png`; Unreal imports it onto a navy plaque behind the
+resident. The retro Blender stage packs that same logo PNG and its embedded GLB images into the
+`.blend` file.
 
 **Convert sRGB to linear before use.** Pasting hex straight into a `LinearColor` gives a washed-out
 brand, and the symptom reads as "the teal looks wrong" rather than as a colour-space mistake.
 
-CI mint doubles as period CRT phosphor — `#58ebbf` sits almost exactly where a 70s phosphor does,
+CI mint doubles as period CRT phosphor — `#3ae7ba` sits almost exactly where a 70s phosphor does,
 so the brand accent and the era cue are the same colour with no compromise.
 
 ## Traps already paid for
