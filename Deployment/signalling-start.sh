@@ -4,7 +4,8 @@
 # PATCHED for ci-metahermit: this is the stock SignallingWebServer start.sh with these changes:
 #   - "--https_redirect" removed from SERVER_ARGS (it binds port 80, which is already taken on
 #     core-2),
-#   - explicit "--player_port=8090 --streamer_port=8888" added, and
+#   - explicit "--player_port=8090 --streamer_port=8888" added,
+#   - "--max_players=1" added (one viewer per streamer; see the comment where it is set), and
 #   - the ICE servers are built here instead of by setup_turn_stun (see "ICE servers" below).
 # Everything else — the common.sh sourcing, parse_args, setup (npm install/link/build),
 # set_public_ip, and start_wilbur (npm start) — is verbatim stock, so the build/link/run path is
@@ -99,6 +100,12 @@ unset TURN_STATIC_AUTH_SECRET
 (IFS=,; printf '{"iceServers":[%s]}\n' "${ICE_SERVERS[*]}") > "${PEER_OPTIONS_FILE}" || exit 1
 
 SERVER_ARGS+=" --serve --player_port=8090 --streamer_port=8888 --public_ip=${PUBLIC_IP}"
+# ONE VIEWER PER STREAMER. The app holds a single conversation, chat log and microphone, so every
+# player subscribed to the streamer shares them: a second viewer would read the first one's
+# conversation and type into it. --max_players is the pinned server's own limit (SignallingWebServer
+# src/index.ts at PIXEL_STREAMING_INFRASTRUCTURE_REF, "maximum number of subscribers per streamer",
+# default 0 = unlimited): a player over it is refused at subscribe with "Streamer ... is full".
+SERVER_ARGS+=" --max_players=1"
 SERVER_ARGS+=" --peer_options_file=${PEER_OPTIONS_FILE}${TURN_ARGS}"
 if [[ ! -z "$FRONTEND_DIR" ]]; then
     SERVER_ARGS+=" --http_root=\"$FRONTEND_DIR\""
