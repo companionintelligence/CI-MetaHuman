@@ -705,6 +705,11 @@ def place_blockout(b, coll, cube_me):
                       @ Matrix.Diagonal((max(sy, 0.2) / 100.0, max(sx, 0.2) / 100.0, max(sz, 0.2) / 100.0, 1.0)))
     o.material_slots[0].link = 'OBJECT'
     o.material_slots[0].material = blockout_material(b)
+    if b.get("castShadow") is False:
+        try:
+            o.visible_shadow = False
+        except Exception:
+            pass
     txt = b.get("text")
     if txt:
         place_text(b, coll)

@@ -987,6 +987,9 @@ try:
             a.tags = list(b["tags"])
         if "lightingChannels" in b:
             a.static_mesh_component.set_editor_property("lighting_channels", lighting_channels(b["lightingChannels"]))
+        if b.get("castShadow") is False:
+            # A light fitting's own parts (the desk lamp's shade and bulb) must not shadow its light.
+            a.static_mesh_component.set_editor_property("cast_shadow", False)
         if b.get("text") and "size" in b:
             if place_face_text(b):
                 texts_placed += 1

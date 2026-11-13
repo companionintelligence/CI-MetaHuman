@@ -209,7 +209,9 @@ panels), 2700-3000 K practicals, skin the warmest mid-tone and the vermilion wal
 plane. No brand colour in the light. 44 lights in candela, 2 cast shadows (the hero key and the desk
 lamp pool); the 20 street-side ones are tagged `ExteriorLight` and culled after the cut, so 24 run
 during the session. The 1403 cover and its paper are on lighting channel 1 only, so the hub key and
-the hub bays skip them and the foreground corner stays under her face.
+the hub bays skip them and the foreground corner stays under her face. So is the printout on the
+desk, which the lamp's spill light (channel 0) skips: from inside the shade it put about 6,400 lx on
+it, and the warm pool is the lamp's own spot.
 
 The units, as the engine reads them:
 
@@ -225,7 +227,9 @@ The units, as the engine reads them:
   the floor below it, and the previz gates VITRINE and CUTAWAY_HUB on the rendered frame.
 - **The floor fill** is a 50 deg spot from the floor 1.1 m in front of her, aimed at her chest; its
   cone cannot reach the ceiling inside its radius (the rect it replaces lit a fan over the hub). The
-  desk lamp is 6 cd from inside the shade (650 cd 6.8 cm over the printout was 140,000 lx).
+  desk lamp is 1.3 cd from just under its bulb, 7.3 cm over the printout (about 240 lx), on the
+  printout's lighting channel, and the lamp's own shade and bulb cast no shadow (`castShadow`); 650 cd
+  6.8 cm over the printout was 140,000 lx.
 - **Exposure** is pinned at EV100 5.4, solved on Unreal HOME captures: a bracket at 4.5-7.5 gave a
   frame mean of 133 / 118 / 104 at 5.0 / 5.5 / 6.0 (`meta.exposureNote`). What clips above 240 in
   HOME is the placeholder mannequin's chrome. White balance 4300 K (`meta.whiteBalanceK`).
