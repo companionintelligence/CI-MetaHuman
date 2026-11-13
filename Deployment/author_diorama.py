@@ -111,6 +111,10 @@ def w(s):
 # so it stays in code: a layout cannot opt a file out of it.
 CI_AUTHORED_ONLY = ("ibm-1401-cpu.glb", "ibm-3178-terminal.glb", "ibm-3350-disk.glb")
 CI_COPYRIGHT_MARK = "Companion Intelligence"
+# FILES THAT MUST NEVER SHIP, whatever a layout says: ibm-2401-tape.glb is maxdragon's NoAI-tagged
+# Sketchfab model and has no CI-authored replacement under that name. A layout naming it is refused
+# like a stale NoAI slot, so it cannot reach /Game, the map or the cook.
+NEVER_SHIP = ("ibm-2401-tape.glb",)
 
 def glb_copyright(path):
     """asset.copyright of a binary glTF file, "" when it has none, None when it cannot be read."""
@@ -212,6 +216,11 @@ try:
     refused = []
     for slot, p in SLOTS.items():
         glb = p["glb"]
+        if glb in NEVER_SHIP:
+            imported[slot] = None
+            refused.append(slot)
+            w("prop REFUSED %-10s %s must not ship (NoAI-tagged Sketchfab model, no CI replacement)" % (slot, glb))
+            continue
         if glb in CI_AUTHORED_ONLY and os.path.isfile(GLB_DIR + "/" + glb):
             mark = glb_copyright(GLB_DIR + "/" + glb)
             if not mark or CI_COPYRIGHT_MARK not in mark:
@@ -274,8 +283,27 @@ try:
     # bounce a 2.5-lux directional into a convincingly-lit room, while the real stream renders
     # black. Every light in the layout is chosen for a no-GI, direct-light-only scene.
     MOVABLE = unreal.ComponentMobility.MOVABLE
+    def lighting_channels(channels):
+        lc = unreal.LightingChannels()
+        for i in range(3):
+            lc.set_editor_property("channel%d" % i, i in channels)
+        return lc
+
+    # A light is the layout's type at its position, aimed by yaw/pitch (a light shines down its local
+    # +X, so pitch -90 points it at the floor). Optional fields are applied only when present:
+    #   units "cd"      intensity is in candela (the stage design's unit), set BEFORE the value
+    #   radiusCm        attenuation radius: each light lights its own bay, not the whole room
+    #   linear | kelvin colour as linear RGB, else as a colour temperature
+    #   shadows         cast shadows (the design keeps two shadow casters; every shadow costs)
+    #   sourceRadiusCm  soft source for point and spot lights
+    #   coneDeg         a spot's FULL cone; Unreal's outer cone angle is the half angle
+    #   sizeCm          a rect light's [width, height]
+    #   lightingChannels  e.g. [0, 1]: which channels it lights (the 1403 cover is channel 1 only)
+    #   tags            e.g. ExteriorLight: the lights the director culls once the camera is inside
     LIGHT_TYPES = {
         "point":       (unreal.PointLight,       unreal.PointLightComponent),
+        "spot":        (unreal.SpotLight,        unreal.SpotLightComponent),
+        "rect":        (unreal.RectLight,        unreal.RectLightComponent),
         "directional": (unreal.DirectionalLight, unreal.DirectionalLightComponent),
     }
     def place_light(l):
@@ -287,14 +315,43 @@ try:
         a = spawn(cls, (l["x"], l["y"], l["z"]), yaw=l.get("yaw", 0.0), pitch=l.get("pitch", 0.0))
         c = a.get_component_by_class(comp_cls)
         c.set_editor_property("mobility", MOVABLE)
+        if l.get("units") == "cd":
+            c.set_editor_property("intensity_units", unreal.LightUnits.CANDELAS)
         c.set_intensity(l["intensity"])
         if "radiusCm" in l:
             c.set_attenuation_radius(l["radiusCm"])
-        c.set_light_color(unreal.LinearColor(*l["linear"]))
+        if "linear" in l:
+            c.set_light_color(unreal.LinearColor(*l["linear"]))
+        elif "kelvin" in l:
+            c.set_editor_property("use_temperature", True)
+            c.set_editor_property("temperature", float(l["kelvin"]))
+        if "shadows" in l:
+            c.set_editor_property("cast_shadows", bool(l["shadows"]))
+        if "sourceRadiusCm" in l and kind in ("point", "spot"):
+            c.set_editor_property("source_radius", float(l["sourceRadiusCm"]))
+        if kind == "spot" and "coneDeg" in l:
+            outer = float(l["coneDeg"]) / 2.0
+            c.set_editor_property("outer_cone_angle", outer)
+            c.set_editor_property("inner_cone_angle", outer * 0.7)
+        if kind == "rect" and "sizeCm" in l:
+            c.set_editor_property("source_width", float(l["sizeCm"][0]))
+            c.set_editor_property("source_height", float(l["sizeCm"][1]))
+        if "lightingChannels" in l:
+            c.set_editor_property("lighting_channels", lighting_channels(l["lightingChannels"]))
+        if l.get("tags"):
+            a.tags = list(l["tags"])
+        if l.get("units"):
+            # Only the new-format lights are labelled; the older layout's lights never were.
+            a.set_actor_label("Light_" + l["name"])
         return True
     lights_placed = 0
+    lights_shadowed = sum(1 for l in LIGHTS if l.get("shadows"))
+    lights_exterior = sum(1 for l in LIGHTS if "ExteriorLight" in (l.get("tags") or []))
     for l in LIGHTS:
-        ok = place_light(l)
+        try:
+            ok = place_light(l)
+        except Exception as e:
+            w("light %s warn: %s" % (l.get("name"), e)); ok = False
         lights_placed += 1 if ok else 0
         tally(l.get("group"), ok)
 
@@ -330,8 +387,10 @@ try:
     s.set_editor_property("override_auto_exposure_bias", True)
     s.set_editor_property("auto_exposure_bias", 0.0)
     ppv.set_editor_property("settings", s)
-    w(META.get("lightsLog", "lights ok ({placed} of {total} placed), exposure PINNED at EV100 {ev:.2f}").format(
-        ev=EXPOSURE_EV100, placed=lights_placed, total=len(LIGHTS)))
+    w(META.get("lightsLog", "lights ok ({placed} of {total} placed, {shadowed} cast shadows, {exterior} tagged "
+                            "ExteriorLight), exposure PINNED at EV100 {ev:.2f}").format(
+        ev=EXPOSURE_EV100, placed=lights_placed, total=len(LIGHTS), shadowed=lights_shadowed,
+        exterior=lights_exterior))
 
     # ---------- materials ----------
     # A blockout names its material in the layout ("material": {...}); the asset is created on
@@ -471,9 +530,120 @@ try:
         MATERIALS[name] = (spec, mat)
         return mat
 
+    # DERIVED MATERIALS. A blockout with a "color" (sRGB hex) and no explicit material gets a
+    # material INSTANCE of one of three masters, keyed by its look: opaque (colour, rough, metallic),
+    # emissive (colour times strength, so practicals glow with GI off) or glass (tint, opacity).
+    # Instances share their master's shaders, so 900 blockouts cost three compiles, not 900, and two
+    # blockouts that look the same share one instance. Instance names are built from the values, so
+    # the same look always maps to the same asset.
+    STAGE_MATS = "/Game/Diorama/StageMats"
+    MASTERS, INSTANCES = {}, {}
+    material_failures = []
+    def srgb_lin(hexcol):
+        h = hexcol.lstrip("#")
+        return tuple((c / 12.92) if c <= 0.04045 else (((c + 0.055) / 1.055) ** 2.4)
+                     for c in (int(h[i:i+2], 16) / 255.0 for i in (0, 2, 4)))
+    def scalar_param(mat, name, default, x, y):
+        e = MEL.create_material_expression(mat, unreal.MaterialExpressionScalarParameter, x, y)
+        e.set_editor_property("parameter_name", name)
+        e.set_editor_property("default_value", default)
+        return e
+    def vector_param(mat, name, x, y):
+        e = MEL.create_material_expression(mat, unreal.MaterialExpressionVectorParameter, x, y)
+        e.set_editor_property("parameter_name", name)
+        e.set_editor_property("default_value", unreal.LinearColor(0.5, 0.5, 0.5, 1.0))
+        return e
+    def connect_rgb(expr, prop):
+        if not MEL.connect_material_property(expr, "RGB", prop):
+            MEL.connect_material_property(expr, "", prop)
+    def master(kind):
+        if kind in MASTERS:
+            return MASTERS[kind]
+        P = unreal.MaterialProperty
+        if kind == "glass":
+            m = tools.create_asset("M_StageGlass", STAGE_MATS, unreal.Material, unreal.MaterialFactoryNew())
+            m.set_editor_property("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT)
+            connect_rgb(vector_param(m, "Tint", -400, 0), P.MP_BASE_COLOR)
+            MEL.connect_material_property(scalar_param(m, "Opacity", 0.15, -400, 200), "", P.MP_OPACITY)
+            MEL.connect_material_property(scalar_param(m, "Roughness", 0.05, -400, 320), "", P.MP_ROUGHNESS)
+        elif kind == "emissive":
+            m = tools.create_asset("M_StageEmissive", STAGE_MATS, unreal.Material, unreal.MaterialFactoryNew())
+            col = vector_param(m, "BaseColor", -500, 0)
+            mul = MEL.create_material_expression(m, unreal.MaterialExpressionMultiply, -250, 120)
+            MEL.connect_material_expressions(col, "", mul, "A")
+            MEL.connect_material_expressions(scalar_param(m, "Emissive", 4.0, -500, 200), "", mul, "B")
+            connect_rgb(col, P.MP_BASE_COLOR)
+            MEL.connect_material_property(mul, "", P.MP_EMISSIVE_COLOR)
+            MEL.connect_material_property(scalar_param(m, "Roughness", 0.4, -500, 320), "", P.MP_ROUGHNESS)
+        else:
+            m = tools.create_asset("M_StageOpaque", STAGE_MATS, unreal.Material, unreal.MaterialFactoryNew())
+            connect_rgb(vector_param(m, "BaseColor", -400, 0), P.MP_BASE_COLOR)
+            MEL.connect_material_property(scalar_param(m, "Roughness", 0.6, -400, 200), "", P.MP_ROUGHNESS)
+            MEL.connect_material_property(scalar_param(m, "Metallic", 0.0, -400, 320), "", P.MP_METALLIC)
+        MEL.recompile_material(m)
+        MASTERS[kind] = m
+        return m
+    def derived_material(b):
+        hexcol = str(b["color"]).lstrip("#").upper()
+        if b.get("kind") == "glass" or "opacity" in b:
+            kind, params = "glass", [("Opacity", float(b.get("opacity", 0.15))), ("Roughness", float(b.get("rough", 0.05)))]
+            name = "MI_Glass_%s_O%03d" % (hexcol, round(params[0][1] * 100))
+        elif b.get("emissive"):
+            kind, params = "emissive", [("Emissive", float(b["emissive"])), ("Roughness", float(b.get("rough", 0.4)))]
+            name = "MI_Emit_%s_E%04d" % (hexcol, round(params[0][1] * 100))
+        else:
+            kind = "opaque"
+            params = [("Roughness", float(b.get("rough", 0.6))), ("Metallic", float(b.get("metallic", 0.0)))]
+            name = "MI_Op_%s_R%03d_M%03d" % (hexcol, round(params[0][1] * 100), round(params[1][1] * 100))
+        if name in INSTANCES:
+            return INSTANCES[name]
+        try:
+            mi = tools.create_asset(name, STAGE_MATS, unreal.MaterialInstanceConstant,
+                                    unreal.MaterialInstanceConstantFactoryNew())
+            mi.set_editor_property("parent", master(kind))
+            r, g, bl = srgb_lin("#" + hexcol)
+            MEL.set_material_instance_vector_parameter_value(mi, "Tint" if kind == "glass" else "BaseColor",
+                                                             unreal.LinearColor(r, g, bl, 1.0))
+            for pname, value in params:
+                MEL.set_material_instance_scalar_parameter_value(mi, pname, value)
+            MEL.update_material_instance(mi)
+        except Exception as e:
+            material_failures.append(name)
+            w("material %s not built: %s" % (name, e))
+            mi = None
+        INSTANCES[name] = mi
+        return mi
+
     # ---------- blockouts ----------
+    # A blockout is a true-size engine primitive standing in for a set piece until it is authored as
+    # a CI prop (the layout's notes are the authoring spec). "size" is in centimetres in the
+    # blockout's own frame (x along its yaw); the engine's BasicShapes are 100 cm, centred. A
+    # cylinder's "axis" says which of those three extents is its length. The older layout format's
+    # "scale" (BasicShapes units) and "shape" cube/plane still work.
     MESHES = {"cube": unreal.load_asset('/Engine/BasicShapes/Cube'),
-              "plane": unreal.load_asset('/Engine/BasicShapes/Plane')}
+              "plane": unreal.load_asset('/Engine/BasicShapes/Plane'),
+              "cylinder": unreal.load_asset('/Engine/BasicShapes/Cylinder')}
+    def blockout_transform(b):
+        """(mesh key, scale, yaw, pitch, roll) for a blockout.
+
+        Cylinders are turned with ROLL so their axle lies along the actor's yawed Y axis, which is
+        the axis UTapeReelSpinner turns a reel about (it adds to Pitch, and a pitch increment is a
+        rotation about the yawed Y axis whatever the roll). So a tagged reel spins about its own
+        hub instead of tumbling, and every other cylinder uses the same convention."""
+        shape = (b.get("shape") or "box").lower()
+        yaw, pitch, roll = b.get("yaw", 0.0), b.get("pitch", 0.0), b.get("roll", 0.0)
+        if "scale" in b:
+            return ("cube" if shape == "box" else shape), tuple(b["scale"]), yaw, pitch, roll
+        sx, sy, sz = [max(float(v), 0.2) / 100.0 for v in b["size"]]
+        if shape == "cylinder":
+            axis = (b.get("axis") or "z").lower()
+            if axis == "x":
+                return "cylinder", (sy, sz, sx), yaw + 90.0, pitch, -90.0
+            if axis == "y":
+                return "cylinder", (sx, sz, sy), yaw, pitch, -90.0
+            return "cylinder", (sx, sy, sz), yaw, pitch, roll
+        return ("cube" if shape == "box" else shape), (sx, sy, sz), yaw, pitch, roll
+
     def place_text(b):
         """A TextRenderActor (no mesh): signage the cook needs no imported asset for."""
         a = spawn(unreal.TextRenderActor, (b["x"], b["y"], b["z"]), yaw=b.get("yaw", 0.0),
@@ -487,39 +657,113 @@ try:
         trc.set_editor_property("text_render_color", unreal.Color(*rgba))
         return True
 
+    def place_face_text(b):
+        """Text on a box's face (the -X face by default, the one a wall sign shows the room), centred,
+        cap height textSize cm, coloured textColor. A TextRenderActor reads from its local +X, so a
+        sign on the -X face is turned 180 degrees from its box."""
+        face = 1.0 if (b.get("textFace") or "-x") == "+x" else -1.0
+        sx = max(float(b["size"][0]), 0.2)
+        a = math.radians(b.get("yaw", 0.0))
+        off = face * (sx / 2.0 + 0.3)
+        t = spawn(unreal.TextRenderActor, (b["x"] + off * math.cos(a), b["y"] + off * math.sin(a), b["z"]),
+                  yaw=b.get("yaw", 0.0) + (180.0 if face < 0 else 0.0))
+        t.set_actor_label(b["name"] + "_text")
+        trc = t.text_render
+        trc.set_text(unreal.Text(str(b["text"])))
+        size = float(b.get("textSize") or 0.7 * float(b["size"][2])) / 0.72
+        trc.set_editor_property("world_size", size)
+        trc.set_editor_property("horizontal_alignment", unreal.HorizTextAligment.EHTA_CENTER)
+        trc.set_editor_property("vertical_alignment", unreal.VerticalTextAligment.EVRTA_TEXT_CENTER)
+        h = str(b.get("textColor") or "#111111").lstrip("#")
+        trc.set_editor_property("text_render_color", unreal.Color(int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16), 255))
+        if b.get("textSpacing"):
+            trc.set_editor_property("horiz_spacing_adjust", (float(b["textSpacing"]) - 1.0) * size * 0.5)
+        return True
+
+    PLACED_BLOCKOUTS = {}            # name -> actor, for attachment
+    texts_placed = 0
     def place_blockout(b):
-        shape = b.get("shape", "cube")
+        global texts_placed
+        shape = (b.get("shape") or "box").lower()
         if shape == "none":
             return place_text(b) if b.get("text") else False
-        mesh = MESHES.get(shape)
+        mesh_key, scale, yaw, pitch, roll = blockout_transform(b)
+        mesh = MESHES.get(mesh_key)
         if not mesh:
             w("blockout %s: no mesh for shape %r" % (b["name"], shape)); return False
-        mat = material_for(b["material"]) if b.get("material") else None
+        if b.get("material"):
+            mat = material_for(b["material"])
+        elif b.get("color"):
+            mat = derived_material(b)
+        else:
+            mat = None
         if b.get("material") and not mat and b.get("required"):
             # A screen or sign whose material failed is not placed at all: an unpowered CRT that
             # still counts as "placed" is exactly the lie the summary counts exist to catch.
             return False
-        a = spawn(unreal.StaticMeshActor, (b["x"], b["y"], b["z"]), yaw=b.get("yaw", 0.0),
-                  pitch=b.get("pitch", 0.0), roll=b.get("roll", 0.0))
+        a = spawn(unreal.StaticMeshActor, (b["x"], b["y"], b["z"]), yaw=yaw, pitch=pitch, roll=roll)
+        if b.get("mobility") == "movable":
+            # Before the mesh: a set piece the runtime moves (a reel, or a window riding on one)
+            # must be Movable, or the cook freezes it in place.
+            a.static_mesh_component.set_editor_property("mobility", MOVABLE)
         a.static_mesh_component.set_static_mesh(mesh)
-        a.set_actor_scale3d(unreal.Vector(*b["scale"]))
+        a.set_actor_scale3d(unreal.Vector(*scale))
         if mat:
             a.static_mesh_component.set_material(0, mat)
-        if b.get("label"):
-            a.set_actor_label(b["label"])
+        if b.get("label") or "size" in b:
+            a.set_actor_label(b.get("label") or b["name"])
         if b.get("tags"):
             a.tags = list(b["tags"])
+        if "lightingChannels" in b:
+            a.static_mesh_component.set_editor_property("lighting_channels", lighting_channels(b["lightingChannels"]))
+        if b.get("text") and "size" in b:
+            if place_face_text(b):
+                texts_placed += 1
+        PLACED_BLOCKOUTS[b["name"]] = a
         # Read the mesh BACK off the component. set_static_mesh on a Static-mobility component is the
         # step that can quietly do nothing, and it is the only one whose failure leaves a correctly
         # placed, correctly named, invisible actor behind.
         return bool(a.static_mesh_component.static_mesh)
 
+    blockouts_placed = 0
+    blockouts_by_kind = {}
     for b in BLOCKOUTS:
         try:
             ok = place_blockout(b)
         except Exception as e:
             w("blockout %s warn: %s" % (b.get("name"), e)); ok = False
+        blockouts_placed += 1 if ok else 0
+        k = b.get("kind") or b.get("group") or "other"
+        placed_k, total_k = blockouts_by_kind.get(k, (0, 0))
+        blockouts_by_kind[k] = (placed_k + (1 if ok else 0), total_k + 1)
         tally(b.get("group"), ok)
+
+    # Attachment, once everything exists: a part that must move with another (a reel's flange
+    # windows ride on the reel the spinner turns) is attached to it, and the attachment is read back.
+    attach_expected = sum(1 for b in BLOCKOUTS if b.get("attachTo"))
+    attached = 0
+    for b in BLOCKOUTS:
+        parent_name = b.get("attachTo")
+        if not parent_name:
+            continue
+        child, parent = PLACED_BLOCKOUTS.get(b["name"]), PLACED_BLOCKOUTS.get(parent_name)
+        if not child or not parent:
+            w("attach %s -> %s: %s missing" % (b["name"], parent_name, "child" if not child else "parent"))
+            continue
+        try:
+            child.attach_to_actor(parent, "", unreal.AttachmentRule.KEEP_WORLD, unreal.AttachmentRule.KEEP_WORLD,
+                                  unreal.AttachmentRule.KEEP_WORLD, False)
+            if child.get_attach_parent_actor() == parent:
+                attached += 1
+            else:
+                w("attach %s -> %s did not take" % (b["name"], parent_name))
+        except Exception as e:
+            w("attach %s -> %s FAILED: %s" % (b["name"], parent_name, e))
+    if BLOCKOUTS and "size" in BLOCKOUTS[0]:
+        w("blockouts placed: %d of %d (%s); %d instanced materials on %d masters; %d signs; %d of %d attached"
+          % (blockouts_placed, len(BLOCKOUTS),
+             ", ".join("%s %d/%d" % (k, v[0], v[1]) for k, v in sorted(blockouts_by_kind.items())),
+             sum(1 for v in INSTANCES.values() if v), len(MASTERS), texts_placed, attached, attach_expected))
 
     # ---------- props: measure -> normalize scale -> ground -> place ----------
     # A prop with targetCm is scaled from its MEASURED bounds so its largest dimension is that many
@@ -545,6 +789,14 @@ try:
             a.set_actor_scale3d(unreal.Vector(sc, sc, sc))
             # sit the mesh's base exactly on its placement height (no float/sink)
             a.set_actor_location(unreal.Vector(pos[0], pos[1], pos[2] - box.min.z * sc), False, False)
+        elif "scale" in p:
+            # The stage design places each GLB by its scene origin at a declared uniform scale
+            # (meta.props_convention), measured against the real machine, so nothing is normalised.
+            s = float(p["scale"])
+            a.set_actor_scale3d(unreal.Vector(s, s, s))
+        if p.get("clipLocal"):
+            w("%s: clipLocal %s is a previz preview of a one-time Blender edit (delete the loose part "
+              "before import); placed whole" % (p["name"], p["clipLocal"]))
         if p.get("tags"):
             a.tags = list(p["tags"])
         reels = 0
@@ -577,6 +829,7 @@ try:
             w("prop %s warn: %s" % (p.get("name"), e)); ok, nreels = False, 0
         props_placed += 1 if ok else 0
         tally(p.get("group"), ok, nreels)
+    w("props placed: %d of %d (%d slot(s) refused by the NoAI guard)" % (props_placed, len(PROPS), len(refused)))
 
     # ---------- re-home the glTF prop materials into /Game ----------
     # THE reason the props render pale. Interchange parents every imported material instance to
@@ -640,6 +893,71 @@ try:
     except Exception as e:
         import traceback as _t3
         w("PROP MATERIAL REPARENT FAILED (props will stay pale): %s | %s" % (e, _t3.format_exc()[:300]))
+
+    # ---------- per-prop recolours (materialColors) ----------
+    # The design recolours a prop by material name (the 1401 CPU's doors, band and console). Each
+    # imported instance whose name contains a listed material name gets that colour as its
+    # BaseColorFactor, the parameter M_PropGLTF multiplies its texture by, and is saved.
+    for p in PROPS:
+        colours = p.get("materialColors") or {}
+        if not colours or not imported.get(slot_of(p)):
+            continue
+        done = set()
+        for a in unreal.AssetRegistryHelpers.get_asset_registry().get_assets_by_path(
+                "/Game/Diorama/" + slot_of(p), recursive=True):
+            if str(a.asset_class_path.asset_name) != "MaterialInstanceConstant":
+                continue
+            for mname, hexcol in colours.items():
+                if mname in str(a.asset_name):
+                    mi = unreal.load_asset(str(a.package_name))
+                    h = hexcol.lstrip("#")
+                    lin = [(c / 12.92) if c <= 0.04045 else (((c + 0.055) / 1.055) ** 2.4)
+                           for c in (int(h[i:i+2], 16) / 255.0 for i in (0, 2, 4))]
+                    MEL.set_material_instance_vector_parameter_value(mi, "BaseColorFactor", unreal.LinearColor(*lin, 1.0))
+                    unreal.EditorAssetLibrary.save_loaded_asset(mi)
+                    done.add(mname)
+        w("%s: recoloured %d of %d materials%s" % (p["name"], len(done), len(colours),
+          "" if len(done) == len(colours) else " (not found: %s)" % ", ".join(sorted(set(colours) - done))))
+
+    # ---------- stage marks and camera TargetPoints ----------
+    # The runtime director finds the set's marks by TAG (labels do not survive the cook):
+    #   StageMark.Home      the resident's home mark, yawed to her home facing; every resident-frame
+    #                       shot (ARRIVAL, HOME, CLOSE, FAREWELL) is solved from it and her eyes
+    #   StageCam.<Shot>[.i] the world-frame shots (FRIEZE, the cutaways) and the lobby stills, one
+    #                       point per key, aimed at the key's look-at
+    # TargetPoints are engine actors, so the content-only authoring project can place them.
+    def place_target(tag, pos, look=None, yaw=None, level=True):
+        pitch = 0.0
+        if look is not None:
+            dx, dy, dz = look[0] - pos[0], look[1] - pos[1], look[2] - pos[2]
+            yaw = math.degrees(math.atan2(dy, dx))
+            if not level:
+                pitch = math.degrees(math.atan2(dz, math.hypot(dx, dy)))
+        t = spawn(unreal.TargetPoint, pos, yaw=yaw or 0.0, pitch=pitch)
+        t.tags = [tag]
+        t.set_actor_label(tag)
+        return True
+    targets_expected = 0
+    targets_placed = 0
+    if "homeFacingYaw" in RES:
+        targets_expected += 1
+        targets_placed += 1 if place_target("StageMark.Home", (RES["x"], RES["y"], RES["z"]),
+                                            yaw=float(RES["homeFacingYaw"])) else 0
+    for s in SHOTS:
+        tag = s.get("targetPoint")
+        if not tag or s.get("reference"):
+            continue
+        keys = s.get("keys") or []
+        for i, k in enumerate(keys):
+            targets_expected += 1
+            try:
+                ok = place_target(tag if len(keys) == 1 else "%s.%d" % (tag, i), k["pos"], k.get("lookAt"),
+                                  level=bool(s.get("level", True)))
+            except Exception as e:
+                w("TargetPoint %s warn: %s" % (tag, e)); ok = False
+            targets_placed += 1 if ok else 0
+    if targets_expected:
+        w("TargetPoints placed: %d of %d" % (targets_placed, targets_expected))
 
     # ---------- the resident ----------
     # Default (MHLLM_RESIDENT=mannequin): Epic's UE mannequin, placed further down. Opt-in: the
@@ -1033,26 +1351,45 @@ try:
     # ---------- camera / player ----------
     # The runtime StageDirector owns the moving camera. This authored camera is only a fallback
     # and intentionally does not auto-activate, which previously overrode the tour during stream.
-    # Its pose is the layout's resident-frame shot labelled StageCamera: x and y offsets from the
-    # resident's mark, z from her eyeline. The eyeline comes from the measured mesh (NIA_EYE_Z, or
-    # MANNY_EYE_Z for the default mannequin); the layout's eyeZFallback is only for the Seo path.
+    # Its pose is the layout's shot labelled StageCamera (HOME in the stage design), solved from her
+    # mark and eyeline the way the director solves it:
+    #   residentRelative {rCm, thetaDeg, dzCm}: r from her eye anchor E, theta toward her left of the
+    #     home facing, dz above her eyes; r and dz scale with her stature (eye height / 0.93), and
+    #     E sits eyeForwardCm in front of the mark, toward the lens.
+    #   offsetCm / lookOffsetCm (older layouts): x and y from the mark, z from her eyeline.
+    # The eyeline comes from the measured mesh (NIA_EYE_Z, or MANNY_EYE_Z for the default
+    # mannequin); the layout's eyeZFallback is only for the Seo path.
     cam_shot = next((s for s in SHOTS if s.get("label") == "StageCamera"), None)
     if cam_shot is None:
         raise RuntimeError("stage layout has no shot labelled StageCamera")
     EYE_Z = float(globals().get("NIA_EYE_Z", globals().get("MANNY_EYE_Z", RES.get("eyeZFallback", 165.0))))
     ck = cam_shot["keys"][0]
-    CAM_POS = (RES["x"] + ck["offsetCm"][0], RES["y"] + ck["offsetCm"][1], EYE_Z + ck["offsetCm"][2])
-    LOOK_AT = (RES["x"] + ck["lookOffsetCm"][0], RES["y"] + ck["lookOffsetCm"][1], EYE_Z + ck["lookOffsetCm"][2])
+    if "residentRelative" in ck:
+        rr = ck["residentRelative"]
+        k = (EYE_Z / 0.93) / float(RES.get("stature_cm", 170.0))
+        f = math.radians(float(RES.get("homeFacingYaw", 180.0)))
+        fwd = float(META.get("eyeForwardCm", 9.0)) * k
+        E = (RES["x"] + fwd * math.cos(f), RES["y"] + fwd * math.sin(f), RES["z"] + EYE_Z)
+        a = math.radians(float(RES.get("homeFacingYaw", 180.0)) - float(rr["thetaDeg"]))
+        CAM_POS = (E[0] + rr["rCm"] * k * math.cos(a), E[1] + rr["rCm"] * k * math.sin(a), E[2] + rr.get("dzCm", 0.0) * k)
+        LOOK_AT = E
+    else:
+        CAM_POS = (RES["x"] + ck["offsetCm"][0], RES["y"] + ck["offsetCm"][1], EYE_Z + ck["offsetCm"][2])
+        LOOK_AT = (RES["x"] + ck["lookOffsetCm"][0], RES["y"] + ck["lookOffsetCm"][1], EYE_Z + ck["lookOffsetCm"][2])
     dx, dy, dz = (LOOK_AT[0]-CAM_POS[0], LOOK_AT[1]-CAM_POS[1], LOOK_AT[2]-CAM_POS[2])
     cam_yaw = math.degrees(math.atan2(dy, dx))
     cam_pitch = math.degrees(math.atan2(dz, math.sqrt(dx*dx + dy*dy)))
+    # The field of view is horizontal: given, or derived from a focal length on the 36 mm-wide
+    # (16:9) filmback the stage design is written for.
+    cam_fov = float(cam_shot["fovDeg"]) if "fovDeg" in cam_shot else \
+        math.degrees(2.0 * math.atan(18.0 / float(cam_shot.get("focalMm", 50.0))))
     cam = spawn(unreal.CameraActor, CAM_POS, yaw=cam_yaw, pitch=cam_pitch)
     cam.set_actor_label(cam_shot["label"])
     # The runtime StageDirector owns the view target and animates its own camera along the tour.
     # Auto-activating this static editor camera overrode the director in Pixel Streaming, so the
     # flythrough ran in logs while viewers stayed on the unmoving authored camera.
     try:
-        cam.camera_component.set_editor_property("field_of_view", cam_shot.get("fovDeg", 48.0))
+        cam.camera_component.set_editor_property("field_of_view", cam_fov)
         # Let the camera fill the configured 16:9 stream without letterboxing.
         cam.camera_component.set_editor_property("constrain_aspect_ratio", False)
         aspect = cam_shot.get("aspect", [1920.0, 1080.0])
@@ -1061,8 +1398,29 @@ try:
         w("fov warn " + str(e))
     if cam_shot.get("playerStart", True):
         spawn(unreal.PlayerStart, CAM_POS, yaw=cam_yaw, pitch=cam_pitch)
-    w("StageCamera ok (landscape 16:9, yaw=%.1f pitch=%.1f fov=65) — known issue: free-look input inert" %
-      (cam_yaw, cam_pitch))
+    w("StageCamera ok (%s, landscape 16:9, at %.0f %.0f %.0f, yaw=%.1f pitch=%.1f, fov=%.1f): a fallback; the "
+      "stage director's camera owns the stream" % (cam_shot["name"], CAM_POS[0], CAM_POS[1], CAM_POS[2],
+                                                  cam_yaw, cam_pitch, cam_fov))
+
+    # ---------- self-checks: every expected count comes from the layout ----------
+    # A prop slot refused by the NoAI guard is allowed to leave a gap (a stale prop folder gives a
+    # licence-clean set with holes rather than no build); everything else the layout lists must
+    # exist in the map, or the build stops here.
+    expected_props = sum(1 for p in PROPS if slot_of(p) not in refused)
+    tagged_reels = sum(1 for b in BLOCKOUTS if "TapeReel" in (b.get("tags") or [])) + \
+        sum(len(p.get("reels", [])) for p in PROPS if slot_of(p) not in refused)
+    placed_reels_all = sum(1 for b in BLOCKOUTS if "TapeReel" in (b.get("tags") or [])
+                           and PLACED_BLOCKOUTS.get(b["name"])) + sum(GROUP_REELS.values())
+    checks = [("blockouts", blockouts_placed, len(BLOCKOUTS)),
+              ("lights", lights_placed, len(LIGHTS)),
+              ("props", props_placed, expected_props),
+              ("TapeReel actors", placed_reels_all, tagged_reels),
+              ("attachments", attached, attach_expected),
+              ("TargetPoints", targets_placed, targets_expected),
+              ("material failures", len(material_failures), 0)]
+    short = [c for c in checks if c[1] != c[2]]
+    w("self-check: %s%s" % (", ".join("%s %d/%d" % c for c in checks),
+                            "; all counts match" if not short else "; MISMATCH"))
 
     ok = les.save_current_level()
     w("save_current_level=%s" % ok)
@@ -1072,6 +1430,8 @@ try:
     # and every downstream gate (m2_clean.sh's `grep -q SUCCESS`) believed it.
     if not ok:
         raise RuntimeError("save_current_level returned False; no .umap was written")
+    if short:
+        raise RuntimeError("layout self-check failed: " + ", ".join("%s %d of %d" % c for c in short))
     # CONTENT_DIR comes from the ENGINE rather than from this file's location. The old derivation
     # (two directories up from __file__) is right for Deployment/author_diorama.py in a checkout,
     # and wrong on core-2, where run_author_m2.sh copies the script to /proj/ and runs it from
