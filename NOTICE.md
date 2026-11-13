@@ -219,8 +219,10 @@ Facts below were read on 2026-11-12; the root `README.md` ("Licensing") quotes t
 
 - **On request: Eliza, made by Companion Intelligence** (`-Resident Eliza`, `MHLLM_RESIDENT=eliza`).
   Her content is private and staged, never committed; `Content/Eliza/eliza_manifest.json` names the
-  variant, and every gate (BuildNative.ps1, CHECK_MAP, m2_clean.sh) refuses her content in a build
-  that did not ask for her. Read live on 2026-11-13:
+  variant, and every gate (BuildNative.ps1 before authoring and with `-SkipAuthoring`, CHECK_MAP,
+  m2_clean.sh) refuses her content in a build that did not ask for her, and refuses
+  `Content/EditableCharacters`, where MetaHuman Creator keeps editable characters, in every build.
+  Read live on 2026-11-13:
   - *MPFB variant.* Built with MPFB 2.0.18 (GPL-3.0-or-later; an authoring tool, not distributed)
     from CC0 1.0 packs only. MPFB LICENSE.md §C: the assets "have been released under CC0 1.0
     Universal"; §D: "the MakeHuman team makes no claim whatsoever over output" (exports, renderings,

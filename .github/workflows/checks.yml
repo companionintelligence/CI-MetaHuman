@@ -520,11 +520,13 @@ jobs:
           expect 0 metahuman-asked-for "authored && result 'resident: METAHUMAN placed' && mkdir -p Content/Seo && export RESIDENT=metahuman"
           expect 1 metahuman-without-seo "authored && result 'resident: METAHUMAN placed' && export RESIDENT=metahuman"
           expect 1 unknown-resident "authored && result '$manny' && export RESIDENT=someone"
-          eliza() { mkdir -p Content/Eliza && printf '{\n "id": "eliza",\n "variant": "%s"\n}\n' "$1" > Content/Eliza/eliza_manifest.json; }
+          # eliza <variant> [id]: her staged manifest, as stage_eliza_mpfb.py writes it (id defaults to eliza)
+          eliza() { mkdir -p Content/Eliza && printf '{\n "id": "%s",\n "variant": "%s"\n}\n' "${2:-eliza}" "$1" > Content/Eliza/eliza_manifest.json; }
           expect 0 eliza-asked-for "authored && result 'resident: ELIZA placed' && eliza mpfb && export RESIDENT=eliza"
           expect 0 eliza-variant-matches "authored && result 'resident: ELIZA placed' && eliza metahuman && export RESIDENT=eliza ELIZA_VARIANT=metahuman"
           expect 1 eliza-variant-mismatch "authored && result 'resident: ELIZA placed' && eliza mpfb && export RESIDENT=eliza ELIZA_VARIANT=metahuman"
           expect 1 eliza-without-content "authored && result 'resident: ELIZA placed' && export RESIDENT=eliza"
+          expect 1 eliza-manifest-not-hers "authored && result 'resident: ELIZA placed' && eliza mpfb someone && export RESIDENT=eliza"
           expect 1 eliza-map-unasked "authored && result 'resident: ELIZA placed'"
           expect 1 eliza-content-unasked "authored && result '$manny' && eliza mpfb"
           expect 1 editable-source-in-context "authored && result 'resident: ELIZA placed' && eliza mpfb && mkdir -p Content/EditableCharacters && export RESIDENT=eliza"

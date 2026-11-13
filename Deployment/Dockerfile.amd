@@ -139,7 +139,8 @@ esac
 # editable MetaHuman source (Content/EditableCharacters) is never cooked at all.
 if [ -d Content/EditableCharacters ]; then
     refuse "Content/EditableCharacters is in the build context." \
-        "It is the editable MetaHuman source of Eliza and is never staged or cooked; remove it."
+        "MetaHuman Creator keeps its editable characters there (Eliza's MetaHuman source, or an imported" \
+        "mhc_seo.mhpkg); they are never staged or cooked. Remove it."
 fi
 if [ -d Content/Eliza ] && [ "$resident" != eliza ]; then
     refuse "Content/Eliza is in the build context of a $resident build." \
@@ -149,6 +150,10 @@ if [ "$resident" = eliza ]; then
     manifest=Content/Eliza/eliza_manifest.json
     [ -f "$manifest" ] || refuse "RESIDENT=eliza, but the build context has no $manifest." \
         "Her content is staged, not committed: copy the staged Content/Eliza into the context."
+    # Hers and nobody else's, as BuildNative.ps1 and author_diorama.py also require: one "id", eliza.
+    id="$(tr -d ' \t\r\n' < "$manifest" | grep -o '"id":"[^"]*"' | sed 's/^"id":"\(.*\)"$/\1/' | tr '\n' ' ')"
+    [ "$id" = "eliza " ] || refuse "$manifest names id \"${id% }\", not eliza." \
+        "Content/Eliza must be her staged content: copy the staged Eliza folder whole."
     variant="$(tr -d ' \t\r\n' < "$manifest" | sed -n 's/.*"variant":"\([a-z]*\)".*/\1/p')"
     case "$variant" in
         mpfb|metahuman) ;;

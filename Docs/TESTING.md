@@ -242,8 +242,9 @@ Not tests in the usual sense; they are refusals to proceed. See
 | exposure-pin check | ship a blown frame | *"nothing in any log distinguishes a lit room from a blown one"* |
 | `DOCKERFILE_STALE` | run a Dockerfile that deletes the diorama | it used to, unconditionally |
 | `NO_MAP` / `NO_NIA_CONTENT` | start a 20-minute cook | fail fast beats failing late |
-| `CHECK_MAP` in `Dockerfile` and `Dockerfile.amd` | cook a missing, LFS-pointer, stub or sub-200 KB map; an authored map whose `Content/AUTHOR_RESULT.txt` is missing, failed, placed another resident, predates the NoAI prop gate or names another map; or Nia's or Seo's content nobody asked for | a build from a clean checkout cooked the 23 KB stub and nothing failed, and a build from a stale tree would cook Nia and the NoAI-tagged props just as quietly ([`BUILD-AND-DEPLOY.md`](BUILD-AND-DEPLOY.md) §2.2) |
+| `CHECK_MAP` in `Dockerfile` and `Dockerfile.amd` | cook a missing, LFS-pointer, stub or sub-200 KB map; an authored map whose `Content/AUTHOR_RESULT.txt` is missing, failed, placed another resident, predates the NoAI prop gate or names another map; Nia's, Seo's or Eliza's content nobody asked for, an Eliza manifest that is not hers, or MetaHuman Creator's editable characters | a build from a clean checkout cooked the 23 KB stub and nothing failed, and a build from a stale tree would cook Nia and the NoAI-tagged props just as quietly ([`BUILD-AND-DEPLOY.md`](BUILD-AND-DEPLOY.md) §2.2) |
 | `BuildNative.ps1 -SkipAuthoring` | cook an authored map on the same terms as `CHECK_MAP` | it cooks a map it did not author |
+| `BuildNative.ps1` before authoring | stage or author with a stray `Content/Eliza` or any `Content/EditableCharacters` | a stale Eliza folder sat in a worktree where a default build would have gone ahead without a word, and her MetaHuman variant's `PrimaryAssetLabel` would be found by any cook |
 
 ---
 

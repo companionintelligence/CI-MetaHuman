@@ -47,8 +47,9 @@
     same rule as CHECK_MAP in both Dockerfiles: Content/AUTHOR_RESULT.txt has to report SUCCESS,
     place the -Resident asked for, show the NoAI prop gate ran, and record this map's sha256. A map
     authored before those existed may hold Nia or the three NoAI-tagged Sketchfab props, and
-    nothing else here could tell. Nia's and Seo's content (Content/CC_ControlRig_Nia, Content/Seo)
-    is refused unless -Resident names her.
+    nothing else here could tell. Nia's, Seo's and Eliza's content (Content/CC_ControlRig_Nia,
+    Content/Seo, Content/Eliza) is refused unless -Resident names her, and so is any
+    Content/EditableCharacters; the Eliza and EditableCharacters checks run before authoring too.
 
 .PARAMETER KeepAuthoredMap
     Leave the freshly authored .umap in Content/Maps, with the Content/AUTHOR_RESULT.txt that
@@ -65,7 +66,8 @@
     Who stands in the diorama: Mannequin (default), Eliza, MetaHuman or Nia.
 
     Eliza is the resident Companion Intelligence made for this product (see -ElizaContent). Her
-    content is staged from private storage into Content\Eliza and never committed. Two variants share
+    content is staged from private storage into Content\Eliza and never committed, and a build for
+    any other resident stops while that staged copy is still there (delete it). Two variants share
     the id; the staged eliza_manifest.json says which: "mpfb" (MPFB 2 with CC0 1.0 assets) or
     "metahuman" (made in MetaHuman Creator, Unreal Engine EULA). Neither carries a NoAI restriction;
     NOTICE.md has the licences and the one rule that comes with them (never use her to build datasets
@@ -207,7 +209,27 @@ function Assert-StageProvenance {
                 (@($lines -match '^NoAI prop slots: ') | Select-Object -Last 1)) -ForegroundColor Cyan
 }
 
+function Assert-NoStrayEliza {
+    # Eliza's content is staged from private storage and cooked only when asked for, the same rule
+    # CHECK_MAP (both Dockerfiles) and m2_clean.sh apply. A Content\Eliza left by an earlier -Resident
+    # Eliza build is not referenced by another resident's map today, but her MetaHuman variant points
+    # the runtime at /Game/Eliza/PAL_Eliza, and the cook scans all of /Game for PrimaryAssetLabels in
+    # every build (BaseGame.ini), so a stale folder could ride into another resident's package.
+    # MetaHuman Creator's editable characters (Content\EditableCharacters: Eliza's MetaHuman source, or
+    # an imported mhc_seo.mhpkg) are never staged or cooked at all.
+    if (Test-Path (Join-Path $ProjectRoot 'Content\EditableCharacters')) {
+        throw ('Content\EditableCharacters is in this project. MetaHuman Creator keeps its editable characters there ' +
+               "(Eliza's MetaHuman source, or an imported mhc_seo.mhpkg); they are never staged or cooked. Move it " +
+               'out of Content\ (to private storage) and build again.')
+    }
+    if ($Resident -ne 'Eliza' -and (Test-Path (Join-Path $ProjectRoot 'Content\Eliza'))) {
+        throw ("Content\Eliza (Eliza's staged content) is in a -Resident $Resident build; it is cooked only when " +
+               'asked for. Delete Content\Eliza (a staged copy: her content stays in private storage), or pass -Resident Eliza.')
+    }
+}
+
 function Assert-NoUnrequestedResident {
+    Assert-NoStrayEliza
     if ($Resident -eq 'Eliza') { Assert-ElizaManifest | Out-Null }
     # Seo and Nia are Fab content tagged NoAI (NOTICE.md): staged and cooked only when asked for by name.
     if ($Resident -ne 'Nia' -and (Test-Path (Join-Path $ProjectRoot 'Content\CC_ControlRig_Nia'))) {
@@ -271,6 +293,9 @@ function Invoke-StageAuthoring {
     if (-not (Test-Path $glb)) {
         throw "Prop GLBs not found: $glb. Pass -GlbDir <path> or set MHLLM_GLB_DIR."
     }
+
+    # Before anything is staged or authored: a stray Content\Eliza or any Content\EditableCharacters.
+    Assert-NoStrayEliza
 
     # A checkout that once built with -Resident Nia keeps her staged under Content\ (the folder is
     # gitignored, not deleted). It is not referenced by a Mannequin or MetaHuman map and not cooked --

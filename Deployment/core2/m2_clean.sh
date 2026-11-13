@@ -66,6 +66,11 @@ docker run --rm --user root -v /home/ci:/host --entrypoint bash ubuntu:26.04 -c 
 # 4. FAIL FAST. A missing map here is what silently produced a residentless build last time.
 test -f /home/ci/cook-clean/Content/Maps/CompanionStage.umap || { echo "NO_MAP — aborting before the cook"; exit 1; }
 echo "MAP_PRESENT $(stat -c%s /home/ci/cook-clean/Content/Maps/CompanionStage.umap) bytes"
+# MetaHuman Creator's editable characters (Eliza's MetaHuman source, or an imported Seo) are never
+# staged or cooked, whoever the resident is (CHECK_MAP and BuildNative.ps1 refuse them too).
+if [ -d /home/ci/cook-clean/Content/EditableCharacters ]; then
+  echo "UNEXPECTED_EDITABLE_SOURCE (Content/EditableCharacters) in the cook tree — aborting"; exit 1
+fi
 if [ "$MHLLM_RESIDENT" = nia ]; then
   test -d /home/ci/cook-clean/Content/CC_ControlRig_Nia || { echo "NO_NIA_CONTENT — aborting"; exit 1; }
   echo "NIA_CONTENT_PRESENT"
