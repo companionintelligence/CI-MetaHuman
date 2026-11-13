@@ -255,6 +255,26 @@ void FCompanionStageSpec::Define()
 			TestTrue("never turns her more than 30 degrees", FMath::Abs(Settings->WorkTurnDegrees) <= 30.0f);
 		});
 
+		// On the real stream a visitor's MatchViewportRes turned the game to 1080x1920 long after
+		// BeginPlay had solved a landscape plan, and HOME's 16:9 lens filled the portrait frame with her
+		// chest. The director now re-solves the plan when the viewport turns; these are its two inputs.
+		It("take the portrait shots when the viewport is taller than wide", [this]()
+		{
+			TestFalse("1920x1080 is landscape", UCompanionStageDirector::IsPortraitViewport(FVector2D(1920.0, 1080.0), false));
+			TestTrue("1080x1920 is portrait", UCompanionStageDirector::IsPortraitViewport(FVector2D(1080.0, 1920.0), false));
+			TestFalse("a square is landscape", UCompanionStageDirector::IsPortraitViewport(FVector2D(1080.0, 1080.0), true));
+			TestTrue("no area yet keeps portrait", UCompanionStageDirector::IsPortraitViewport(FVector2D(0.0, 0.0), true));
+			TestFalse("no area yet keeps landscape", UCompanionStageDirector::IsPortraitViewport(FVector2D(1080.0, 0.0), false));
+
+			const FCompanionStagePlan Landscape = CompanionStage::BuildPlan(GetDefault<UCompanionStageSettings>(),
+				StageSpecSubject(170.0f), StageSpecLookup(TMap<FString, FString>()), false);
+			const FCompanionStagePlan Portrait = CompanionStage::BuildPlan(GetDefault<UCompanionStageSettings>(),
+				StageSpecSubject(170.0f), StageSpecLookup(TMap<FString, FString>()), true);
+			TestTrue("landscape HOME on a 16:9 filmback", Landscape.Home.FilmbackMm.X > Landscape.Home.FilmbackMm.Y);
+			TestTrue("portrait HOME on a 9:16 filmback", Portrait.Home.FilmbackMm.X < Portrait.Home.FilmbackMm.Y);
+			TestTrue("portrait lobby on a 9:16 filmback", Portrait.Lobby.FilmbackMm.X < Portrait.Lobby.FilmbackMm.Y);
+		});
+
 		It("fall back to the built-in path when the config has no shots", [this]()
 		{
 			UCompanionStageSettings* Empty = StageSpecSettings(FString());

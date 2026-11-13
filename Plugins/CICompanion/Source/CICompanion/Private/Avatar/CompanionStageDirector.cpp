@@ -406,10 +406,12 @@ void UCompanionStageDirector::OnWorldBeginPlay(UWorld& InWorld)
 	{
 		FVector2D Size;
 		GEngine->GameViewport->GetViewportSize(Size);
-		bPortrait = Size.Y > Size.X;
+		bPortrait = IsPortraitViewport(Size, false);
 	}
 	auto Env = [](const TCHAR* Name) { return FPlatformMisc::GetEnvironmentVariable(Name); };
 	Plan = CompanionStage::BuildPlan(Settings, Subject, Env, bPortrait);
+	StageSubject = Subject;
+	bPlanPortrait = bPortrait;
 	ResidentFinalYaw = Resident->GetActorRotation().Yaw;
 
 	UE_LOG(LogCompanionStage, Log,
@@ -646,6 +648,42 @@ void UCompanionStageDirector::LockPlayerView()
 	// binding.
 	PC->SetIgnoreLookInput(true);
 	PC->SetIgnoreMoveInput(true);
+}
+
+bool UCompanionStageDirector::IsPortraitViewport(const FVector2D& Size, bool bCurrent)
+{
+	if (Size.X <= 0.0 || Size.Y <= 0.0)
+	{
+		return bCurrent;
+	}
+	return Size.Y > Size.X;
+}
+
+void UCompanionStageDirector::ReplanForViewport(bool bPortrait, const FVector2D& Size)
+{
+	auto Env = [](const TCHAR* Name) { return FPlatformMisc::GetEnvironmentVariable(Name); };
+	Plan = CompanionStage::BuildPlan(GetDefault<UCompanionStageSettings>(), StageSubject, Env, bPortrait);
+	bPlanPortrait = bPortrait;
+	UE_LOG(LogCompanionStage, Log, TEXT("The viewport is now %.0fx%.0f, %s: the shots are re-solved for it (HOME %.0f mm on %.2f x %.2f mm)."),
+		Size.X, Size.Y, bPortrait ? TEXT("portrait") : TEXT("landscape"), Plan.Home.FocalMm, Plan.Home.FilmbackMm.X, Plan.Home.FilmbackMm.Y);
+	for (const FString& Note : Plan.Notes)
+	{
+		UE_LOG(LogCompanionStage, Log, TEXT("Stage plan: %s"), *Note);
+	}
+	// Re-frame what the visitor is looking at now, with a flagged cut: the lobby still, the held
+	// HOME or CLOSE, or (mid-move) the new move from the same moment, which the next tick applies.
+	if (bAwaitingSession || (!bMoveStarted && Beat == EStageBeat::Flythrough))
+	{
+		HoldFraming(Plan.Lobby, /*bCut*/ true);
+	}
+	else if (Beat == EStageBeat::Live || IsOnHome() || LineDueAt >= 0.0f)
+	{
+		HoldFraming(bInClose && Plan.Close.bValid ? Plan.Close : Plan.Home, /*bCut*/ true);
+	}
+	else
+	{
+		MarkCameraCut();
+	}
 }
 
 bool UCompanionStageDirector::HideStandInPawn(APawn* Pawn)
@@ -1199,6 +1237,18 @@ void UCompanionStageDirector::Tick(float DeltaTime)
 	if (!Camera || !Resident)
 	{
 		return;
+	}
+	if (GEngine && GEngine->GameViewport)
+	{
+		// The plan's orientation follows the viewport: a streamed visitor's MatchViewportRes resizes
+		// the game long after BeginPlay solved the plan.
+		FVector2D Size;
+		GEngine->GameViewport->GetViewportSize(Size);
+		const bool bPortrait = IsPortraitViewport(Size, bPlanPortrait);
+		if (bPortrait != bPlanPortrait)
+		{
+			ReplanForViewport(bPortrait, Size);
+		}
 	}
 	if (bAwaitingSession)
 	{

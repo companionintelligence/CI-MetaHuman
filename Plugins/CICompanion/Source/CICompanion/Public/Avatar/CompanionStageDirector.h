@@ -217,10 +217,18 @@ public:
 	// flies it). Returns true when this call hid it.
 	static bool HideStandInPawn(APawn* Pawn);
 
+	// Whether a viewport of this size takes the *_PORTRAIT shots (taller than wide). A size with no
+	// area (a viewport not laid out yet) keeps the current answer.
+	static bool IsPortraitViewport(const FVector2D& Size, bool bCurrent);
+
 private:
 	void LockPlayerView();
 	// HideStandInPawn on the local player's pawn, retried briefly while the pawn has not arrived.
 	void HidePawnFromStage();
+	// The viewer's viewport turned portrait or landscape (Pixel Streaming's MatchViewportRes resizes
+	// the game at runtime): re-solve the plan with that orientation's shots and re-frame what is on
+	// screen with a flagged cut.
+	void ReplanForViewport(bool bPortrait, const FVector2D& Size);
 	// Holds a framing: position, level aim or look-at, lens and composition.
 	void ApplyFraming(const FCompanionStageFraming& Framing);
 	// The opening move MoveTime seconds in.
@@ -249,6 +257,9 @@ private:
 	TArray<TWeakObjectPtr<AActor>> ExteriorLights;
 
 	FCompanionStagePlan Plan;
+	// The subject the plan was solved for, kept for a re-plan, and the orientation it was solved in.
+	FCompanionStageSubject StageSubject;
+	bool bPlanPortrait = false;
 
 	bool bActive = false;
 	EStageBeat Beat = EStageBeat::Flythrough;
