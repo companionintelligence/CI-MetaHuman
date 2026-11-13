@@ -898,13 +898,20 @@ try:
     WB_WHITE = white_balance_white(META["whiteBalanceK"]) if META.get("whiteBalanceK") else (1.0, 1.0, 1.0)
     # The floor's tile and grout, drawn in the material from WORLD position so a 60 cm tile is 60 cm
     # whatever the blockout's scale. Distance to the nearest grout line in cm, anti-aliased by its
-    # screen-space derivative so the far floor does not shimmer. LWCToFloat: the world position input
-    # arrives as a large-world-coordinate vector.
+    # screen-space derivative so the far floor does not shimmer. Where a tile spans fewer than about
+    # five pixels (its footprint, the geometric mean of the two screen-space derivatives; the 3 cm
+    # perforation of the raised-floor panels some metres out) the grid is finer than the screen can show
+    # and aliased into a moire in a capture, so it fades to its average coverage by 2.5 pixels, as a
+    # mip-mapped texture would. LWCToFloat: the world position input arrives as a large-world-coordinate
+    # vector.
     TILE_HLSL = ("float3 W = LWCToFloat(P);\n"
                  "float2 F = abs(frac(W.xy / TileCm) - 0.5) * TileCm;\n"
                  "float D = 0.5 * TileCm - max(F.x, F.y);\n"
                  "float AA = max(fwidth(D), 0.02);\n"
-                 "return 1.0 - smoothstep(0.5 * GroutCm - AA, 0.5 * GroutCm + AA, D);")
+                 "float G = 1.0 - smoothstep(0.5 * GroutCm - AA, 0.5 * GroutCm + AA, D);\n"
+                 "float Open = 1.0 - GroutCm / TileCm;\n"
+                 "float Px = sqrt(length(ddx(W.xy)) * length(ddy(W.xy))) / TileCm;\n"
+                 "return lerp(G, 1.0 - Open * Open, saturate((Px - 0.2) / 0.2));")
     def srgb_lin(hexcol):
         h = hexcol.lstrip("#")
         return tuple((c / 12.92) if c <= 0.04045 else (((c + 0.055) / 1.055) ** 2.4)
