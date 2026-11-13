@@ -70,6 +70,8 @@ The deployment target is an **AMD/ROCm** host. It does **not** require an NVIDIA
   and an upward planning aversion while the model is thinking — so latency reads as thought.
 - **Has a face.** Reply text drives a sustained brow/cheek/eye expression composited over the
   visemes, plus involuntary blinking.
+- **Says she is an AI**, in a line that stays in the frame and on the player page for as long as
+  the stream runs, and in the face stack's opening line.
 - **Can remember you**, opt-in via `MHLLM_MEMORY=1`.
 - **Runs against anything.** `IChatBackend` covers native Ollama `/api/chat` and any
   OpenAI-compatible `/v1/chat/completions` (LM Studio, Lemonade, vLLM, a gateway) by config alone.

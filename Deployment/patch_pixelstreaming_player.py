@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Patch Epic's pinned Pixel Streaming player: defaults, inbound audio, a self-hosted font, credits.
+"""Patch Epic's pinned Pixel Streaming player: defaults, inbound audio, a self-hosted font, credits
+and the AI notice.
 
-Three independent patches, each applied once and recognised by its marker:
+Four independent patches, each applied once and recognised by its marker:
 
 - the stream fixes (HoveringMouse and VP8 URL defaults, inbound audio attached to the <video>);
 - the font: Epic's page loads Montserrat and Michroma from Google Fonts, so every viewer's
@@ -13,10 +14,15 @@ Three independent patches, each applied once and recognised by its marker:
 - the credits: a "Credits" link to credits.html next to the page, which Dockerfile.signalling
   copies from Deployment/pixelstreaming/. The streamed set includes eight CC BY 4.0 models, and their
   attribution has to be reachable from the product (NOTICE.md, "3D models under CC BY 4.0").
+- the AI notice: "Eliza is an AI. Her replies are generated and can be wrong." and a Privacy link,
+  shown from the moment the page loads. She introduces herself with a human name, and the EU AI
+  Act (Art. 50(1)) asks that people are told they are talking with an AI system.
 
 A page that still references a Google Fonts host after patching is refused rather than written.
 """
 
+from html import escape
+import os
 from pathlib import Path
 import re
 import sys
@@ -107,6 +113,27 @@ CREDITS_LINK = (
     " 'Segoe UI', Roboto, Arial, sans-serif; text-decoration: none;\">Credits</a>\n"
 )
 
+AI_NOTICE_MARKER = "ci-companion-ai-notice-v1"
+# The same words the streamed frame carries (SCompanionAiNotice in the plugin, top right of the
+# video): the video says it to anyone watching, this says it before the first frame arrives and
+# holds the link a video cannot. Fixed just under the Credits link, so the strip the HUD keeps
+# clear holds both; the link opens in a new tab, like Credits, so the stream keeps running.
+AI_NOTICE_TEXT = "Eliza is an AI. Her replies are generated and can be wrong."
+# The policy that covers this preview, and its "If you run it yourself" section for anyone else.
+# An operator with a policy of their own builds the image with --build-arg PRIVACY_POLICY_URL=...
+# (Dockerfile.signalling), which reaches this script as the environment variable of that name.
+DEFAULT_PRIVACY_POLICY_URL = "https://ci.computer/privacy/companion-presence"
+HTTPS_URL = re.compile(r"https://[^\s\"'<>`]+")
+AI_NOTICE = (
+    '<p data-ci-companion="ci-companion-ai-notice-v1" role="note" style="position: fixed; top: 32px;'
+    ' left: 50%; transform: translateX(-50%); z-index: 2147483647; box-sizing: border-box; width: max-content;'
+    ' max-width: calc(100vw - 24px); margin: 0; padding: 2px 10px; border-radius: 10px;'
+    ' background: rgba(0, 0, 0, 0.55); color: rgba(255, 255, 255, 0.92); text-align: center;'
+    " font: 600 12px/1.5 'Montserrat', system-ui, -apple-system, 'Segoe UI', Roboto, Arial,"
+    ' sans-serif;">{text} <a href="{url}" target="_blank" rel="noopener" style="color: inherit;">'
+    "Privacy</a></p>\n"
+)
+
 
 def check_page(html: str) -> None:
     """Raises ValueError for a page this script cannot patch safely."""
@@ -138,16 +165,34 @@ def patch_credits(html: str) -> str:
     return html.replace("</body>", CREDITS_LINK + "</body>", 1)
 
 
+def privacy_policy_url() -> str:
+    """PRIVACY_POLICY_URL from the environment, else the default; refuses anything but https."""
+    url = os.environ.get("PRIVACY_POLICY_URL", "").strip() or DEFAULT_PRIVACY_POLICY_URL
+    if not HTTPS_URL.fullmatch(url):
+        raise ValueError("PRIVACY_POLICY_URL must be an https:// URL, not {!r}".format(url))
+    return url
+
+
+def patch_ai_notice(html: str) -> str:
+    """The AI notice alone: the line and its Privacy link, just before </body>."""
+    if AI_NOTICE_MARKER in html:
+        return html
+    if html.count("</body>") != 1:
+        raise ValueError("expected exactly one </body>")
+    notice = AI_NOTICE.format(text=AI_NOTICE_TEXT, url=escape(privacy_policy_url(), quote=True))
+    return html.replace("</body>", notice + "</body>", 1)
+
+
 def patch_html(html: str) -> str:
     """Returns the fully patched page; raises ValueError for a page it cannot patch safely."""
     if (MARKER in html and FONT_MARKER in html and CREDITS_MARKER in html
-            and not any(h in html for h in GOOGLE_FONT_HOSTS)):
+            and AI_NOTICE_MARKER in html and not any(h in html for h in GOOGLE_FONT_HOSTS)):
         return html
     check_page(html)
     patched = html
     if MARKER not in patched:
         patched = patched.replace("</head>", SCRIPT + "\n</head>", 1)
-    return patch_credits(patch_fonts(patched))
+    return patch_ai_notice(patch_credits(patch_fonts(patched)))
 
 
 def patch_player(path: Path) -> bool:

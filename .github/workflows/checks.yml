@@ -95,6 +95,25 @@ jobs:
           test "$(grep -c 'data-ci-companion="ci-companion-credits-link-v1"' Deployment/pixelstreaming/player.html)" -eq 1
           test -s Deployment/pixelstreaming/credits.html
           grep -q '^COPY pixelstreaming/credits.html ' Deployment/Dockerfile.signalling
+          # The AI notice (EU AI Act Art. 50(1)): once in each page, in the words the streamed frame
+          # uses (SCompanionAiNotice.h), with the Privacy link; PRIVACY_POLICY_URL replaces the link
+          # and must be https.
+          notice='Eliza is an AI. Her replies are generated and can be wrong.'
+          grep -qF "\"$notice\"" Plugins/CICompanion/Source/CICompanion/Public/UI/SCompanionAiNotice.h
+          for page in "$work/player.html" Deployment/pixelstreaming/player.html; do
+            test "$(grep -c 'data-ci-companion="ci-companion-ai-notice-v1"' "$page")" -eq 1
+            grep -qF ">$notice <a href=\"https://ci.computer/privacy/companion-presence\"" "$page"
+          done
+          printf '<html><head><title>Pixel Streaming</title></head><body></body></html>\n' > "$work/stock.html"
+          cp "$work/stock.html" "$work/own-policy.html"
+          cp "$work/stock.html" "$work/http-policy.html"
+          PRIVACY_POLICY_URL=https://example.org/privacy python "$patch" "$work/own-policy.html"
+          grep -qF '<a href="https://example.org/privacy"' "$work/own-policy.html"
+          if PRIVACY_POLICY_URL=http://example.org/privacy python "$patch" "$work/http-policy.html" 2> "$work/http-policy.err"; then
+            echo "::error file=$patch::accepted a PRIVACY_POLICY_URL that is not https"; exit 1
+          fi
+          grep -q 'must be an https:// URL' "$work/http-policy.err"
+          cmp "$work/http-policy.html" "$work/stock.html"
 
           # It must refuse a page it cannot patch safely, for the right reason, and leave it untouched.
           printf '<html><head></head><head></head><title>Pixel Streaming</title></html>\n' > "$work/two-heads.html"

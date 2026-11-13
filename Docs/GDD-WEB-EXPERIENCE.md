@@ -14,7 +14,7 @@ You open a link. You are looking down a 1970s mainframe hall — orange back wal
 cabinets, the hum of transformers. The camera moves through it and settles behind a woman. She
 turns to face you and says:
 
-> *"Welcome to Companion Intelligence, I'm Eliza. How can I help you?"*
+> *"Welcome to Companion Intelligence. I'm Eliza, an AI. How can I help you?"*
 
 Then you talk to her, and she answers — running entirely on hardware in the room next door.
 
@@ -49,7 +49,7 @@ why). Times are configurable; defaults shown.
 | 3.0s | Camera begins its move down the aisle | The set is the first character. |
 | 14.0s | Camera settles in the wide call frame | The room and resident stay together in the composition. |
 | 14.0s | She turns to the lens | The moment of address. This is the beat the whole opening exists for. |
-| 16.0s | *"Welcome to Companion Intelligence, I'm Eliza. How can I help you?"* | Verbatim, always. |
+| 16.0s | *"Welcome to Companion Intelligence. I'm Eliza, an AI. How can I help you?"* | Verbatim, always. |
 | 16.0s+ | Hands over to live conversation | The shot plays once per level load; the assistant begins. |
 
 **Typing interrupts it.** A visitor who speaks first is answered immediately and the camera cuts

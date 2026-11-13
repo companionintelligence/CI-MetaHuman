@@ -151,7 +151,7 @@ would be silently ignored on every machine that had already held one conversatio
 | Variable | Compose default | Effect |
 |---|---|---|
 | `MHLLM_OPENING_SHOT` | `1` | Plays the datacenter tour on level load, then lands on the resident. Set `0`/`false` for a static call frame; empty/unset uses the tour default |
-| `MHLLM_OPENING_LINE` | `Welcome to Companion Intelligence, I'm Eliza. How can I help you?` | Spoken **verbatim**, never generated |
+| `MHLLM_OPENING_LINE` | `Welcome to Companion Intelligence. I'm Eliza, an AI. How can I help you?` | Spoken **verbatim**, never generated |
 | `MHLLM_OPENING_DELAY` | `3.0` | Held before the move. Pixel Streaming clients take ~10 s to negotiate |
 | `MHLLM_FLY_SECONDS` | `11.0` | Flythrough duration |
 | `MHLLM_OPENING_REPLAY` | `0` | Attract-loop period in seconds; `0` = once only |

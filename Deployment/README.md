@@ -265,6 +265,12 @@ comments explain each case.
   Tailscale Serve HTTPS port `:10000` to tailnet clients; it forwards to oauth2-proxy's loopback
   listener on `:8095`. TURN needs `3478` (TCP/UDP) and the UDP relay range `49152-65535` reachable
   within the tailnet.
+- **The AI notice.** The resident introduces herself with a human name, so the stream says what she
+  is (EU AI Act Art. 50(1)): a line in the frame from its first frame (`SCompanionAiNotice`), the
+  same words on the player page with a Privacy link (`patch_pixelstreaming_player.py`, built into
+  the signalling image), "an AI" in the chat box's idle status, and the face stack's opening line.
+  The link defaults to the policy that covers the hosted preview; an operator whose deployment has
+  its own policy builds the signalling image with `--build-arg PRIVACY_POLICY_URL=https://...`.
 - **Pixel Streaming 2** is the plugin enabled in the `.uproject`
   (`-PixelStreamingUrl=ws://127.0.0.1:8888`). For the legacy Pixel Streaming plugin, substitute
   `-PixelStreamingIP`/`-PixelStreamingPort`.
