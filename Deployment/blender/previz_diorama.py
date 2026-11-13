@@ -23,8 +23,11 @@ Run (Blender 5.1, no UI; never an interactive Blender session):
 
 Optional layout fields, all opt-in per shot or per object:
   props[].clipLocal {"x":[lo,hi],"y":[..],"z":[..]}   glTF-space metres kept (drops e.g. the RAMAC's loose
-                                 platter). author_diorama.py places such props whole: the clip previews a
-                                 one-time Blender edit of the GLB.
+                                 platter). author_diorama.py makes the same edit to a copy of the GLB before import.
+  props[].rotateLocal [["x", deg], ...]   turns about the glTF scene axes, in order, after the clip (stands up the
+                                 face-down Kenbak-1). author_diorama.py bakes the same turn into the copy it imports.
+  props[].opaque true            the prop's BLEND/MASK materials render opaque (alpha dropped), as author_diorama.py
+                                 renders them once it drops their translucent blend-mode override.
   shots[].filmbackMm [w, h]       the shot's own filmback (e.g. [20.25, 36] portrait); focalMm is on that back
   shots[].hud "lobby"|"arrival"|"live"|"portrait"   the final DOM UI zones (captions-first)
   shots[].census true             ray-cast census on every contact-sheet frame: wall-only share right of the
@@ -246,6 +249,19 @@ def actor_matrix(x, y, z, yaw, s=1.0):
 
 
 AXIS_FIX = {"unreal": Matrix.Rotation(math.radians(90.0), 4, 'Z'), "web": Matrix.Identity(4)}
+# glTF scene axes as the glTF importer lays them out in Blender, which puts glTF (gx, gy, gz) at (gx, -gz, gy): glTF X
+# is Blender X, glTF Y (up) is Blender Z, glTF Z is Blender -Y. That is a proper rotation, so a right-handed turn about a
+# glTF axis is the same turn about its Blender image.
+GLTF_AXES = {"x": Vector((1.0, 0.0, 0.0)), "y": Vector((0.0, 0.0, 1.0)), "z": Vector((0.0, -1.0, 0.0))}
+
+
+def rotate_local_matrix(rot):
+    """props[].rotateLocal ([["x", deg], ...], turns about the glTF scene axes in order) as a matrix in the Blender
+    import space the GLB's nodes live in; author_diorama.py bakes the same turns into the GLB it imports."""
+    M = Matrix.Identity(4)
+    for ax, deg in rot or []:
+        M = Matrix.Rotation(math.radians(float(deg)), 4, GLTF_AXES[str(ax).lower()]) @ M
+    return M
 
 
 def rotation_of(d):
@@ -563,7 +579,7 @@ def place_prop(p, lib, axis_fix, coll, cube_me):
         sel = entries
     objs = []
     if sel:
-        A = actor_matrix(p["x"], p["y"], p["z"], p.get("yaw", 0.0), float(p.get("scale") or 1.0)) @ axis_fix
+        A = actor_matrix(p["x"], p["y"], p["z"], p.get("yaw", 0.0), float(p.get("scale") or 1.0)) @ axis_fix             @ rotate_local_matrix(p.get("rotateLocal"))
         recolour = {str(k): v for k, v in (p.get("materialColors") or {}).items()}
         clip = p.get("clipLocal")
         for e in sel:
@@ -596,6 +612,22 @@ def place_prop(p, lib, axis_fix, coll, cube_me):
                         if ec is not None and es is not None and es.default_value > 0 and max(ec.default_value[:3]) > 0:
                             ec.default_value = (rgb[0], rgb[1], rgb[2], 1.0)
                     m2.diffuse_color = (rgb[0], rgb[1], rgb[2], 1.0)
+                    slot.link = 'OBJECT'
+                    slot.material = m2
+            if p.get("opaque"):
+                # props[].opaque: author_diorama.py drops the translucent blend mode a glTF BLEND/MASK material
+                # imports with, so the previz drops its alpha the same way
+                for slot in o.material_slots:
+                    m = slot.material
+                    b = next((n for n in m.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None) \
+                        if m is not None and m.node_tree else None
+                    if b is None or not b.inputs["Alpha"].is_linked:
+                        continue
+                    m2 = m if m.name.startswith("rc_") else m.copy()
+                    b2 = next(n for n in m2.node_tree.nodes if n.type == "BSDF_PRINCIPLED")
+                    for lk in list(b2.inputs["Alpha"].links):
+                        m2.node_tree.links.remove(lk)
+                    b2.inputs["Alpha"].default_value = 1.0
                     slot.link = 'OBJECT'
                     slot.material = m2
             objs.append(o)

@@ -180,13 +180,44 @@ def emissive_scene_colour(display_rgb_lin, wb_white):
     k = luminance(wb_white)
     return tuple(c * wv / k for c, wv in zip(display_rgb_lin, wb_white))
 
-# ---------- a GLB edit the layout asks for: props[].clipLocal ----------
-def clip_glb(src, dst, clip):
-    """Writes src to dst with every triangle that has a vertex outside clip removed: clip is
-    {"x": [lo, hi], "y": [...], "z": [...]} in glTF SCENE-space metres (node transforms applied), the
-    same box and the same rule (a vertex outside drops its faces) as previz_diorama.py's clipped_mesh.
-    It is how the RAMAC loses its loose platter before import, so the map ships what the previz shows.
-    Returns (kept, total) triangle counts. Standard library only."""
+# ---------- GLB edits the layout asks for: props[].clipLocal, props[].rotateLocal, one mesh a file ----------
+def glb_mesh_nodes(path):
+    """How many nodes of a binary glTF file's scene carry a mesh, None when it cannot be read."""
+    import struct
+    try:
+        with open(path, "rb") as f:
+            head = f.read(20)
+            if len(head) < 20:
+                return None
+            magic, _version, _length, chunk_len, chunk_type = struct.unpack("<4sIII4s", head)
+            if magic != b"glTF" or chunk_type != b"JSON":
+                return None
+            doc = json.loads(f.read(chunk_len).decode("utf-8"))
+    except Exception:
+        return None
+    nodes = doc.get("nodes") or []
+    scene = (doc.get("scenes") or [{}])[doc.get("scene", 0)]
+    count, todo = 0, list(scene.get("nodes") or [])
+    while todo:
+        i = todo.pop()
+        count += 1 if "mesh" in nodes[i] else 0
+        todo += nodes[i].get("children") or []
+    return count
+
+def edit_glb(src, dst, clip=None, rotate=None, merge=False):
+    """Writes src to dst edited the way the layout asks, so the map places what the previz shows. Returns
+    (kept, total) triangle counts. Standard library only.
+      clip    {"x": [lo, hi], "y": [...], "z": [...]} in glTF SCENE-space metres (node transforms applied):
+              every triangle with a vertex outside the box is removed, the same box and the same rule as
+              previz_diorama.py's clipped_mesh. It is how the RAMAC loses its loose platter.
+      rotate  [["x", deg], ...]: turns about the glTF scene axes (right-handed, Y up), in order, after the
+              clip. It stands up a model that was exported lying down (the Kenbak-1) once, before import, so
+              every prop is still placed by yaw alone. It implies merge.
+      merge   every node transform (and the rotation) baked into the vertices, and the file written as ONE
+              mesh on ONE node at the origin. Interchange makes a StaticMesh of each glTF mesh and a prop
+              places one, so a file of many meshes (the Kenbak's 79, the SRI mouse's 16) would otherwise
+              arrive as one loose part of the model.
+    Without rotate or merge the node tree is kept and only the clipped triangles go (the RAMAC's edit)."""
     import struct
     with open(src, "rb") as f:
         data = f.read()
@@ -202,7 +233,7 @@ def clip_glb(src, dst, clip):
         raise RuntimeError("%s: expected a JSON and a BIN chunk" % src)
     doc = json.loads(chunks[0][1].decode("utf-8"))
     binc = bytearray(chunks[1][1])
-    lim = {k: (float(v[0]), float(v[1])) for k, v in clip.items()}
+    lim = {k: (float(v[0]), float(v[1])) for k, v in (clip or {}).items()}
     axis = {"x": 0, "y": 1, "z": 2}
 
     def mat_mul(a, b):
@@ -237,9 +268,6 @@ def clip_glb(src, dst, clip):
     for i in world:
         if "mesh" in nodes[i]:
             users.setdefault(nodes[i]["mesh"], []).append(i)
-    for mesh, who in users.items():
-        if len(who) > 1:
-            raise RuntimeError("%s: mesh %d is instanced by %d nodes; clipLocal needs one node per mesh" % (src, mesh, len(who)))
 
     acc, views = doc["accessors"], doc["bufferViews"]
     def read(ai, per):
@@ -251,7 +279,99 @@ def clip_glb(src, dst, clip):
         base = v.get("byteOffset", 0) + a.get("byteOffset", 0)
         return [struct.unpack_from("<%d%s" % (per, fmt), binc, base + k * stride) for k in range(a["count"])]
 
+    def write(values, comp, kind, target, bounds=False):
+        """Appends a tightly packed accessor (float VEC3/VEC4 or uint32 SCALAR) and returns its index."""
+        per = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4}[kind]
+        flat = [c for v in values for c in v] if per > 1 else list(values)
+        while len(binc) % 4:
+            binc.append(0)
+        views.append({"buffer": 0, "byteOffset": len(binc), "byteLength": 4 * len(flat), "target": target})
+        binc.extend(struct.pack("<%d%s" % (len(flat), "f" if comp == 5126 else "I"), *flat))
+        a = {"bufferView": len(views) - 1, "componentType": comp, "count": len(values), "type": kind}
+        if bounds:
+            a["min"] = [min(v[c] for v in values) for c in range(per)] if per > 1 else [min(values)]
+            a["max"] = [max(v[c] for v in values) for c in range(per)] if per > 1 else [max(values)]
+        acc.append(a)
+        return len(acc) - 1
+
     kept_total, tri_total = 0, 0
+    if rotate or merge:
+        # ONE mesh on ONE node: each node's world matrix, then the rotation, baked into its own primitives.
+        R = [[1.0 if i == j else 0.0 for j in range(3)] for i in range(3)]
+        for ax, deg in rotate or []:
+            c, s_ = math.cos(math.radians(float(deg))), math.sin(math.radians(float(deg)))
+            q = {"x": [[1, 0, 0], [0, c, -s_], [0, s_, c]], "y": [[c, 0, s_], [0, 1, 0], [-s_, 0, c]],
+                 "z": [[c, -s_, 0], [s_, c, 0], [0, 0, 1]]}[str(ax).lower()]
+            R = [[sum(q[i][k] * R[k][j] for k in range(3)) for j in range(3)] for i in range(3)]
+        merged = []
+        for node_index in sorted(i for i in world if "mesh" in nodes[i]):
+            M = world[node_index]
+            L = [[sum(R[i][k] * M[k][j] for k in range(3)) for j in range(3)] for i in range(3)]
+            T = [sum(R[i][k] * M[k][3] for k in range(3)) for i in range(3)]
+            det = (L[0][0] * (L[1][1] * L[2][2] - L[1][2] * L[2][1]) - L[0][1] * (L[1][0] * L[2][2] - L[1][2] * L[2][0])
+                   + L[0][2] * (L[1][0] * L[2][1] - L[1][1] * L[2][0]))
+            if abs(det) < 1e-30:
+                raise RuntimeError("%s: node %d has a singular transform" % (src, node_index))
+            # normals take the inverse transpose: the cofactor matrix over the determinant
+            N = [[(L[(i + 1) % 3][(j + 1) % 3] * L[(i + 2) % 3][(j + 2) % 3]
+                   - L[(i + 1) % 3][(j + 2) % 3] * L[(i + 2) % 3][(j + 1) % 3]) / det for j in range(3)] for i in range(3)]
+            for prim in doc["meshes"][nodes[node_index]["mesh"]]["primitives"]:
+                if prim.get("mode", 4) != 4 or prim.get("targets"):
+                    raise RuntimeError("%s: only plain triangle meshes can be merged" % src)
+                attrs = dict(prim["attributes"])
+                if acc[attrs["POSITION"]]["componentType"] != 5126:
+                    raise RuntimeError("%s: positions are not floats (a quantised mesh cannot be merged)" % src)
+                pos = read(attrs["POSITION"], 3)
+                idx = [i[0] for i in read(prim["indices"], 1)] if "indices" in prim else list(range(len(pos)))
+                tris = [idx[t:t + 3] for t in range(0, len(idx) - 2, 3)]
+                if lim:
+                    inside = []
+                    for p in pos:
+                        g = [M[r][0] * p[0] + M[r][1] * p[1] + M[r][2] * p[2] + M[r][3] for r in range(3)]
+                        inside.append(all(lo <= g[axis[k]] <= hi for k, (lo, hi) in lim.items()))
+                    keep = [t for t in tris if inside[t[0]] and inside[t[1]] and inside[t[2]]]
+                else:
+                    keep = tris
+                tri_total += len(tris)
+                kept_total += len(keep)
+                if not keep:
+                    continue
+                if det < 0.0:
+                    keep = [[t[0], t[2], t[1]] for t in keep]      # a mirror flips the winding
+                attrs["POSITION"] = write([[sum(L[i][k] * p[k] for k in range(3)) + T[i] for i in range(3)] for p in pos],
+                                          5126, "VEC3", 34962, bounds=True)
+                if "NORMAL" in attrs and acc[attrs["NORMAL"]]["componentType"] == 5126:
+                    out = []
+                    for nv in read(attrs["NORMAL"], 3):
+                        v = [sum(N[i][k] * nv[k] for k in range(3)) for i in range(3)]
+                        ln = math.sqrt(sum(c * c for c in v)) or 1.0
+                        out.append([c / ln for c in v])
+                    attrs["NORMAL"] = write(out, 5126, "VEC3", 34962)
+                if "TANGENT" in attrs and acc[attrs["TANGENT"]]["componentType"] == 5126:
+                    out = []
+                    for tv in read(attrs["TANGENT"], 4):
+                        v = [sum(L[i][k] * tv[k] for k in range(3)) for i in range(3)]
+                        ln = math.sqrt(sum(c * c for c in v)) or 1.0
+                        out.append([v[0] / ln, v[1] / ln, v[2] / ln, tv[3] if det > 0.0 else -tv[3]])
+                    attrs["TANGENT"] = write(out, 5126, "VEC4", 34962)
+                merged_prim = {"attributes": attrs, "mode": 4,
+                               "indices": write([i for t in keep for i in t], 5125, "SCALAR", 34963, bounds=True)}
+                if "material" in prim:
+                    merged_prim["material"] = prim["material"]
+                merged.append(merged_prim)
+        if not merged:
+            raise RuntimeError("%s: the edit left no triangles" % src)
+        stem = os.path.splitext(os.path.basename(src))[0]
+        doc["meshes"] = [{"name": stem, "primitives": merged}]
+        doc["nodes"] = [{"name": stem, "mesh": 0}]
+        doc["scenes"] = [{"name": stem, "nodes": [0]}]
+        doc["scene"] = 0
+        for k in ("skins", "animations", "cameras"):
+            doc.pop(k, None)
+        users = {}
+    for mesh, who in users.items():
+        if len(who) > 1:
+            raise RuntimeError("%s: mesh %d is instanced by %d nodes; clipLocal needs one node per mesh" % (src, mesh, len(who)))
     for mesh, (node_index,) in users.items():
         M = world[node_index]
         prims = doc["meshes"][mesh]["primitives"]
@@ -296,6 +416,10 @@ def clip_glb(src, dst, clip):
     with open(dst, "wb") as f:
         f.write(out)
     return kept_total, tri_total
+
+def clip_glb(src, dst, clip):
+    """edit_glb with a clip box only (the RAMAC's edit): the node tree kept, the clipped triangles removed."""
+    return edit_glb(src, dst, clip=clip)
 
 def load_layout(path):
     """The stage layout, checked for the sections this script reads. Fails loudly: a missing or
@@ -371,19 +495,25 @@ try:
     # textures intact, and Interchange's glTF importer brings Texture2D + MaterialInstanceConstant
     # across with the mesh. A SLOT is one imported file (/Game/Diorama/<slot>); any number of
     # props may place the same slot.
-    # A slot whose prop carries clipLocal is imported from an edited copy (clip_glb): the triangles
-    # outside the box are gone before Interchange sees the file, so the map places exactly what the
-    # previz shows (the RAMAC without its loose platter). The copy goes to the temp directory, never
-    # next to the licensed originals.
+    # A slot whose prop asks for an edit is imported from an edited copy (edit_glb), so the map places
+    # exactly what the previz shows: clipLocal removes the triangles outside its box (the RAMAC's loose
+    # platter, the Kenbak's power cord), rotateLocal stands up a model exported lying down (the Kenbak),
+    # and a file of several meshes is merged into one, because Interchange imports each glTF mesh as its
+    # own StaticMesh and a prop places one of them (the SRI mouse is 16 meshes, the Kenbak 79). A slot
+    # that places named sub-meshes (mesh, reels) is never merged. The copy goes to the temp directory,
+    # never next to the licensed originals.
     CLIP_DIR = os.path.join(os.environ.get("TEMP") or os.environ.get("TMPDIR") or "/tmp", "ci_stage_glb_edits").replace("\\", "/")
-    def import_prop(name, glb, mesh_name=None, clip=None):
+    def import_prop(name, glb, mesh_name=None, clip=None, rotate=None, merge=False):
         task = unreal.AssetImportTask()
         task.filename = GLB_DIR + "/" + glb
-        if clip:
+        if clip or rotate or merge:
             edited = CLIP_DIR + "/" + name + "/" + glb
-            kept, total = clip_glb(GLB_DIR + "/" + glb, edited, clip)
-            w("%s: clipLocal %s applied before import: kept %d of %d triangles (%d removed)"
-              % (name, json.dumps(clip, sort_keys=True), kept, total, total - kept))
+            kept, total = edit_glb(GLB_DIR + "/" + glb, edited, clip, rotate, merge)
+            what = [("clipLocal %s" % json.dumps(clip, sort_keys=True)) if clip else "",
+                    ("rotateLocal %s" % json.dumps(rotate)) if rotate else "",
+                    ("%d meshes merged into one" % glb_mesh_nodes(GLB_DIR + "/" + glb)) if (rotate or merge) else ""]
+            w("%s: edited before import (%s): kept %d of %d triangles (%d removed)"
+              % (name, "; ".join(x for x in what if x), kept, total, total - kept))
             task.filename = edited
         task.destination_path = "/Game/Diorama/" + name
         task.automated = True
@@ -392,15 +522,16 @@ try:
         unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([task])
         ar = unreal.AssetRegistryHelpers.get_asset_registry()
         assets = ar.get_assets_by_path("/Game/Diorama/" + name, recursive=True)
-        mesh, tex = None, 0
+        mesh, tex, meshes = None, 0, 0
         for a in assets:
             k = str(a.asset_class_path.asset_name)
             asset_name = str(a.asset_name)
+            meshes += 1 if k == "StaticMesh" else 0
             if k == "StaticMesh" and mesh is None and (mesh_name is None or asset_name == mesh_name):
                 mesh = unreal.load_asset(str(a.package_name))
             elif k == "Texture2D":
                 tex += 1
-        return mesh, tex
+        return mesh, tex, meshes
 
     def slot_of(p):
         return p.get("slot") or p["name"]
@@ -430,7 +561,9 @@ try:
                   "that filled this slot is NoAI-tagged. Build the replacement with "
                   "Deployment/blender/make_period_props.py" % (slot, glb, mark))
                 continue
-        sm, tex = import_prop(slot, glb, p.get("mesh"), p.get("clipLocal"))
+        merge = bool(p.get("rotateLocal")) or (not p.get("mesh") and not p.get("reels")
+                                                and (glb_mesh_nodes(GLB_DIR + "/" + glb) or 0) > 1)
+        sm, tex, n_meshes = import_prop(slot, glb, p.get("mesh"), p.get("clipLocal"), p.get("rotateLocal"), merge)
         imported[slot] = sm
         if p.get("reels"):
             # This GLB carries separately-pivoted sub-meshes (the tape reels). The registry's first
@@ -445,7 +578,11 @@ try:
             slot_meshes[slot] = found
             w("%s: body=%s reels=%d" % (p.get("importLabel", slot), sm is not None, len(found)))
         else:
-            w("import %-11s -> %s (%d tex)" % (slot, "OK" if sm else "NO_STATICMESH", tex))
+            w("import %-11s -> %s (%d tex, %d static mesh%s)" % (slot, "OK" if sm else "NO_STATICMESH", tex, n_meshes,
+                                                                "" if n_meshes == 1 else "es"))
+            if n_meshes > 1 and not p.get("mesh"):
+                # A prop places ONE StaticMesh, so every other part of the file would be missing from the map.
+                w("prop INCOMPLETE %s: %s imported as %d static meshes; one is placed" % (slot, glb, n_meshes))
     w("NoAI prop slots: %d of %d refused%s" % (len(refused), len(CI_AUTHORED_ONLY),
       (" (" + ", ".join(refused) + " left empty)") if refused else ""))
 
@@ -1068,10 +1205,11 @@ try:
             # (meta.props_convention), measured against the real machine, so nothing is normalised.
             s = float(p["scale"])
             a.set_actor_scale3d(unreal.Vector(s, s, s))
-        if p.get("clipLocal") != SLOTS.get(slot, {}).get("clipLocal"):
-            # The edit is made once per imported file, so every prop placing a slot must ask for the same one.
-            w("prop %s warn: clipLocal %s differs from slot %s's %s (the slot's edit is what is placed)"
-              % (p["name"], p.get("clipLocal"), slot, SLOTS.get(slot, {}).get("clipLocal")))
+        for edit in ("clipLocal", "rotateLocal"):
+            if p.get(edit) != SLOTS.get(slot, {}).get(edit):
+                # The edit is made once per imported file, so every prop placing a slot must ask for the same one.
+                w("prop %s warn: %s %s differs from slot %s's %s (the slot's edit is what is placed)"
+                  % (p["name"], edit, p.get(edit), slot, SLOTS.get(slot, {}).get(edit)))
         if p.get("tags"):
             a.tags = list(p["tags"])
         reels = 0
@@ -1169,19 +1307,36 @@ try:
         import traceback as _t3
         w("PROP MATERIAL REPARENT FAILED (props will stay pale): %s | %s" % (e, _t3.format_exc()[:300]))
 
-    # ---------- per-prop recolours (materialColors) ----------
+    # ---------- per-prop recolours (materialColors) and opaque materials (opaque) ----------
     # The design recolours a prop by material name (the 1401 CPU's doors, band and console). Each
     # imported instance whose name contains a listed material name gets that colour as its
     # BaseColorFactor, the parameter M_PropGLTF multiplies its texture by, and is saved.
+    # A glTF BLEND or MASK material keeps Interchange's translucent blend-mode override after the
+    # re-parent, and M_PropGLTF has no opacity, so it renders as a dark see-through surface with GI
+    # off (the Kenbak-1's front panel came out black, the SRI mouse's wooden body likewise). A prop
+    # marked opaque drops that override on every instance of its slot, so they render as M_PropGLTF
+    # does: opaque. Unmarked slots keep the import's blend modes.
     for p in PROPS:
         colours = p.get("materialColors") or {}
-        if not colours or not imported.get(slot_of(p)):
+        opaque = bool(p.get("opaque"))
+        if not (colours or opaque) or not imported.get(slot_of(p)):
             continue
         done = set()
+        made_opaque = 0
         for a in unreal.AssetRegistryHelpers.get_asset_registry().get_assets_by_path(
                 "/Game/Diorama/" + slot_of(p), recursive=True):
             if str(a.asset_class_path.asset_name) != "MaterialInstanceConstant":
                 continue
+            if opaque:
+                mi = unreal.load_asset(str(a.package_name))
+                ov = mi.get_editor_property("base_property_overrides")
+                if (ov.get_editor_property("override_blend_mode")
+                        and ov.get_editor_property("blend_mode") != unreal.BlendMode.BLEND_OPAQUE):
+                    ov.set_editor_property("override_blend_mode", False)
+                    mi.set_editor_property("base_property_overrides", ov)
+                    MEL.update_material_instance(mi)
+                    unreal.EditorAssetLibrary.save_loaded_asset(mi)
+                    made_opaque += 1
             for mname, hexcol in colours.items():
                 if mname in str(a.asset_name):
                     mi = unreal.load_asset(str(a.package_name))
@@ -1191,8 +1346,11 @@ try:
                     MEL.set_material_instance_vector_parameter_value(mi, "BaseColorFactor", unreal.LinearColor(*lin, 1.0))
                     unreal.EditorAssetLibrary.save_loaded_asset(mi)
                     done.add(mname)
-        w("%s: recoloured %d of %d materials%s" % (p["name"], len(done), len(colours),
-          "" if len(done) == len(colours) else " (not found: %s)" % ", ".join(sorted(set(colours) - done))))
+        if colours:
+            w("%s: recoloured %d of %d materials%s" % (p["name"], len(done), len(colours),
+              "" if len(done) == len(colours) else " (not found: %s)" % ", ".join(sorted(set(colours) - done))))
+        if opaque:
+            w("%s: opaque: %d material instance(s) lost a translucent blend-mode override" % (p["name"], made_opaque))
 
     # ---------- stage marks and camera TargetPoints ----------
     # The runtime director finds the set's marks by TAG (labels do not survive the cook):
