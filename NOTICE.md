@@ -233,7 +233,14 @@ Facts below were read on 2026-11-12; the root `README.md` ("Licensing") quotes t
     MetaHuman licence FAQ: "You can use MetaHuman characters and animation in workflows that
     incorporate artificial intelligence technology." Free below US$1M lifetime gross per product;
     above that, Unreal's standard terms (5% royalty and a Release Form).
-  - No scan or photograph of a real person went into either face, and she resembles no one.
+  - *Where her face comes from.* This project gave neither variant a scan or photograph of a real
+    person as input. The MPFB variant's geometry is MPFB's parametric base mesh, set by its macro
+    sliders only (the values are in her private `provenance.md`). Her skin texture is MakeHuman's
+    CC0 `young_caucasian_female` diffuse, recoloured; its material file records only the CC0 release
+    (September 2020) and the copyright holders, and nothing on record says how that texture was
+    made. The MetaHuman variant is to start from a MetaHuman Creator preset, and Epic says those
+    presets were "created by combining scanned data from actual human beings"
+    (<https://www.unrealengine.com/en-US/explainers/digital-humans/how-do-you-create-a-digital-human>).
   - **Never use Eliza's mesh, rig, curves or renders to build datasets or to train or test AI.**
 - **Default: Epic's UE mannequin.** `SKM_Manny` and its `MM_Idle` loop, from the engine's
   MoverTests plugin. They are Epic-provided content installed with Unreal Engine, so they are
