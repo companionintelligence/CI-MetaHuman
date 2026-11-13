@@ -52,10 +52,10 @@ a change list. The script is its interpreter: change the set by changing the JSO
 
 | section | what the author does with it |
 |---|---|
-| `meta` | `exposureEV100` pins the post-process volume and `whiteBalanceK` sets its white balance; `eyeForwardCm` places her eye anchor; the design's plan gates, UI zones and licensing record ride along unread |
-| `props` | each distinct `glb` is imported once into `/Game/Diorama/<slot>`, behind the NoAI guards, then placed at its `x, y, z` / `yaw` at `scale` (the file's own scale times this), or normalised to `targetCm` by measured bounds (older layouts). `materialColors` recolours imported materials by name; `tags` and `reels` (separately pivoted sub-meshes, Movable, tagged) as given |
-| `blockouts` | true-size engine primitives: `size` in cm in the blockout's own frame, `shape` box or cylinder (`axis` x, y or z), `color` (sRGB hex) with `rough`, `emissive` or `opacity` deriving a material instance of one of three masters (`/Game/Diorama/StageMats`; identical looks share one instance). `text` puts a sign on the box's -X face; `tags`, `mobility`, `attachTo` (attached after everything is placed, read back) and `lightingChannels` as given. An explicit `material` object (paint, emissive, glass, texture types) is also accepted |
-| `lights` | `point`, `spot`, `rect` or `directional`, aimed by yaw/pitch; `units` (`cd`), `radiusCm`, `linear` or `kelvin`, `shadows`, `sourceRadiusCm`, `coneDeg` (the full cone), `sizeCm`, `lightingChannels`, `tags` |
+| `meta` | `exposureEV100` pins the post-process volume (solved on a captured HOME frame: `exposureNote` says how) and `whiteBalanceK` sets its white balance; `emissiveUnits` and `lightColorEncoding` state the units below; `eyeForwardCm` places her eye anchor; the design's plan gates, UI zones and licensing record ride along unread |
+| `props` | each distinct `glb` is imported once into `/Game/Diorama/<slot>`, behind the NoAI guards, then placed at its `x, y, z` / `yaw` at `scale` (the file's own scale times this), or normalised to `targetCm` by measured bounds (older layouts). `materialColors` recolours imported materials by name; `clipLocal` (`{"x": [lo, hi], ...}`, glTF scene-space metres) is applied to a copy of the GLB before import, every triangle with a vertex outside the box removed, as the previz does (the RAMAC's loose platter); `tags` and `reels` (separately pivoted sub-meshes, Movable, tagged) as given |
+| `blockouts` | true-size engine primitives: `size` in cm in the blockout's own frame, `shape` box or cylinder (`axis` x, y or z), `color` (sRGB hex) with `rough`, `emissive`, `opacity` or `tileCm` deriving a material instance of one of four masters (`/Game/Diorama/StageMats`; identical looks share one instance). `emissive` is cd/m2 per unit luminance of `color`, and an emissive blockout's `color` is its DISPLAY colour, balanced into a scene colour by the inverse of `meta.whiteBalanceK` (Unreal reads emissive 1 as 1 cd/m2, the unit of its candela lights; the previz's default `--emissive nits` reads it the same way). `tileCm`, `groutCm`, `groutColor` and `groutRough` draw a tile grid from world position (`M_StageTile`). `text` puts a sign on the box's -X face; `tags`, `mobility`, `attachTo` (attached after everything is placed, read back) and `lightingChannels` as given. An explicit `material` object (paint, emissive, glass, texture types) is also accepted |
+| `lights` | `point`, `spot`, `rect` or `directional`, aimed by yaw/pitch; `units` (`cd`), `radiusCm`, `srgb` (the colour sRGB-ENCODED, decoded to linear before `set_light_color`, which reads linear), `linear` or `kelvin`, `shadows`, `sourceRadiusCm`, `coneDeg` (the full cone), `sizeCm`, `lightingChannels`, `tags` |
 | `resident` | her mark (`x, y, z`) and `actorYaw` (these meshes face 90 degrees off the actor's forward axis); `homeFacingYaw` becomes the `StageMark.Home` TargetPoint; `eyeZFallback` is the eyeline used only when no mesh could be measured |
 | `sounds` | imported, looped and placed as `AmbientSound`s; `volume` and `spatialize` when given |
 | `shots` | the shot labelled `StageCamera` becomes the authored fallback camera and the `PlayerStart`; a `targetPoint` tag becomes TargetPoints at its keys; every shot and the `beats`' `cue` fields also become the camera's config (below) |
@@ -63,6 +63,12 @@ a change list. The script is its interpreter: change the set by changing the JSO
 **Self-checks.** Every expected count comes from the layout: blockouts, lights, props (less any slot the
 NoAI guard refused), TapeReel actors, attachments, TargetPoints, and zero material failures. The
 script prints them as one `self-check:` line and stops before `SUCCESS` on any mismatch.
+
+**Set gates.** `python Deployment/stage_layout.py --check` (CI and `core2/stage.sh` run it) also fails
+on the set itself, with no engine: every luminous ceiling panel must read at or above the floor below
+it (the floor lit by the ceiling bays in candela, as Unreal lights it with GI off), and no two objects
+may overlap, wall-mounted dressing (`census` "signage": letters, roundels, the clock) included. The
+author logs the same gates as `layout gate` lines.
 
 **One file drives the camera too.** `Deployment/stage_layout.py` writes the layout's shots and beat
 cues into `[/Script/CICompanion.CompanionStageSettings]` in `Config/DefaultGame.ini`, which the C++
@@ -294,9 +300,12 @@ emissive; converting to linear here would double-apply the transform.
 
 ## Reels
 
-`UTapeReelSpinner` finds actors tagged `TapeReel` and rotates them on Pitch. Adding to Pitch turns an
-actor about its YAWED Y axis whatever its roll, so a reel must have its axle there. The previous Roll
-animation turned around the unrelated actor X axis and made the discs wobble edge-on.
+`UTapeReelSpinner` finds actors tagged `TapeReel` and turns each about its YAWED Y axis whatever its
+roll, so a reel must have its axle there: every tick it sets `FQuat(axle, angle) * rest` from the
+rotation the reel had at BeginPlay and an angle it accumulates itself. It used to add to the Pitch of
+the rotation it read back, and Unreal hands that back NORMALISED (pitch in [-90, 90]), so every reel
+crept to a quarter turn and stopped. The Roll animation before that turned around the unrelated actor
+X axis and made the discs wobble edge-on.
 
 In the 1963 set the twelve reels are blockout cylinders on the 729 faces. A cylinder's length runs
 along the engine mesh's local Z, so `author_diorama.py` turns every cylinder with roll -90 and, for an
@@ -462,7 +471,8 @@ UnrealEditor.exe <proj> /Game/Maps/CompanionStage -game -ResX=720 -ResY=1280 -wi
 Screen-capture the client area (a D3D swapchain does not render into a `PrintWindow` DC; copy it
 off the desktop instead) and measure. That path was checked against the packaged build and is
 **pixel-equivalent**: mean 221.6 vs 221.5 before, 122.9 vs 122.9 after. `MHLLM_HUD=0` keeps the
-chat overlay out of the measurement; `MHLLM_OPENING_SHOT=0` gives the static call framing.
+chat overlay out of the measurement; `MHLLM_OPENING_SHOT=0` gives the static call framing (HOME
+after the lobby hold).
 
 What that loop is **not** good for: `Content/Maps/CompanionStage.umap` is left authored on disk
 afterwards, and `BuildNative.ps1` will then back up and restore *that* instead of the committed

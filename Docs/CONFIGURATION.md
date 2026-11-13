@@ -150,13 +150,15 @@ would be silently ignored on every machine that had already held one conversatio
 
 | Variable | Compose default | Effect |
 |---|---|---|
-| `MHLLM_OPENING_SHOT` | `1` | Plays the opening on level load: the lobby still, a cut inside, the ARRIVAL walk-in, the HOME framing (Docs/STAGE-DESIGN.md). Set `0`/`false` for the reduced-motion path: HOME from the first frame, the greeting and the line after the hold; empty/unset uses the default |
+| `MHLLM_OPENING_SHOT` | `1` | The opening each session plays: the lobby still, a cut inside, the ARRIVAL walk-in, the HOME framing (Docs/STAGE-DESIGN.md). Set `0`/`false` for the reduced-motion path: the lobby still, one cut to HOME, the greeting and the line after it, no breathing; empty/unset uses the default |
+| `MHLLM_OPENING_TRIGGER` | auto | What starts a session. `viewer`: the first Pixel Streaming viewer's data channel opening (the room holds the lobby still, silent, until then, and returns to it when the last viewer leaves). `load`: the level load (a kiosk or a native window). Unset: `viewer` when the command line names a Pixel Streaming server (`-PixelStreamingURL=`), else `load`. A key, click or Esc in the lobby also starts one |
 | `MHLLM_OPENING_LINE` | `Welcome to Companion Intelligence, I'm Eliza. How can I help you?` | Spoken **verbatim**, never generated |
-| `MHLLM_OPENING_DELAY` | `3.0` | How long the lobby still is held before the move (overrides `HoldSeconds` from the stage layout). Pixel Streaming clients take ~10 s to negotiate |
+| `MHLLM_OPENING_DELAY` | `3.0` | How long the lobby still is held after a session starts, before the cut inside (overrides `HoldSeconds` from the stage layout). It counts from the viewer's arrival on a stream, so it no longer has to cover the ~10 s a Pixel Streaming client takes to negotiate; a key or click in the lobby makes it 0.3 s |
 | `MHLLM_FLY_SECONDS` | `11.0` | A cap on the opening move's derived duration (the stage layout's 8 s otherwise). It never shortens the move below its comfort floor: a cap under it is logged and ignored, so the compose default of 11 changes nothing. With no stage section in `DefaultGame.ini` it is the built-in flythrough's duration, as before |
 | `MHLLM_STAGE_DOF` | `1` | Depth of field on the stage CineCamera (manual focus on her eyes at the shot's aperture). `0` disables it if the stream host cannot afford it |
 | `MHLLM_STAGE_SHIFT_SIGN` | `1` | `-1` flips the sign of the sensor shift that holds her eyes at their screen position, if a captured frame shows them on the wrong side (unverified on the stream) |
-| `MHLLM_OPENING_REPLAY` | `0` | Attract-loop period in seconds; `0` = once only |
+| `MHLLM_OPENING_REPLAY` | `0` | Kiosk reset: replay the opening after this many seconds without input, and only with no stream viewer connected (never during a session); `0` = off |
+| `MHLLM_STAGE_BREATHING` | `1` | `0` stops the rotation-only breathing of the held shots (the lobby still, HOME, CLOSE; at most 0.15 deg). Reduced motion turns it off too |
 | `MHLLM_FREE_LOOK` | `0` | **Opt-in.** `1` hands input to the `DefaultPawn` — and then any stream viewer can drag the shot off the subject. Note it also has to move the *view target*: un-ignoring input while the view stays welded to a static camera actor is why this switch once read as inert |
 
 ---

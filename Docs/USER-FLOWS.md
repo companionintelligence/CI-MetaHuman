@@ -35,17 +35,19 @@ sequenceDiagram
     participant RT as RuntimeSubsystem
     participant E as Eliza
 
+    Note over SD: until a session starts: the lobby still (VITRINE), nothing spoken
     V->>PG: open :8090
     PG->>PG: force HoveringMouse=true before player.js parses
     PG->>PS: negotiate, ~10s
-    Note over SD: the lobby still is held 3s<br/>(MHLLM_OPENING_DELAY)
+    PS->>SD: OnDataTrackOpenNative: the viewer is here, the session starts
+    Note over SD: the lobby still is held 3s more<br/>(MHLLM_OPENING_DELAY; 0.3s after a key or click)
     alt MHLLM_OPENING_SHOT is unset or 1
         SD->>SD: Cut inside, ARRIVAL walk-in ~5.6s; "Oh, hello." on the way
         SD->>SD: She turns back to the lens; Settle on HOME
         SD->>E: SpeakLiteral, the fixed brand line
         SD->>SD: Live
     else MHLLM_OPENING_SHOT=0
-        SD->>SD: HOME from the first frame; greeting, line, Live
+        SD->>SD: One cut to HOME; greeting, line, Live
     end
     V->>PG: types with no click at all
     PG->>RT: KEY_DOWN, KEY_PRESSED, KEY_UP on Slate user 0
@@ -79,10 +81,16 @@ Three deliberate choices:
   handler directly. That drove the visemes perfectly and skipped `TextToSpeech->Speak` entirely, so
   the opening mouthed the brand line while the audio track carried digital silence.
   *"Same handler" was true of the face and false of the voice.*
-- **The camera moves on first load.** `MHLLM_OPENING_SHOT` defaults on so a new level opens with
-  the storefront-to-resident move. Set it to `0` for the reduced-motion path (HOME from the first
-  frame); a typo also fails closed to static. `MHLLM_OPENING_REPLAY=N` remains an optional attract loop for late stream viewers.
-- Typing a turn calls `Stage->SkipToLive()` — a visitor who starts talking wins over the cinematic.
+- **The opening plays once per session, to someone.** A streamed process holds the lobby still,
+  silent, until a viewer's data channel opens, and goes back to it when the last viewer leaves; a
+  kiosk or a native window starts at load (`MHLLM_OPENING_TRIGGER=load|viewer` overrides the choice,
+  which follows whether the command line names a Pixel Streaming server). `MHLLM_OPENING_SHOT` defaults
+  on (the storefront-to-resident move); `0` is the reduced-motion path (one cut to HOME); a typo fails
+  closed to it. `MHLLM_OPENING_REPLAY=N` is a kiosk reset after N s idle, never with a viewer connected.
+- **Any key, click or Esc settles the opening** (Docs/STAGE-DESIGN.md section 4, design 3.2). In the
+  lobby it starts the session; during the move it cuts to HOME at once, dropping the turn-yield line
+  (Esc keeps it). A turn typed during the move cuts to HOME and she answers; typed in the lobby, it is
+  held and answered when the move lands.
 
 ### 2.2 What a visitor can actually do
 

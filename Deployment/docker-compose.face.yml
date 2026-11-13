@@ -103,15 +103,17 @@ services:
       MHLLM_GREETING: "${MHLLM_GREETING:-none}"
       MHLLM_OPENING_LINE: "${MHLLM_OPENING_LINE:-Welcome to Companion Intelligence, I'm Eliza. How can I help you?}"
       MHLLM_FLY_SECONDS: "${MHLLM_FLY_SECONDS:-11.0}"
-      # Held before the move starts. Pixel Streaming clients take ~10s to negotiate, so with no
-      # delay the opening plays to an empty room and every real visitor arrives after it.
+      # The opening waits for its viewer: with -PixelStreamingUrl on the command line the room holds
+      # the lobby still, silent, until a viewer's data channel opens, plays the opening for them, and
+      # goes back to the lobby when the last viewer leaves (MHLLM_OPENING_TRIGGER=load|viewer forces
+      # either). This is how long the lobby still is held once the viewer is there.
       MHLLM_OPENING_DELAY: "${MHLLM_OPENING_DELAY:-3.0}"
-      # Attract loop: replay the opening every N seconds while idle. 0 = once only. A live stream
-      # has no other way to show its opening to someone who connects late.
+      # Kiosk reset: replay the opening after N seconds without input, only with no viewer connected.
+      # 0 = off. A stream needs none: every viewer gets the opening.
       MHLLM_OPENING_REPLAY: "${MHLLM_OPENING_REPLAY:-0}"
 
-      # Tour the datacenter on level load, then settle on the resident. Set to 0 for a static
-      # call frame; an explicit 1 also enables the tour.
+      # The opening move each session, then the resident's HOME framing. Set to 0 for the
+      # reduced-motion path (one cut to HOME); an explicit 1 also enables the move.
       MHLLM_OPENING_SHOT: "${MHLLM_OPENING_SHOT:-1}"
 
       # Free-look is opt-in for the same reason: with it on, the GameModeBase DefaultPawn turns

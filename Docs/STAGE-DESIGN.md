@@ -5,12 +5,16 @@ it answers, the judged concepts it grafts from and the previz evidence, is
 `C:\devel\ci\_scratch\stage-redesign\final\design.md`; this page is its working summary for whoever
 changes the set or the camera. Renders are referenced by their scratch path and are not committed.
 
-**Status.** The set, the shots and the opening's beats are implemented and data-driven (section 2).
-Every comfort budget passes at all three tested resident heights in previz and in the automation
-specs. One design gate does not pass: the share of plain wall in the conversation frame (section 7).
-The experience around the camera (a lobby page and a "Step inside" gesture, captions in the DOM,
-the room reacting to her state) is designed but not built yet (section 10). Nothing here has been
-watched on the real stream: the sign-off step is a 60 fps capture (section 11).
+**Status.** The set, the shots and the opening's beats are implemented and data-driven (section 2),
+and the map has been authored and captured in Unreal (section 11): the luminous ceiling reads at or
+above the floor, and the light colours and the exposure are solved on captured frames (section 8).
+The opening plays once per SESSION: a stream holds the lobby still until a viewer connects, a kiosk
+starts at load, and any key, click or Esc follows design 3.2 (section 4). Every comfort budget
+passes at all three tested resident heights in previz and in the automation specs. One design gate
+does not pass: the share of plain wall in the conversation frame (section 7). Still designed but
+not built: the CI lobby page and its "Step inside" gesture, the DOM captions, the room reacting to
+her state, her head look-at (section 10). Nothing here has been watched on the real stream: the
+sign-off step is a 60 fps capture (section 11).
 
 ## 1. The idea
 
@@ -73,9 +77,20 @@ service-clearance shortfalls, every cable run within IBM's lengths, 0 NoAI meshe
 
 ## 4. The opening
 
-`G` is the moment the move starts. Today that is level load plus the lobby hold (`HoldSeconds`, 3 s,
-or `MHLLM_OPENING_DELAY`); the design's trigger is the visitor's "Step inside" gesture (section 10).
-Times are for a 170 cm resident; the director re-solves them for the measured one.
+A SESSION starts the opening; until then the room holds the lobby still with nothing spoken. What
+starts one (`EStageTrigger`, `MHLLM_OPENING_TRIGGER=load|viewer`; by default `viewer` when the
+command line names a Pixel Streaming server and `load` otherwise):
+
+- **A stream**: the first viewer's WebRTC data channel opening (`OnDataTrackOpenNative`). When the
+  last viewer leaves (`OnAllConnectionsClosedNative`) the room goes back to the lobby still, so every
+  visitor sees the whole opening from the street and hears both lines. This stands in for the
+  design's "Step inside" gesture until the CI lobby page sends one (section 10).
+- **A kiosk or a native window**: the level load.
+- **The visitor**: any key, click or Esc in the lobby (design 3.2's G).
+
+The lobby still is then held `HoldSeconds` (3 s, or `MHLLM_OPENING_DELAY`) before the cut inside, or
+0.3 s after the visitor's own key or click. Move times below count from that cut. Times are for a
+170 cm resident; the director re-solves them for the measured one.
 
 | Move time | Picture | She |
 |---|---|---|
@@ -88,9 +103,19 @@ Times are for a 170 cm resident; the director re-solves them for the measured on
 | 5.56 s | The move lands exactly on HOME | |
 | 5.75 s | HOME | The turn-yield line (`MHLLM_OPENING_LINE`); the stage hands over to live conversation |
 
-Any input aborts to live: a flagged cut to HOME, her turn completed, the line dropped (the visitor
-already has the floor). `MHLLM_OPENING_SHOT=0` is the reduced-motion path: HOME from the first frame,
-the greeting 0.8 s and the line 2.0 s after the hold. Contact sheet of the move:
+Input follows design 3.2 (`UCompanionStageDirector::RespondToInput`; an `IInputProcessor` sees every
+key and click, local or streamed, before any widget does):
+
+| Input | Lobby | During the move | After the turn-yield line |
+|---|---|---|---|
+| Key, click or tap | G: the cut inside 0.3 s later | Flagged cut to HOME this frame, her turn completed under it; "Oh, hello." only if due within 1 s; the turn-yield line dropped | Nothing: the line finishes |
+| Esc | G | Cut to HOME; nothing dropped (the greeting now, the line 1.2 s later) | Nothing |
+| Enter with text | G, and the turn is held: she answers it when the move lands, instead of the line | Cut to HOME; pending lines dropped; she answers | Barge-in (the conversation's own) |
+
+`MHLLM_OPENING_SHOT=0` is the reduced-motion path: the lobby still, then one flagged cut to HOME at
+the end of the hold (no move, no breathing), the greeting 0.8 s and the line 2.0 s after the cut.
+`MHLLM_OPENING_REPLAY=N` is a kiosk reset only: it replays after N s without input, and never while
+a stream viewer is connected. Contact sheet of the move:
 `C:\devel\ci\_scratch\stage-redesign\final\renders\sheet_ARRIVAL.png`; first frame:
 `...\renders\opening.png`; the old opening at its true lens, for comparison:
 `...\renders\sheet_CURRENT_OPENING.jpg`.
@@ -108,16 +133,19 @@ viewport is portrait.
 | VITRINE | 28 mm, f/5.6 | r 1514, theta -10: on the pavement, on the street > door > eyes line | (0.55, 0.62) | Lobby still, held until the move |
 | ARRIVAL | 50 mm, f/4 | 5 keys, r 473 -> 231, theta -10 -> 0, dz 0 | (0.57, 0.53) -> (0.63, 0.33) | The move: 2.5 m in 5.56 s |
 | HOME | 50 mm, f/4 | r 231.2 (1.36 x stature), theta 0 | (0.63, 0.33); shift (-4.68, -3.44) mm | The conversation frame; head 173 px at 720p |
-| CLOSE | 80 mm, f/4 | HOME's position | (0.63, 0.33) | Punch-in for long replies (not wired yet) |
+| CLOSE | 80 mm, f/4 | HOME's position | (0.63, 0.33) | Punch-in for replies of 6 s or more, at the first sentence boundary 1.5 s or more in; back to HOME on the visitor's first key or 4 s after the reply; automatic cuts at least 4 s apart |
 | *_PORTRAIT | 35 / 42 / 42 / 65 mm on 20.25 x 36 | as above | (0.50, ...) | Portrait lobby, move, home, close |
 | FRIEZE | 32 mm | truck along the 729 faces, world frame | | Idle insert; off by default |
 | CUTAWAY_HUB, CUTAWAY_LINEUP | 28, 40 mm | world frame (archive vantages) | | B-roll; off until the meshes hold up at 1-3 m |
 | FAREWELL | 50 mm | ease back 1.2 m in 5 s | (0.63, 0.33) -> (0.58, 0.37) | After her goodbye (not wired yet) |
 
-Shift sign: the design writes Blender's (+ moves the window right or up). Unreal's off-centre
-projection reads the same way by its maths, but nobody has checked a captured frame yet;
-`MHLLM_STAGE_SHIFT_SIGN=-1` flips it without a rebuild. Depth of field is on (`MHLLM_STAGE_DOF=0`
-disables it if the stream host cannot afford it).
+Shift sign: the design writes Blender's (+ moves the window right or up), and Unreal's off-centre
+projection reads the same way: a captured HOME frame puts her eyes where the previz does with +1 and
+on the wrong side with -1. `MHLLM_STAGE_SHIFT_SIGN=-1` stays as a switch. Depth of field is on
+(`MHLLM_STAGE_DOF=0` disables it if the stream host cannot afford it). The held shots (the lobby
+still, HOME, CLOSE) breathe by rotation only: yaw within 0.15 deg, pitch within 0.09 deg, slower than
+0.1 deg/s (`CompanionStage::BreathOffset`, `BreathingDegrees`; `MHLLM_STAGE_BREATHING=0` or reduced
+motion turn it off).
 
 ## 6. How the move is built, and its comfort budget
 
@@ -179,18 +207,40 @@ A cool showroom with a warm human island: a 4100 K luminous-ceiling field (16 re
 panels), 2700-3000 K practicals, skin the warmest mid-tone and the vermilion wall the only saturated
 plane. No brand colour in the light. 44 lights in candela, 2 cast shadows (the hero key and the desk
 lamp pool); the 20 street-side ones are tagged `ExteriorLight` and culled after the cut, so 24 run
-during the session. The 1403 cover is on lighting channel 1 only, so the hub key and the hub bays skip
-it and the foreground corner stays a stop under her face. The exposure stays pinned (EV100 9.4,
-carried over from the measured rc1 rig) and must be re-solved on a captured HOME frame: mean about
-120/255, nothing above 240, UI rows excluded. White balance is set to 4300 K (`meta.whiteBalanceK`).
+during the session. The 1403 cover and its paper are on lighting channel 1 only, so the hub key and
+the hub bays skip them and the foreground corner stays under her face.
+
+The units, as the engine reads them:
+
+- **Light colours** are written sRGB-encoded (`lights[].srgb`, the designer's kelvin-table values)
+  and decoded to linear before `set_light_color`, which reads linear. Passed straight in, the
+  "4100 K" field rendered near 5400 K and the "2700 K" practicals near-neutral under the white
+  balance.
+- **Emissives** are cd/m2 per unit luminance of their colour, and their colours are DISPLAY colours,
+  balanced into scene colours by the inverse of the white balance (`meta.emissiveUnits`). The ceiling
+  panels carry their bay's own luminance, I / A of its 240 x 300 cm rect (153-278 cd/m2), so the
+  ceiling reads brighter than the floor it lights; the old values (6-7, Blender display units) were
+  6 cd/m2 in Unreal, 21 x darker than the floor. `stage_layout.py --check` gates every panel against
+  the floor below it, and the previz gates VITRINE and CUTAWAY_HUB on the rendered frame.
+- **The floor fill** is a 50 deg spot from the floor 1.1 m in front of her, aimed at her chest; its
+  cone cannot reach the ceiling inside its radius (the rect it replaces lit a fan over the hub). The
+  desk lamp is 6 cd from inside the shade (650 cd 6.8 cm over the printout was 140,000 lx).
+- **Exposure** is pinned at EV100 5.4, solved on Unreal HOME captures: a bracket at 4.5-7.5 gave a
+  frame mean of 133 / 118 / 104 at 5.0 / 5.5 / 6.0 (`meta.exposureNote`). What clips above 240 in
+  HOME is the placeholder mannequin's chrome. White balance 4300 K (`meta.whiteBalanceK`).
+- **The floor** is 60 cm tile with 6 mm grout, drawn from world position in `M_StageTile`.
+  Reflections stay off (`r.ReflectionMethod=0`): SSR changed the floor's median by under 0.5 % in a
+  capture, and its cost has to be measured on the stream host (design 7); a baked cubemap needs a
+  rendering editor, which the headless authoring run is not.
 
 ## 9. Set dressing and licensing
 
 Placed GLBs, all from the licence-clean set (`C:\devel\ci\_scratch\metahuman-glb-licensed`): the
 CI-authored `ibm-1401-cpu.glb` (recoloured by material), and two CC BY 4.0 models by
 museudocomputador already credited in CREDITS.md, `ibm-ramac-305.glb` (the 1405 stand-in) and
-`plugboard.glb`. The design deletes the RAMAC's loose platter in a one-time Blender edit; that edit is
-not done, so it is placed whole. Not placed: the 3277 terminal and 3350 disk (after the room's date),
+`plugboard.glb`. The RAMAC's loose platter is removed before import: `author_diorama.py` applies the
+prop's `clipLocal` box to a copy of the GLB (1,728 of 32,496 triangles go), the same edit the previz
+makes, and CREDITS.md records it. Not placed: the 3277 terminal and 3350 disk (after the room's date),
 the Kenbak, Alto, PET and CP-500 (after the date; they move into her dialogue and the web page), the
 Engelbart mouse, the unassembled 1401 mainframe, and `ibm-729-tape.glb` (its face is wrong: the
 blockouts are its re-author spec, and the shipped asset keeps pivoted, `TapeReel`-tagged reels).
@@ -199,18 +249,22 @@ blockouts are its re-author spec, and the shipped asset keeps pivoted, `TapeReel
 Everything else is a true-size blockout and a spec to author as a CI prop: the six 729s (cream fascia,
 smoked reel door, blue file reel and dark take-up reel with three-window flanges, 2700 K lamp window),
 the 1402, 1403, 1406, the 1407 desk and typewriter, the shell chairs, the storefront and street. The
-reels spin (`UTapeReelSpinner`), with their flange windows attached. The resident is Epic's mannequin
+reels spin (`UTapeReelSpinner`, a quaternion about each reel's own axle; the rotator arithmetic it
+replaces stalled every reel at a quarter turn), with their flange windows attached. The resident is
+Epic's mannequin
 as a placeholder; Reallusion Nia and the MetaHuman Seo are Fab content marked NoAI and stay opt-in.
 The cleared path is a MetaHuman authored in-house in MetaHuman Creator.
 
 ## 10. Designed, not built
 
-- **Session start on the visitor's gesture** behind a CI lobby (UI-less frontend, muted autoconnect,
-  "Step inside"), the queue message for a second visitor, reset on the last disconnect.
+- **The CI lobby page and its gesture** (UI-less frontend, muted autoconnect, "Step inside", a
+  `session-start` message read through `IPixelStreaming2InputHandler::RegisterMessageHandler`), and
+  the queue message for a second visitor. Until it exists the session starts when the viewer's data
+  channel opens, and the room restages on the last disconnect (section 4).
 - **The DOM UI**: captions first, 16 px text, 44 px targets, the UI zones per shot.
 - **The set as a state display**: INQUIRY lamp while the visitor types, panel chase and tape search
   while she thinks, the typewriter printing her replies, the 1403 feed, the clock on host time.
-- **CLOSE** on long replies, **FAREWELL** and the idle **FRIEZE**; the archive **cutaways**.
+- **FAREWELL**, idle and "Still there?", and the idle **FRIEZE**; the archive **cutaways**.
 - **A C++ head look-at**, after which ALPHA returns to 18 deg (body to frame left, head back to the
   lens); until then the layout carries the design's ALPHA = 0 fallback.
 - **Sound**: one 60 Hz room tone (the score still hums at 50 Hz), the street bed, the push bar,
@@ -225,16 +279,26 @@ budget, HOME composition and the doorway at every stature, 0 emissive and 0 edge
 Report: `C:\devel\ci\_scratch\stage-redesign\final\renders\report.txt`.
 
 In this repository: `author_diorama.py` builds the layout's 879 blockouts, 44 lights, 3 props, 12
-TapeReel actors, 36 attachments and 8 TargetPoints with every count checked against the layout (run
-against a recording stand-in for the `unreal` module; not yet authored in Unreal), and the camera
-specs pass in the editor (32 `MetaHumanLocalLLM.Frontend.CompanionStage` specs, 355 of 355 plugin specs).
+TapeReel actors, 36 attachments and 8 TargetPoints with every count checked against the layout, and
+the map has been authored headlessly in Unreal 5.8 and captured from the same cameras as the previz
+(game view, the street-side lights culled for the interior shots): VITRINE, ARRIVAL, HOME, CLOSE and
+CUTAWAY_HUB, with the value-structure gate read on the Unreal pixels the previz ray-cast as ceiling
+panel and floor (ceiling 1.18 x the floor in VITRINE, 1.15 x in CUTAWAY_HUB; floor blue/red 0.99).
+The specs pass in the editor (43 `MetaHumanLocalLLM.Frontend.CompanionStage` specs, 366 of 366 plugin
+specs), among them design 3.2's input table, the session trigger, the kiosk-reset rule, the CLOSE
+timing, the breathing bounds and a reel turned past 180 degrees.
 
-Not verified: Unreal's no-GI lighting and tonemapper, the cost of depth of field and reflections on
-the stream host, the sign of the sensor shift, the lighting-channel flag, VP8 artefacts, the portrait
-switch at runtime, and the real 729, 1402, 1403, 1406 and 1407 meshes. **Before sign-off, capture a
+Not verified: the session trigger, the input routing and the CLOSE punch-in on a live stream (they
+are unit-tested, not watched), the cost of depth of field and reflections on the stream host, VP8
+artefacts, the portrait switch at runtime, and the real 729, 1402, 1403, 1406 and 1407 meshes. **Before sign-off, capture a
 60 fps loop of ARRIVAL and HOME from the real stream, watch it full screen, and check VITRINE and HOME
 against `C:\devel\ci\_scratch\stage-redesign\final\renders\vantages.png`.**
 
 Open owner decisions: the wall-share gate (section 7); the crane (+54 cm, default off); when to enable
 the cutaways and FRIEZE; the GDD amendments in the design record (section 13 there); rendering the
 lobby still at build time; the character and wardrobe that replace the mannequin.
+
+**Until the GDD is amended, author the set from this page and `Deployment/stage_layout.json`.**
+GDD.md section 2 (the 9 x 6 m diorama, the teal-navy world, late night 1979, the camera down the
+central aisle past the 2401 reels to the Alto) still describes the room the critique rejected.
+Amending the brief is the owner's call (design record, section 13), so it has not been edited here.
