@@ -132,6 +132,171 @@ def glb_copyright(path):
     except Exception:
         return None
 
+# ---------- colour: what the layout's numbers mean ----------
+# LIGHT COLOURS are written sRGB-ENCODED (lights[].srgb: a colour picker's or a kelvin table's value).
+# set_light_color() reads its argument as LINEAR (bSRGB=true only quantises the linear value into an
+# sRGB FColor), so the encoded values must be decoded first. Passing them straight in is what rendered
+# the "4100 K" ceiling field at about 5400 K and the "2700 K" practicals near-neutral once the 4300 K
+# white balance had been applied (Docs/STAGE-DESIGN.md section 8).
+def srgb_decode(c):
+    """One sRGB-encoded channel (0..1) to linear."""
+    c = float(c)
+    return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+def luminance(rgb):
+    return 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
+
+def white_balance_white(kelvin):
+    """Linear sRGB (largest channel 1) of the white that Unreal's white balance turns neutral at
+    WhiteTemp = kelvin and tint 0. Same source white as TonemapCommon.ush WhiteBalance(): the CIE
+    daylight locus from 4000 K up (with its Planck-constant correction), the Planckian locus (Krystek)
+    below."""
+    T = float(kelvin)
+    if T >= 4000.0:
+        T *= 1.4388 / 1.438
+        t = 1.0 / T
+        x = (0.244063 + (0.09911e3 + (2.9678e6 - 4.6070e9 * t) * t) * t) if T <= 7000.0 else \
+            (0.237040 + (0.24748e3 + (1.9018e6 - 2.0064e9 * t) * t) * t)
+        y = -3.0 * x * x + 2.87 * x - 0.275
+    else:
+        u = (0.860117757 + 1.54118254e-4 * T + 1.28641212e-7 * T * T) / (1.0 + 8.42420235e-4 * T + 7.08145163e-7 * T * T)
+        v = (0.317398726 + 4.22806245e-5 * T + 4.20481691e-8 * T * T) / (1.0 - 2.89741816e-5 * T + 1.61456053e-7 * T * T)
+        x = 3.0 * u / (2.0 * u - 8.0 * v + 4.0)
+        y = 2.0 * v / (2.0 * u - 8.0 * v + 4.0)
+    X, Z = x / y, (1.0 - x - y) / y
+    rgb = (3.2404542 * X - 1.5371385 - 0.4985314 * Z,
+           -0.9692660 * X + 1.8760108 + 0.0415560 * Z,
+           0.0556434 * X - 0.2040259 + 1.0572252 * Z)
+    m = max(rgb)
+    return tuple(c / m for c in rgb)
+
+# EMISSIVE COLOURS are DISPLAY colours: how a lamp, a panel or a lit window should read on screen,
+# after the white balance. The white balance would turn a neutral emissive blue (it neutralises a
+# 4300 K white), so the scene colour handed to the material is the display colour times the balanced
+# white, over that white's luminance (a von Kries scaling, which keeps the white's luminance as the
+# engine's chromatic adaptation does). EMISSIVE STRENGTHS are cd/m2 per unit of the colour's
+# luminance: Unreal reads emissive 1 as 1 cd/m2, the unit its candela lights and EV100 work in.
+def emissive_scene_colour(display_rgb_lin, wb_white):
+    k = luminance(wb_white)
+    return tuple(c * wv / k for c, wv in zip(display_rgb_lin, wb_white))
+
+# ---------- a GLB edit the layout asks for: props[].clipLocal ----------
+def clip_glb(src, dst, clip):
+    """Writes src to dst with every triangle that has a vertex outside clip removed: clip is
+    {"x": [lo, hi], "y": [...], "z": [...]} in glTF SCENE-space metres (node transforms applied), the
+    same box and the same rule (a vertex outside drops its faces) as previz_diorama.py's clipped_mesh.
+    It is how the RAMAC loses its loose platter before import, so the map ships what the previz shows.
+    Returns (kept, total) triangle counts. Standard library only."""
+    import struct
+    with open(src, "rb") as f:
+        data = f.read()
+    magic, version, _length = struct.unpack_from("<4sII", data, 0)
+    if magic != b"glTF" or version != 2:
+        raise RuntimeError("%s is not a binary glTF 2 file" % src)
+    off, chunks = 12, []
+    while off + 8 <= len(data):
+        n, kind = struct.unpack_from("<I4s", data, off)
+        chunks.append((kind, data[off + 8: off + 8 + n]))
+        off += 8 + n
+    if not chunks or chunks[0][0] != b"JSON" or len(chunks) < 2 or chunks[1][0] != b"BIN\x00":
+        raise RuntimeError("%s: expected a JSON and a BIN chunk" % src)
+    doc = json.loads(chunks[0][1].decode("utf-8"))
+    binc = bytearray(chunks[1][1])
+    lim = {k: (float(v[0]), float(v[1])) for k, v in clip.items()}
+    axis = {"x": 0, "y": 1, "z": 2}
+
+    def mat_mul(a, b):
+        return [[sum(a[i][k] * b[k][j] for k in range(4)) for j in range(4)] for i in range(4)]
+
+    def local_matrix(node):
+        if "matrix" in node:
+            m = node["matrix"]                      # column-major
+            return [[m[c * 4 + r] for c in range(4)] for r in range(4)]
+        tx, ty, tz = node.get("translation", [0.0, 0.0, 0.0])
+        qx, qy, qz, qw = node.get("rotation", [0.0, 0.0, 0.0, 1.0])
+        sx, sy, sz = node.get("scale", [1.0, 1.0, 1.0])
+        r = [[1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy - qz * qw), 2 * (qx * qz + qy * qw)],
+             [2 * (qx * qy + qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz - qx * qw)],
+             [2 * (qx * qz - qy * qw), 2 * (qy * qz + qx * qw), 1 - 2 * (qx * qx + qy * qy)]]
+        return [[r[0][0] * sx, r[0][1] * sy, r[0][2] * sz, tx],
+                [r[1][0] * sx, r[1][1] * sy, r[1][2] * sz, ty],
+                [r[2][0] * sx, r[2][1] * sy, r[2][2] * sz, tz],
+                [0.0, 0.0, 0.0, 1.0]]
+
+    nodes = doc.get("nodes") or []
+    world = {}
+    def walk(i, parent):
+        world[i] = mat_mul(parent, local_matrix(nodes[i]))
+        for c in nodes[i].get("children") or []:
+            walk(c, world[i])
+    ident = [[1.0 if i == j else 0.0 for j in range(4)] for i in range(4)]
+    scene = (doc.get("scenes") or [{}])[doc.get("scene", 0)]
+    for root in scene.get("nodes") or []:
+        walk(root, ident)
+    users = {}
+    for i in world:
+        if "mesh" in nodes[i]:
+            users.setdefault(nodes[i]["mesh"], []).append(i)
+    for mesh, who in users.items():
+        if len(who) > 1:
+            raise RuntimeError("%s: mesh %d is instanced by %d nodes; clipLocal needs one node per mesh" % (src, mesh, len(who)))
+
+    acc, views = doc["accessors"], doc["bufferViews"]
+    def read(ai, per):
+        a = acc[ai]
+        v = views[a["bufferView"]]
+        size = {5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4}[a["componentType"]]
+        fmt = {5120: "b", 5121: "B", 5122: "h", 5123: "H", 5125: "I", 5126: "f"}[a["componentType"]]
+        stride = v.get("byteStride") or size * per
+        base = v.get("byteOffset", 0) + a.get("byteOffset", 0)
+        return [struct.unpack_from("<%d%s" % (per, fmt), binc, base + k * stride) for k in range(a["count"])]
+
+    kept_total, tri_total = 0, 0
+    for mesh, (node_index,) in users.items():
+        M = world[node_index]
+        prims = doc["meshes"][mesh]["primitives"]
+        survivors = []
+        for prim in prims:
+            if prim.get("mode", 4) != 4:
+                survivors.append(prim)
+                continue
+            pos = read(prim["attributes"]["POSITION"], 3)
+            inside = []
+            for p in pos:
+                g = [M[r][0] * p[0] + M[r][1] * p[1] + M[r][2] * p[2] + M[r][3] for r in range(3)]
+                inside.append(all(lo <= g[axis[k]] <= hi for k, (lo, hi) in lim.items()))
+            idx = [i[0] for i in read(prim["indices"], 1)] if "indices" in prim else list(range(len(pos)))
+            tris = [idx[t:t + 3] for t in range(0, len(idx) - 2, 3)]
+            keep = [t for t in tris if inside[t[0]] and inside[t[1]] and inside[t[2]]]
+            tri_total += len(tris)
+            kept_total += len(keep)
+            if not keep:
+                continue
+            if len(keep) != len(tris):
+                flat = [i for t in keep for i in t]
+                while len(binc) % 4:
+                    binc.append(0)
+                views.append({"buffer": 0, "byteOffset": len(binc), "byteLength": 4 * len(flat), "target": 34963})
+                binc += struct.pack("<%dI" % len(flat), *flat)
+                acc.append({"bufferView": len(views) - 1, "componentType": 5125, "count": len(flat), "type": "SCALAR",
+                            "min": [min(flat)], "max": [max(flat)]})
+                prim["indices"] = len(acc) - 1
+            survivors.append(prim)
+        doc["meshes"][mesh]["primitives"] = survivors
+        if not survivors:
+            nodes[node_index].pop("mesh", None)
+    while len(binc) % 4:
+        binc.append(0)
+    doc["buffers"][0]["byteLength"] = len(binc)
+    js = json.dumps(doc, separators=(",", ":")).encode("utf-8")
+    js += b" " * ((4 - len(js) % 4) % 4)
+    out = struct.pack("<4sII", b"glTF", 2, 12 + 8 + len(js) + 8 + len(binc))
+    out += struct.pack("<I4s", len(js), b"JSON") + js + struct.pack("<I4s", len(binc), b"BIN\x00") + bytes(binc)
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    with open(dst, "wb") as f:
+        f.write(out)
+    return kept_total, tri_total
+
 def load_layout(path):
     """The stage layout, checked for the sections this script reads. Fails loudly: a missing or
     malformed layout must stop the build, never author an empty room."""
@@ -206,9 +371,20 @@ try:
     # textures intact, and Interchange's glTF importer brings Texture2D + MaterialInstanceConstant
     # across with the mesh. A SLOT is one imported file (/Game/Diorama/<slot>); any number of
     # props may place the same slot.
-    def import_prop(name, glb, mesh_name=None):
+    # A slot whose prop carries clipLocal is imported from an edited copy (clip_glb): the triangles
+    # outside the box are gone before Interchange sees the file, so the map places exactly what the
+    # previz shows (the RAMAC without its loose platter). The copy goes to the temp directory, never
+    # next to the licensed originals.
+    CLIP_DIR = os.path.join(os.environ.get("TEMP") or os.environ.get("TMPDIR") or "/tmp", "ci_stage_glb_edits").replace("\\", "/")
+    def import_prop(name, glb, mesh_name=None, clip=None):
         task = unreal.AssetImportTask()
         task.filename = GLB_DIR + "/" + glb
+        if clip:
+            edited = CLIP_DIR + "/" + name + "/" + glb
+            kept, total = clip_glb(GLB_DIR + "/" + glb, edited, clip)
+            w("%s: clipLocal %s applied before import: kept %d of %d triangles (%d removed)"
+              % (name, json.dumps(clip, sort_keys=True), kept, total, total - kept))
+            task.filename = edited
         task.destination_path = "/Game/Diorama/" + name
         task.automated = True
         task.save = True
@@ -254,7 +430,7 @@ try:
                   "that filled this slot is NoAI-tagged. Build the replacement with "
                   "Deployment/blender/make_period_props.py" % (slot, glb, mark))
                 continue
-        sm, tex = import_prop(slot, glb, p.get("mesh"))
+        sm, tex = import_prop(slot, glb, p.get("mesh"), p.get("clipLocal"))
         imported[slot] = sm
         if p.get("reels"):
             # This GLB carries separately-pivoted sub-meshes (the tape reels). The registry's first
@@ -315,7 +491,8 @@ try:
     # +X, so pitch -90 points it at the floor). Optional fields are applied only when present:
     #   units "cd"      intensity is in candela (the stage design's unit), set BEFORE the value
     #   radiusCm        attenuation radius: each light lights its own bay, not the whole room
-    #   linear | kelvin colour as linear RGB, else as a colour temperature
+    #   srgb | linear | kelvin  colour sRGB-encoded (decoded here: set_light_color takes linear), or
+    #                   already linear, else a colour temperature
     #   shadows         cast shadows (the design keeps two shadow casters; every shadow costs)
     #   sourceRadiusCm  soft source for point and spot lights
     #   coneDeg         a spot's FULL cone; Unreal's outer cone angle is the half angle
@@ -342,8 +519,10 @@ try:
         c.set_intensity(l["intensity"])
         if "radiusCm" in l:
             c.set_attenuation_radius(l["radiusCm"])
-        if "linear" in l:
-            c.set_light_color(unreal.LinearColor(*l["linear"]))
+        if "srgb" in l:
+            c.set_light_color(unreal.LinearColor(*[srgb_decode(v) for v in l["srgb"][:3]], 1.0))
+        elif "linear" in l:
+            c.set_light_color(unreal.LinearColor(*[float(v) for v in l["linear"][:3]], 1.0))
         elif "kelvin" in l:
             c.set_editor_property("use_temperature", True)
             c.set_editor_property("temperature", float(l["kelvin"]))
@@ -418,6 +597,17 @@ try:
                             "ExteriorLight), exposure PINNED at EV100 {ev:.2f}").format(
         ev=EXPOSURE_EV100, placed=lights_placed, total=len(LIGHTS), shadowed=lights_shadowed,
         exterior=lights_exterior))
+    _wb = white_balance_white(META["whiteBalanceK"]) if META.get("whiteBalanceK") else None
+    w("light colours: %d sRGB-encoded (decoded to linear), %d linear, %d by temperature; white balance %s"
+      % (sum(1 for l in LIGHTS if "srgb" in l), sum(1 for l in LIGHTS if "srgb" not in l and "linear" in l),
+         sum(1 for l in LIGHTS if "srgb" not in l and "linear" not in l and "kelvin" in l),
+         ("%.0f K (neutralises linear %s); emissives in cd/m2, display colours" % (float(META["whiteBalanceK"]), ", ".join("%.3f" % c for c in _wb)))
+         if _wb else "off"))
+    try:
+        for _name, _passed, _detail in _stage_ini.gates(LAYOUT):
+            w("layout gate %s: %s (%s)" % ("PASS" if _passed else "MISSED", _name, _detail))
+    except NameError:
+        w("layout gates: skipped (stage_layout.py is not beside this script)")
 
     # ---------- materials ----------
     # A blockout names its material in the layout ("material": {...}); the asset is created on
@@ -566,6 +756,18 @@ try:
     STAGE_MATS = "/Game/Diorama/StageMats"
     MASTERS, INSTANCES = {}, {}
     material_failures = []
+    # Emissive colours are display colours (see emissive_scene_colour): the white this layout's post
+    # process balances to is folded into them here, once.
+    WB_WHITE = white_balance_white(META["whiteBalanceK"]) if META.get("whiteBalanceK") else (1.0, 1.0, 1.0)
+    # The floor's tile and grout, drawn in the material from WORLD position so a 60 cm tile is 60 cm
+    # whatever the blockout's scale. Distance to the nearest grout line in cm, anti-aliased by its
+    # screen-space derivative so the far floor does not shimmer. LWCToFloat: the world position input
+    # arrives as a large-world-coordinate vector.
+    TILE_HLSL = ("float3 W = LWCToFloat(P);\n"
+                 "float2 F = abs(frac(W.xy / TileCm) - 0.5) * TileCm;\n"
+                 "float D = 0.5 * TileCm - max(F.x, F.y);\n"
+                 "float AA = max(fwidth(D), 0.02);\n"
+                 "return 1.0 - smoothstep(0.5 * GroutCm - AA, 0.5 * GroutCm + AA, D);")
     def srgb_lin(hexcol):
         h = hexcol.lstrip("#")
         return tuple((c / 12.92) if c <= 0.04045 else (((c + 0.055) / 1.055) ** 2.4)
@@ -602,6 +804,33 @@ try:
             connect_rgb(col, P.MP_BASE_COLOR)
             MEL.connect_material_property(mul, "", P.MP_EMISSIVE_COLOR)
             MEL.connect_material_property(scalar_param(m, "Roughness", 0.4, -500, 320), "", P.MP_ROUGHNESS)
+        elif kind == "tile":
+            m = tools.create_asset("M_StageTile", STAGE_MATS, unreal.Material, unreal.MaterialFactoryNew())
+            wp = MEL.create_material_expression(m, unreal.MaterialExpressionWorldPosition, -1000, 0)
+            grid = MEL.create_material_expression(m, unreal.MaterialExpressionCustom, -700, 0)
+            grid.set_editor_property("code", TILE_HLSL)
+            grid.set_editor_property("output_type", unreal.CustomMaterialOutputType.CMOT_FLOAT1)
+            grid.set_editor_property("description", "TileGrout")
+            pins = []
+            for pin in ("P", "TileCm", "GroutCm"):
+                ci = unreal.CustomInput()
+                ci.set_editor_property("input_name", pin)
+                pins.append(ci)
+            grid.set_editor_property("inputs", pins)
+            MEL.connect_material_expressions(wp, "", grid, "P")
+            MEL.connect_material_expressions(scalar_param(m, "TileCm", 60.0, -1000, 200), "", grid, "TileCm")
+            MEL.connect_material_expressions(scalar_param(m, "GroutCm", 0.6, -1000, 300), "", grid, "GroutCm")
+            col = MEL.create_material_expression(m, unreal.MaterialExpressionLinearInterpolate, -350, 0)
+            for pin, param in (("A", vector_param(m, "BaseColor", -700, 200)), ("B", vector_param(m, "GroutColor", -700, 400))):
+                if not MEL.connect_material_expressions(param, "RGB", col, pin):
+                    MEL.connect_material_expressions(param, "", col, pin)
+            MEL.connect_material_expressions(grid, "", col, "Alpha")
+            MEL.connect_material_property(col, "", P.MP_BASE_COLOR)
+            rough = MEL.create_material_expression(m, unreal.MaterialExpressionLinearInterpolate, -350, 300)
+            MEL.connect_material_expressions(scalar_param(m, "Roughness", 0.2, -700, 600), "", rough, "A")
+            MEL.connect_material_expressions(scalar_param(m, "GroutRoughness", 0.75, -700, 700), "", rough, "B")
+            MEL.connect_material_expressions(grid, "", rough, "Alpha")
+            MEL.connect_material_property(rough, "", P.MP_ROUGHNESS)
         else:
             m = tools.create_asset("M_StageOpaque", STAGE_MATS, unreal.Material, unreal.MaterialFactoryNew())
             connect_rgb(vector_param(m, "BaseColor", -400, 0), P.MP_BASE_COLOR)
@@ -612,12 +841,25 @@ try:
         return m
     def derived_material(b):
         hexcol = str(b["color"]).lstrip("#").upper()
+        colour = srgb_lin("#" + hexcol)
+        vectors = []
         if b.get("kind") == "glass" or "opacity" in b:
             kind, params = "glass", [("Opacity", float(b.get("opacity", 0.15))), ("Roughness", float(b.get("rough", 0.05)))]
             name = "MI_Glass_%s_O%03d" % (hexcol, round(params[0][1] * 100))
         elif b.get("emissive"):
-            kind, params = "emissive", [("Emissive", float(b["emissive"])), ("Roughness", float(b.get("rough", 0.4)))]
-            name = "MI_Emit_%s_E%04d" % (hexcol, round(params[0][1] * 100))
+            # cd/m2 per unit luminance of the DISPLAY colour; the scene colour carries the balanced
+            # white, and a channel over 1 moves into the strength (luminance unchanged).
+            scene = emissive_scene_colour(colour, WB_WHITE)
+            peak = max(max(scene), 1.0)
+            colour = tuple(c / peak for c in scene)
+            kind, params = "emissive", [("Emissive", float(b["emissive"]) * peak), ("Roughness", float(b.get("rough", 0.4)))]
+            name = "MI_Emit_%s_E%06d" % (hexcol, round(float(b["emissive"]) * 100))
+        elif b.get("tileCm"):
+            kind = "tile"
+            params = [("TileCm", float(b["tileCm"])), ("GroutCm", float(b.get("groutCm", 0.6))),
+                      ("Roughness", float(b.get("rough", 0.2))), ("GroutRoughness", float(b.get("groutRough", 0.75)))]
+            vectors = [("GroutColor", srgb_lin(b.get("groutColor") or "#BDB7AA"))]
+            name = "MI_Tile_%s_T%03d_G%03d" % (hexcol, round(params[0][1]), round(params[1][1] * 10))
         else:
             kind = "opaque"
             params = [("Roughness", float(b.get("rough", 0.6))), ("Metallic", float(b.get("metallic", 0.0)))]
@@ -628,9 +870,11 @@ try:
             mi = tools.create_asset(name, STAGE_MATS, unreal.MaterialInstanceConstant,
                                     unreal.MaterialInstanceConstantFactoryNew())
             mi.set_editor_property("parent", master(kind))
-            r, g, bl = srgb_lin("#" + hexcol)
+            r, g, bl = colour
             MEL.set_material_instance_vector_parameter_value(mi, "Tint" if kind == "glass" else "BaseColor",
                                                              unreal.LinearColor(r, g, bl, 1.0))
+            for pname, value in vectors:
+                MEL.set_material_instance_vector_parameter_value(mi, pname, unreal.LinearColor(value[0], value[1], value[2], 1.0))
             for pname, value in params:
                 MEL.set_material_instance_scalar_parameter_value(mi, pname, value)
             MEL.update_material_instance(mi)
@@ -821,9 +1065,10 @@ try:
             # (meta.props_convention), measured against the real machine, so nothing is normalised.
             s = float(p["scale"])
             a.set_actor_scale3d(unreal.Vector(s, s, s))
-        if p.get("clipLocal"):
-            w("%s: clipLocal %s is a previz preview of a one-time Blender edit (delete the loose part "
-              "before import); placed whole" % (p["name"], p["clipLocal"]))
+        if p.get("clipLocal") != SLOTS.get(slot, {}).get("clipLocal"):
+            # The edit is made once per imported file, so every prop placing a slot must ask for the same one.
+            w("prop %s warn: clipLocal %s differs from slot %s's %s (the slot's edit is what is placed)"
+              % (p["name"], p.get("clipLocal"), slot, SLOTS.get(slot, {}).get("clipLocal")))
         if p.get("tags"):
             a.tags = list(p["tags"])
         reels = 0

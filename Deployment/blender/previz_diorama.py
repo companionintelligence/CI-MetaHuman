@@ -70,17 +70,23 @@ Layout JSON (Unreal centimetres and degrees, Z up, X forward, Y right; yaw turns
               origin); mesh = the single glTF node Unreal placed (null or absent = whole file).
   blockouts[] {name, kind, x, y, z, yaw, size:[x,y,z], color, rough?, emissive?, opacity?}  box centre
               and full extents along the box's own axes before yaw; color = sRGB hex. kind floor|wall|
-              ceiling|facade|glass|mullion|troffer is room shell (never tested against other shell).
+              ceiling|facade|glass|mullion|troffer is room shell (never tested against other shell), except
+              wall-mounted dressing (census "signage"), which is tested against everything.
               With rough / emissive / opacity present the material follows author_diorama.py: opacity
               (or kind glass) = glass, emissive > 0 = emissive, else paint with rough. Without them the
               notes "emissive N", "opacity N", "rough N" and "unlit" are honoured (panel|crt|troffer emit).
+              emissive is cd/m2 per unit luminance of the colour, which is a DISPLAY colour (as it reads
+              after meta.whiteBalanceK), exactly as author_diorama.py hands it to Unreal (--emissive nits,
+              the default). tileCm / groutCm / groutColor / groutRough draw a tile grid from world position.
   resident    {x, y, z, homeFacingYaw?}  the direction the face points at home: homeFacingYaw (the
               stage_layout.json field), else facingYaw, else a "facing": "visual yaw N" note, else yaw.
   lights[]    {name, type point|spot|rect|directional, x, y, z, yaw, pitch, intensity (candela;
-              lux for directional), linear? [r, g, b], radiusCm?, shadows?, kelvin, notes, coneDeg?,
-              sizeCm?, sourceRadiusCm?}  linear, radiusCm and shadows are read as author_diorama.py reads
-              them; without them the notes "linear RGB (r, g, b)" and "attenuation radius N cm" (or
-              attenuationRadiusCm), then kelvin, give the colour and reach.
+              lux for directional), srgb? | linear? [r, g, b], radiusCm?, shadows?, kelvin, notes, coneDeg?,
+              sizeCm?, sourceRadiusCm?}  srgb (sRGB-encoded, decoded here), linear, radiusCm and shadows are
+              read as author_diorama.py reads them; without them the notes "linear RGB (r, g, b)" and
+              "attenuation radius N cm" (or attenuationRadiusCm), then kelvin, give the colour and reach.
+              The frame's white balance (meta.whiteBalanceK, Unreal's daylight-locus white) is applied to
+              the light colours, which for diffuse surfaces is the same as balancing the frame.
   shots[]     {name, purpose, focalMm, aperture, seconds, easing, keys:[{t, pos, lookAt}],
               tangentScale? (0.5 = CompanionStageDirector), timing? ("knot" | "arclength"),
               residentYaw? (number or [[t, yaw], ...]), sensorWidthMm? (36), fovDeg?, fovAxis?}
@@ -121,7 +127,10 @@ Lights: candela -> Blender W = 4*pi*cd/683 (point, spot), pi*cd/683 (rect); lux/
   Every light gets a custom influence distance (EEVEE's default threshold culls lights at these
   power levels). Measured: a Blender pixel is then luminance/683, so Blender exposure
   = log2(683/1.2) - EV100 = 9.15 - EV100 before the view transform.
-This is geometry and composition previz. It is not Unreal's no-GI lighting or tonemapper.
+Value structure: VITRINE and CUTAWAY_HUB report the luminous ceiling against the floor on the rendered
+  frame (ray-cast samples of the "lum_" panels and "floor_tile"), and report.json keeps the samples so
+  the same pixels can be read in an Unreal capture of the same camera.
+This is geometry and composition previz. It is not Unreal's no-GI lighting or tonemapper (AgX here).
 """
 import argparse
 import csv
@@ -186,8 +195,10 @@ def parse_args():
     ap.add_argument("--exposure", default="auto",
                     help="auto (solve mean 120/255 on --exposure-ref, the project's method) | ev100:N | a Blender exposure value")
     ap.add_argument("--exposure-ref", default=None, help="SHOT or SHOT@seconds for the auto solve (default: last shot, last frame)")
-    ap.add_argument("--emissive", choices=["display", "nits"], default="display",
-                    help="display: emissive surfaces read as lit at the solved exposure; nits: UE emissive treated as cd/m2")
+    ap.add_argument("--emissive", choices=["display", "nits"], default="nits",
+                    help="nits (default): a blockout's emissive is cd/m2 per unit luminance of its colour, as Unreal reads it; "
+                         "display: emissive surfaces forced to read as lit at the solved exposure (the old previz look, which "
+                         "hid that the ceiling rendered darker than the floor in Unreal)")
     ap.add_argument("--report-hz", type=float, default=120.0, help="path sampling rate for the report")
     ap.add_argument("--clearance-warn", type=float, default=30.0, help="report camera clearances below this (cm)")
     ap.add_argument("--overlap-tol", type=float, default=0.5, help="ignore box overlaps shallower than this (cm)")
@@ -602,10 +613,48 @@ def place_prop(p, lib, axis_fix, coll, cube_me):
     return objs, status
 
 
+def tile_mat(b, rgb):
+    """Square tile with grout lines from world position, as author_diorama.py's M_StageTile draws it."""
+    key = ("tile", b.get("color"), b.get("tileCm"), b.get("groutCm"), b.get("groutColor"))
+    m = _MATS.get(key)
+    if m is not None:
+        return m
+    m = bpy.data.materials.new("pv_tile_" + str(b.get("name")))
+    bsdf = principled(m)
+    nt = m.node_tree
+    geo = nt.nodes.new("ShaderNodeNewGeometry")
+    brick = nt.nodes.new("ShaderNodeTexBrick")
+    brick.offset = 0.0
+    brick.squash = 1.0
+    tile_m = float(b["tileCm"]) / 100.0
+    brick.inputs["Scale"].default_value = 1.0
+    brick.inputs["Brick Width"].default_value = tile_m
+    brick.inputs["Row Height"].default_value = tile_m
+    brick.inputs["Mortar Size"].default_value = float(b.get("groutCm", 0.6)) / 100.0 / 2.0
+    brick.inputs["Mortar Smooth"].default_value = 0.1
+    g = hex_lin(b.get("groutColor") or "#BDB7AA")
+    brick.inputs["Color1"].default_value = (rgb[0], rgb[1], rgb[2], 1.0)
+    brick.inputs["Color2"].default_value = (rgb[0], rgb[1], rgb[2], 1.0)
+    brick.inputs["Mortar"].default_value = (g[0], g[1], g[2], 1.0)
+    nt.links.new(geo.outputs["Position"], brick.inputs["Vector"])
+    nt.links.new(brick.outputs["Color"], bsdf.inputs["Base Color"])
+    mix = nt.nodes.new("ShaderNodeMix")
+    mix.data_type = 'FLOAT'
+    mix.inputs["A"].default_value = float(b.get("rough", 0.2))
+    mix.inputs["B"].default_value = float(b.get("groutRough", 0.75))
+    nt.links.new(brick.outputs["Fac"], mix.inputs["Factor"])
+    nt.links.new(mix.outputs["Result"], bsdf.inputs["Roughness"])
+    m.diffuse_color = (rgb[0], rgb[1], rgb[2], 1.0)
+    _MATS[key] = m
+    return m
+
+
 def blockout_material(b):
     kind = (b.get("kind") or "").lower()
     note = b.get("note") or ""
     rgb = hex_lin(b.get("color"))
+    if b.get("tileCm"):
+        return tile_mat(b, rgb)
     if any(k in b for k in ("rough", "emissive", "opacity")):
         # stage_layout.json states the material values; pick the material as author_diorama.py does
         if kind == "glass" or "opacity" in b:
@@ -916,6 +965,38 @@ def parse_radius_cm(l):
     return float(m.group(1)) if m else None
 
 
+WB_WHITE = (1.0, 1.0, 1.0)     # set from meta.whiteBalanceK in main()
+
+
+def white_balance_white(kelvin):
+    """Linear sRGB (largest channel 1) of the white Unreal's white balance neutralises at WhiteTemp = kelvin, tint 0
+    (TonemapCommon.ush: the daylight locus from 4000 K, Planckian below). author_diorama.py has the same function."""
+    T = float(kelvin)
+    if T >= 4000.0:
+        T *= 1.4388 / 1.438
+        t = 1.0 / T
+        x = (0.244063 + (0.09911e3 + (2.9678e6 - 4.6070e9 * t) * t) * t) if T <= 7000.0 else \
+            (0.237040 + (0.24748e3 + (1.9018e6 - 2.0064e9 * t) * t) * t)
+        y = -3.0 * x * x + 2.87 * x - 0.275
+    else:
+        u = (0.860117757 + 1.54118254e-4 * T + 1.28641212e-7 * T * T) / (1.0 + 8.42420235e-4 * T + 7.08145163e-7 * T * T)
+        v = (0.317398726 + 4.22806245e-5 * T + 4.20481691e-8 * T * T) / (1.0 - 2.89741816e-5 * T + 1.61456053e-7 * T * T)
+        x = 3.0 * u / (2.0 * u - 8.0 * v + 4.0)
+        y = 2.0 * v / (2.0 * u - 8.0 * v + 4.0)
+    X, Z = x / y, (1.0 - x - y) / y
+    rgb = (3.2404542 * X - 1.5371385 - 0.4985314 * Z, -0.9692660 * X + 1.8760108 + 0.0415560 * Z,
+           0.0556434 * X - 0.2040259 + 1.0572252 * Z)
+    m = max(rgb)
+    return tuple(c / m for c in rgb)
+
+
+def balanced(rgb):
+    """A scene-linear light colour after the white balance: divided by the balanced white, times that white's
+    luminance (von Kries in linear sRGB; the white keeps its luminance, as in Unreal's chromatic adaptation)."""
+    k = 0.2126 * WB_WHITE[0] + 0.7152 * WB_WHITE[1] + 0.0722 * WB_WHITE[2]
+    return tuple(c / w * k for c, w in zip(rgb, WB_WHITE))
+
+
 def place_light(l, coll):
     typ = (l.get("type") or "point").lower()
     I = float(l.get("intensity") or 0.0)
@@ -949,11 +1030,18 @@ def place_light(l, coll):
         ld.cutoff_distance = (r / 100.0) if r else 60.0
     if "shadows" in l:
         ld.use_shadow = bool(l["shadows"])
-    lin = l.get("linear")
-    rgb = tuple(max(0.0, float(c)) for c in lin[:3]) if isinstance(lin, (list, tuple)) and len(lin) >= 3 \
-        else parse_rgb(l.get("notes"))
+    # srgb: the colour sRGB-encoded (author_diorama.py decodes it the same way before set_light_color); linear:
+    # already linear. The frame's white balance (meta.whiteBalanceK) is applied here, on the lights; emissive
+    # colours are display colours and need none.
+    enc, lin = l.get("srgb"), l.get("linear")
+    if isinstance(enc, (list, tuple)) and len(enc) >= 3:
+        rgb = tuple(srgb_to_lin(max(0.0, float(c))) for c in enc[:3])
+    elif isinstance(lin, (list, tuple)) and len(lin) >= 3:
+        rgb = tuple(max(0.0, float(c)) for c in lin[:3])
+    else:
+        rgb = parse_rgb(l.get("notes"))
     if rgb:
-        ld.color = rgb
+        ld.color = balanced(rgb)
     elif l.get("kelvin"):
         try:
             ld.use_temperature = True
@@ -1306,8 +1394,9 @@ class ShotPath:
 class Rec:
     """Oriented box of a prop or blockout: yaw-aligned in plan plus a z range (Blender metres)."""
 
-    def __init__(self, name, source, kind, yaw, objs, glb=None, part_of=None, mesh=None, status="ok"):
+    def __init__(self, name, source, kind, yaw, objs, glb=None, part_of=None, mesh=None, status="ok", census=None):
         self.name, self.source, self.kind, self.yaw, self.objs = name, source, kind, yaw, objs
+        self.census = census
         self.glb, self.part_of, self.mesh, self.status = glb, part_of, mesh, status
         phi = yaw2bz(yaw)
         self.ax = np.array([[math.cos(phi), math.sin(phi)], [-math.sin(phi), math.cos(phi)]])  # right, forward
@@ -1403,7 +1492,10 @@ def find_overlaps(recs, tol_cm):
         a = recs[i]
         for j in range(i + 1, len(recs)):
             b = recs[j]
-            if a.kind in SHELL_KINDS and b.kind in SHELL_KINDS:
+            # Room shell against room shell is skipped, but wall-mounted dressing (census "signage": the letters,
+            # the roundels, the clock) is checked against everything: skipping it let a roundel sit on the LONGVIEW
+            # letters. stage_layout.py --check makes the same check without Blender.
+            if a.kind in SHELL_KINDS and b.kind in SHELL_KINDS and a.census != "signage" and b.census != "signage":
                 continue
             if (a.kind in FLOOR_KINDS) or (b.kind in FLOOR_KINDS):
                 continue
@@ -1863,6 +1955,53 @@ def near_white_share(img, zone_u=0.40, thr=0.8):
     luma = 0.2126 * a[..., 0] + 0.7152 * a[..., 1] + 0.0722 * a[..., 2]
     h, w = luma.shape
     return round(float((luma > thr).mean()), 4), round(float((luma[:, int(zone_u * w):] > thr).mean()), 4)
+
+
+# The value-structure gate (set-design blocker 3): in these shots the luminous ceiling must read at least as bright
+# as the floor it lights. Measured on the rendered frame, at ray-cast samples that hit a ceiling panel ("lum_*") or
+# the floor ("floor_tile"); the samples are written to the report so the same pixels can be read in an Unreal capture
+# of the same camera (Deployment/blender has no Unreal; the capture tools take valueSamples from report.json).
+VALUE_GATE_SHOTS = ("VITRINE", "CUTAWAY_HUB")
+
+
+def value_structure(sc, cam, img, nx=96, ny=54):
+    bpy.context.view_layer.update()
+    dg = bpy.context.evaluated_depsgraph_get()
+    TR, BR, BL, TL = [Vector(v) for v in cam.data.view_frame(scene=sc)]
+    Mw = cam.matrix_world
+    R3, O = Mw.to_3x3(), Mw.translation.copy()
+    h, w = img.shape[:2]
+    luma = 0.2126 * img[..., 0] + 0.7152 * img[..., 1] + 0.0722 * img[..., 2]
+    samples = {"ceiling": [], "floor": []}
+    for j in range(ny):
+        v = (j + 0.5) / ny
+        for i in range(nx):
+            u = (i + 0.5) / nx
+            d = (R3 @ (TL + (TR - TL) * u + (BL - TL) * v)).normalized()
+            o = O.copy()
+            for _ in range(6):
+                ok, loc, nrm, idx, ob, mtx = sc.ray_cast(dg, o, d, distance=400.0)
+                if not ok:
+                    break
+                n = ob.name.split("|")
+                b = CENSUS_BK.get(n[1]) if n[0] == "bk" and len(n) > 1 else None
+                if b is not None and ((b.get("kind") or "") == "glass" or "opacity" in b):
+                    o = loc + d * 0.003
+                    continue
+                if b is not None and n[1].startswith("lum_"):
+                    samples["ceiling"].append((round(u, 4), round(v, 4)))
+                elif b is not None and n[1] == "floor_tile":
+                    samples["floor"].append((round(u, 4), round(v, 4)))
+                break
+    out = {"grid": [nx, ny]}
+    for k, pts in samples.items():
+        vals = [float(luma[min(h - 1, int(v * h)), min(w - 1, int(u * w))]) for u, v in pts]
+        out[k] = {"n": len(pts), "meanDisplay": round(sum(vals) / len(vals), 4) if vals else None,
+                  "medianDisplay": round(float(np.median(vals)), 4) if vals else None}
+        out[k + "Samples"] = pts
+    c, f = out["ceiling"]["medianDisplay"], out["floor"]["medianDisplay"]
+    out["pass"] = None if c is None or f is None else bool(c >= f)
+    return out
 
 
 def census_text(cz):
@@ -2409,6 +2548,10 @@ def main():
     base_facing, base_src = resident_base_facing(res)
     fig = build_figure(args.figure_height, C["resident"])
     set_figure(fig, mark, base_facing)
+    global WB_WHITE
+    wb_k = (L.get("meta") or {}).get("whiteBalanceK")
+    WB_WHITE = white_balance_white(wb_k) if wb_k else (1.0, 1.0, 1.0)
+    log("white balance %s: lights balanced by linear white %s" % (wb_k or "off", ", ".join("%.3f" % c for c in WB_WHITE)))
     for l in L.get("lights", []):
         place_light(l, C["lights"])
     world = bpy.data.worlds.new("previz_world")
@@ -2434,7 +2577,7 @@ def main():
                      part_of=p.get("partOf"), mesh=p.get("mesh"), status=status))
     for b, o in bk_objs:
         R.append(Rec(str(b.get("name")), "blockout", (b.get("kind") or "").lower(), float(b.get("yaw") or 0.0), [o],
-                     part_of=b.get("partOf")))
+                     part_of=b.get("partOf"), census=b.get("census")))
     overlaps = find_overlaps(R, args.overlap_tol)
     log("%d props (%d objects), %d blockouts, %d lights; %d box overlaps > %.1f cm"
         % (len(recs), sum(len(o) for _, o, _ in recs), len(bk_objs), len(L.get("lights", [])), len(overlaps), args.overlap_tol))
@@ -2615,6 +2758,12 @@ def main():
                         cz = frame_census(sc, cam, fr.get("eyesUV"), crown_v, chin_v, SW, SH, portrait=portrait)
                         cz["nearWhite"], cz["nearWhiteInZone"] = near_white_share(img)
                         fr["census"] = cz
+                    if sp.name in VALUE_GATE_SHOTS and fi == 0:
+                        vs = value_structure(sc, cam, img)
+                        fr["valueStructure"] = vs
+                        log("value structure %s: ceiling panels %s (n %d) vs floor %s (n %d) -> %s"
+                            % (sp.name, vs["ceiling"]["medianDisplay"], vs["ceiling"]["n"], vs["floor"]["medianDisplay"],
+                               vs["floor"]["n"], {True: "PASS", False: "FAIL", None: "n/a"}[vs["pass"]]))
                     if not args.no_overlays:
                         draw_overlays(img, str(sp.shot.get("hud") or "none"), fr.get("eyesUV"), fr.get("screenTarget"))
                     elif not portrait:
@@ -2790,7 +2939,7 @@ def report_text(rep):
         L.append("exposure: %s -> Blender %.2f (EV100 ~%.2f)" % (rep["exposure"]["mode"], rep["exposure"]["blenderExposure"],
                                                               rep["exposure"]["ev100Equivalent"]))
     L.append("")
-    L.append("BOX OVERLAPS (oriented boxes: 2D separating-axis test with z overlap; room shell vs shell and parts of one machine skipped): %d"
+    L.append("BOX OVERLAPS (oriented boxes: 2D separating-axis test with z overlap; room shell vs shell, wall dressing excepted, and parts of one machine skipped): %d"
              % len(rep["overlaps"]))
     for o in rep["overlaps"]:
         L.append("  %6.1f cm  %-28s x %-28s (z overlap %.0f cm)" % (o["depthCm"], o["a"], o["b"], o["zOverlapCm"]))
@@ -2833,6 +2982,12 @@ def report_text(rep):
                         f["clearanceCm"], f["nearest"], ("  [" + "; ".join(f["flags"]) + "]") if f.get("flags") else ""))
             if f.get("census"):
                 L.append("       " + census_text(f["census"]))
+            vs = f.get("valueStructure")
+            if vs:
+                L.append("       value structure: ceiling panels %s (n %d) vs floor %s (n %d), display medians -> %s"
+                         % (vs["ceiling"]["medianDisplay"], vs["ceiling"]["n"], vs["floor"]["medianDisplay"], vs["floor"]["n"],
+                            {True: "PASS (ceiling at or above the floor)", False: "FAIL (ceiling darker than the floor)",
+                             None: "n/a"}[vs["pass"]]))
     L.append("")
     L.append("renders: %s" % json.dumps(rep.get("renders", {}), indent=1))
     return "\n".join(L) + "\n"
