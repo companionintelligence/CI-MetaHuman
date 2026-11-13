@@ -161,18 +161,17 @@ License, Version 1.1, whose full text is in
 
 ## 3D models under CC BY 4.0
 
-The packaged app's machine-room set contains eight models from Sketchfab, each © its author and
-licensed under CC BY 4.0 (<https://creativecommons.org/licenses/by/4.0/>). All eight were
+The packaged app's machine-room set contains five models from Sketchfab, each © its author and
+licensed under CC BY 4.0 (<https://creativecommons.org/licenses/by/4.0/>). All five were
 modified: re-exported to GLB, rescaled, given project materials, and placed and lit in the scene.
+The RAMAC 305 lost its loose disk platter, the Kenbak-1 its power cord, the Kenbak-1 was stood
+upright, and the Kenbak-1's and the mouse's parts were merged into one mesh each.
 [CREDITS.md](CREDITS.md) has the full attribution and the modification details.
 
-- "Commodore PET" by museudocomputador: <https://sketchfab.com/3d-models/commodore-pet-fb1e5a04ef4644f98219e1d5d52ab073>
 - "First Mouse - Douglas Engelbart - Date:1963" by museudocomputador: <https://sketchfab.com/3d-models/first-mouse-douglas-engelbart-date1963-8f4a2b1d7fb6420191a77042bb275d15>
-- "IBM 1401 - MAINFRAME - Date: 1959" by Breno Valli, Museu do Computador collection (museudocomputador): <https://sketchfab.com/3d-models/ibm-1401-mainframe-date-1959-0d5ead7d38c84a5c916b214c50ca0a77>
 - "IBM RAMAC 305 - FIRST HARD DRIVE - 1956" by museudocomputador: <https://sketchfab.com/3d-models/ibm-ramac-305-first-hard-drive-1956-03f81005695944cca90ab1aecc11975a>
 - "Kenbak-1 // First Personal Computer" by museudocomputador: <https://sketchfab.com/3d-models/kenbak-1-first-personal-computer-bd931bcaf2094846a7708a5106ffd294>
 - "Plugboard - "Ancient" Coding" by museudocomputador: <https://sketchfab.com/3d-models/plugboard-ancient-coding-b483e91712804a7bb387969c6d054870>
-- "CP-500 - Prologica - TRS 80 Model III Clone" by museudocomputador: <https://sketchfab.com/3d-models/cp-500-prologica-trs-80-model-iii-clone-63ac1d69330b4d0a9629b62b30a14c9b>
 - "Xerox Alto - Son of Douglas Engelbart - 1973" by museudocomputador: <https://sketchfab.com/3d-models/xerox-alto-son-of-douglas-engelbart-1973-fc49263ee9b94ea98caa11c65e663a90>
 
 CC BY 4.0 defines "Share" to include public display and communication (Section 1), so a public

@@ -9,10 +9,11 @@ depends on, and [NOTICE.md](NOTICE.md) for anything vendored here.
 <!-- hand-authored: do not regenerate this section -->
 ## 3D assets in the machine-room set
 
-`Deployment/author_diorama.py` builds the 1963 machine room from three prop GLBs
-(`ibm-1401-cpu.glb`, `ibm-ramac-305.glb` and `plugboard.glb`), placed as
-`Deployment/stage_layout.json` lists them and loaded by file name from `MHLLM_GLB_DIR` (see
-[Docs/SCENE-AUTHORING.md](Docs/SCENE-AUTHORING.md)). The GLBs
+`Deployment/author_diorama.py` builds the 1979 machine room from eight prop GLBs, placed 14 times
+as `Deployment/stage_layout.json` lists them and loaded by file name from `MHLLM_GLB_DIR` (see
+[Docs/SCENE-AUTHORING.md](Docs/SCENE-AUTHORING.md)): three CI-authored files (`ibm-1401-cpu.glb`
+once, `ibm-3350-disk.glb` four times as one disk string, `ibm-3178-terminal.glb` four times as IBM
+3277 display stations) and the five CC BY 4.0 models in the table below. The GLBs
 are not committed to this repository, but they are cooked into the packaged app and shown in the
 streamed scene. Any build that ships them must carry the attributions below, and every package
 does: this file, `NOTICE.md` and `LICENSE` are staged in `MetaHumanLocalLLM/` beside its paks. The
@@ -29,23 +30,21 @@ Sketchfab's NoAI tag, and none of the models has `noai` among its tags in the AP
 
 | Set file | Title | Author | Source |
 |---|---|---|---|
-| `commodore-pet.glb` | "Commodore PET" | [museudocomputador](https://sketchfab.com/museudocomputador) (Museu do Computador) | <https://sketchfab.com/3d-models/commodore-pet-fb1e5a04ef4644f98219e1d5d52ab073> |
-| `engelbart-mouse.glb` | "First Mouse - Douglas Engelbart - Date:1963" | [museudocomputador](https://sketchfab.com/museudocomputador) | <https://sketchfab.com/3d-models/first-mouse-douglas-engelbart-date1963-8f4a2b1d7fb6420191a77042bb275d15> |
-| `ibm-1401-mainframe.glb` | "IBM 1401 - MAINFRAME - Date: 1959" | Breno Valli, Museu do Computador collection ([museudocomputador](https://sketchfab.com/museudocomputador)) | <https://sketchfab.com/3d-models/ibm-1401-mainframe-date-1959-0d5ead7d38c84a5c916b214c50ca0a77> |
+| `engelbart-mouse.glb` | "First Mouse - Douglas Engelbart - Date:1963" | [museudocomputador](https://sketchfab.com/museudocomputador) (Museu do Computador) | <https://sketchfab.com/3d-models/first-mouse-douglas-engelbart-date1963-8f4a2b1d7fb6420191a77042bb275d15> |
 | `ibm-ramac-305.glb` | "IBM RAMAC 305 - FIRST HARD DRIVE - 1956" | [museudocomputador](https://sketchfab.com/museudocomputador) | <https://sketchfab.com/3d-models/ibm-ramac-305-first-hard-drive-1956-03f81005695944cca90ab1aecc11975a> |
 | `kenbak-1.glb` | "Kenbak-1 // First Personal Computer" | [museudocomputador](https://sketchfab.com/museudocomputador) | <https://sketchfab.com/3d-models/kenbak-1-first-personal-computer-bd931bcaf2094846a7708a5106ffd294> |
 | `plugboard.glb` | "Plugboard - "Ancient" Coding" | [museudocomputador](https://sketchfab.com/museudocomputador) | <https://sketchfab.com/3d-models/plugboard-ancient-coding-b483e91712804a7bb387969c6d054870> |
-| `prologica-cp500.glb` | "CP-500 - Prologica - TRS 80 Model III Clone" | [museudocomputador](https://sketchfab.com/museudocomputador) | <https://sketchfab.com/3d-models/cp-500-prologica-trs-80-model-iii-clone-63ac1d69330b4d0a9629b62b30a14c9b> |
 | `xerox-alto.glb` | "Xerox Alto - Son of Douglas Engelbart - 1973" | [museudocomputador](https://sketchfab.com/museudocomputador) | <https://sketchfab.com/3d-models/xerox-alto-son-of-douglas-engelbart-1973-fc49263ee9b94ea98caa11c65e663a90> |
 
 **Modifications.** These are adaptations, not the original files. Each was downloaded from
 Sketchfab and re-exported as GLB with Blender's glTF exporter, which also strips Sketchfab's
-embedded author and licence metadata. Several were rescaled, recentred or merged in that step;
-`commodore-pet.glb`, for example, carries one textured material where the original has seven.
-`author_diorama.py` then scales each model uniformly to a target size, re-parents its materials
-onto a project material that keeps base colour, metallic and roughness but drops emission and
-specular, and places and lights it in the scene. For the stage it also removes the RAMAC 305's
-loose disk platter before import (`clipLocal` in `Deployment/stage_layout.json`).
+embedded author and licence metadata. Several were rescaled, recentred or merged in that step.
+`author_diorama.py` then scales each model uniformly, re-parents its materials onto a project
+material that keeps base colour, metallic and roughness but drops emission and specular, and
+places and lights it in the scene. For the stage it also edits three of them before import, as
+`Deployment/stage_layout.json` asks (`clipLocal`, `rotateLocal`): it removes the RAMAC 305's loose
+disk platter; it removes the Kenbak-1's power cord, stands the model upright (the file lies face
+down) and merges its 79 parts into one mesh; and it merges the mouse's 16 parts into one mesh.
 
 **How the files were matched to these pages.** Each local GLB has exactly the triangle count
 that the Sketchfab API reports for its model. Texture counts match, and material counts are the
@@ -53,6 +52,14 @@ same or one lower, except for the merged PET. Each file also looks the same as t
 thumbnail in a side-by-side render. `plugboard.glb` had no recorded source. It matches
 "Plugboard - "Ancient" Coding" exactly (4,160 triangles, 5 materials, 2 textures), and its
 texture names are Portuguese like the rest of the Museu do Computador set.
+
+**In the prop set, not placed.** Three more CC BY 4.0 models from the same museum account are in
+the licence-clean prop directory, but the stage does not place them, so no build ships them:
+"Commodore PET" (`commodore-pet.glb`, which carries one textured material where the original has
+seven and renders with that texture scrambled; a true-size stand-in takes its place),
+"IBM 1401 - MAINFRAME - Date: 1959" by Breno Valli (`ibm-1401-mainframe.glb`, unassembled) and
+"CP-500 - Prologica - TRS 80 Model III Clone" (`prologica-cp500.glb`, made in 1982, after the room's
+date). A layout that places one of them must add it to the table above, NOTICE.md and credits.html.
 
 Model names describe historical machines. IBM, Commodore, Xerox, Prológica and Kenbak are
 trademarks of their respective owners, and their use here implies no endorsement.
@@ -71,6 +78,10 @@ Blender's Python API, the generator scripts are licensed GPL-3.0-or-later (see
 | `ibm-1401-cpu.glb` | IBM 1401 Processing Unit, 4-cube | `Deployment/blender/make_period_props.py` |
 | `ibm-3178-terminal.glb` | IBM 3277 Display Station Model 2 (the slot keeps its old file name) | `Deployment/blender/make_period_props.py` |
 | `ibm-3350-disk.glb` | IBM 3350 dual-drive disk storage unit | `Deployment/blender/make_period_props.py` |
+
+The stage places the 1401 processing unit once and the 3350 and the 3277 four times each. It does not
+place `ibm-729-tape.glb`: the six 729s in the room are true-size stand-ins built from primitives,
+which are the spec for that model's re-author ([Docs/STAGE-DESIGN.md](Docs/STAGE-DESIGN.md)).
 
 The other set dressing is CI-generated as well: `Deployment/audio/machine_room.wav` and
 `Deployment/generated/S_RoomTone.wav` come from `Scripts/MakeAmbience.py`, and

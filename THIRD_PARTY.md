@@ -96,7 +96,8 @@ in [NOTICE.md](NOTICE.md).
 ### 3D assets
 
 The machine-room props are listed with their licences and attributions in
-[CREDITS.md](CREDITS.md): eight Sketchfab models under CC BY 4.0 and four CI-authored props.
+[CREDITS.md](CREDITS.md): the five Sketchfab models under CC BY 4.0 that the stage places, and the
+four CI-authored props.
 <!-- end hand-authored -->
 
 ---
