@@ -147,8 +147,10 @@ public:
 	UPROPERTY(Config, VisibleAnywhere, Category = "Shots")
 	FName CloseShot = TEXT("CLOSE");
 
-	// Seconds the lobby still is held after level load before the cut into the move.
-	// MHLLM_OPENING_DELAY overrides it.
+	// Seconds the lobby still is held after a session starts, before the cut into the move: after
+	// the level loads for a kiosk or a native window, after the first viewer connects for a stream
+	// (UCompanionStageDirector, EStageTrigger). The visitor's own key, click or Esc in the lobby
+	// shortens it to 0.3 s. MHLLM_OPENING_DELAY overrides it.
 	UPROPERTY(Config, VisibleAnywhere, Category = "Beats")
 	float HoldSeconds = 3.0f;
 
@@ -184,13 +186,33 @@ public:
 	UPROPERTY(Config, VisibleAnywhere, Category = "Beats")
 	float SpeakAfterSettleSeconds = 0.6f;
 
-	// MHLLM_OPENING_SHOT=0 (reduced motion): the camera is on HOME from the start; the greeting and
-	// the line come this long after the hold.
+	// MHLLM_OPENING_SHOT=0 (reduced motion): the lobby still cuts straight to HOME when the hold
+	// ends (no move, no breathing); the greeting and the line come this long after that cut.
 	UPROPERTY(Config, VisibleAnywhere, Category = "Beats")
 	float ReducedMotionGreetingSeconds = 0.8f;
 
 	UPROPERTY(Config, VisibleAnywhere, Category = "Beats")
 	float ReducedMotionSpeakSeconds = 2.0f;
+
+	// Live framing (design 3.1 "Reply"): a reply at least this long punches in to CLOSE at its first
+	// sentence boundary 1.5 s or more in, once per reply...
+	UPROPERTY(Config, VisibleAnywhere, Category = "Live")
+	float CloseMinReplySeconds = 6.0f;
+
+	// ...and comes back to HOME on the visitor's first key or click, or this long after the reply.
+	UPROPERTY(Config, VisibleAnywhere, Category = "Live")
+	float CloseReturnSeconds = 4.0f;
+
+	// Automatic cuts (the punch-in) are at least this far apart (design 3.2). A cut the visitor
+	// asks for with a key, click or Esc is never delayed.
+	UPROPERTY(Config, VisibleAnywhere, Category = "Live")
+	float CutSpacingSeconds = 4.0f;
+
+	// Rotation-only breathing on the held shots (the lobby still, HOME, CLOSE): yaw within this many
+	// degrees, pitch within 0.6 x it (CompanionStage::BreathOffset). 0, MHLLM_STAGE_BREATHING=0 or
+	// the reduced-motion path turn it off.
+	UPROPERTY(Config, VisibleAnywhere, Category = "Live")
+	float BreathingDegrees = 0.15f;
 
 	// Comfort budget of the opening move (design 6.3): peak speed at the reference stature, scaled
 	// by min(1, stature / reference)...

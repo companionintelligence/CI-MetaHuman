@@ -97,13 +97,15 @@ struct CICOMPANION_API FCompanionStagePlan
 
 	FCompanionStageFraming Lobby;
 	FCompanionStageFraming Home;
+	// The punch-in for long replies (the CLOSE shot); invalid on the built-in path.
+	FCompanionStageFraming Close;
 	FCompanionStagePath Opening;
 	// The lens of the move.
 	float FocalMm = 40.4f;
 	FVector2D FilmbackMm = FVector2D(36.0, 20.25);
 	float Aperture = 0.0f;
 
-	// Seconds the lobby is held before the move.
+	// Seconds the lobby is held after a session starts, before the move.
 	float HoldSeconds = 3.0f;
 	float MoveSeconds = 11.0f;
 	// The lobby framing is not the move's first key, so starting the move is a camera cut.
@@ -159,4 +161,9 @@ namespace CompanionStage
 
 	// The rotation a framing's camera takes: level (yaw only) or aimed straight at LookAt.
 	CICOMPANION_API FRotator AimRotation(const FVector& Location, const FVector& LookAt, bool bLevel);
+
+	// Rotation-only "breathing" for a held shot, Seconds into the run: two incommensurate slow sines
+	// per axis (0.07-0.14 Hz), yaw within +-AmplitudeDegrees and pitch within +-0.6 x that, never
+	// faster than 0.6 x AmplitudeDegrees a second. Roll is always 0, and so is all of it at amplitude 0.
+	CICOMPANION_API FRotator BreathOffset(float Seconds, float AmplitudeDegrees);
 }

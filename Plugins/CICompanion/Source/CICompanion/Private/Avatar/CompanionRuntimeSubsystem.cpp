@@ -436,26 +436,34 @@ void UCompanionRuntimeSubsystem::HandleHudTextSubmitted(const FString& Text)
 		return;
 	}
 
-	AnnounceUserTurn(Text);
-	SubmitUserText(Text);
+	if (AnnounceUserTurn(Text))
+	{
+		SubmitUserText(Text);
+	}
 }
 
-void UCompanionRuntimeSubsystem::AnnounceUserTurn(const FString& Text)
+bool UCompanionRuntimeSubsystem::AnnounceUserTurn(const FString& Text)
 {
 	if (Hud.IsValid())
 	{
 		Hud->AppendChatEntry(TEXT("You"), Text);
 		Hud->SetStatusText(TEXT("thinking..."));
 	}
-	// A user turn must cut the scripted opening short: making someone wait out a camera move
-	// after they have spoken is the rudest thing an assistant can do.
+	// The stage decides what a turn does to the opening (design 3.2): during the move it cuts to
+	// HOME and drops the pending lines, because making someone wait out a camera move after they
+	// have spoken is the rudest thing an assistant can do; typed in the lobby, it starts the session
+	// and the stage HOLDS it, to be answered when the move lands.
 	if (UWorld* World = GetWorld())
 	{
 		if (UCompanionStageDirector* Stage = World->GetSubsystem<UCompanionStageDirector>())
 		{
-			Stage->SkipToLive();
+			if (Stage->OnVisitorTurn(Text))
+			{
+				return false;
+			}
 		}
 	}
+	return true;
 }
 
 bool UCompanionRuntimeSubsystem::SubmitTranscribedText(const FString& Text)
@@ -487,7 +495,10 @@ bool UCompanionRuntimeSubsystem::SubmitTranscribedText(const FString& Text)
 	}
 
 	UE_LOG(LogCompanionRuntime, Log, TEXT("Transcribed turn (%d chars): %s"), Trimmed.Len(), *Trimmed.Left(160));
-	AnnounceUserTurn(Trimmed);
+	if (!AnnounceUserTurn(Trimmed))
+	{
+		return true;	// held by the stage; answered when the opening lands
+	}
 	return SubmitUserText(Trimmed);
 }
 
@@ -822,6 +833,15 @@ void UCompanionRuntimeSubsystem::HandleSpeechAudioReady(const FString& Text, flo
 	PendingAudioSeconds = DurationSeconds;
 	AudioStartRealTime = FPlatformTime::Seconds();
 	bAudioReady = true;
+
+	// The stage frames long replies tighter (the CLOSE punch-in) from the moment they are heard.
+	if (UWorld* World = GetWorld())
+	{
+		if (UCompanionStageDirector* Stage = World->GetSubsystem<UCompanionStageDirector>())
+		{
+			Stage->OnReplyAudioStarted(Text, DurationSeconds);
+		}
+	}
 
 	DriveOrWaitForAlignment();
 }

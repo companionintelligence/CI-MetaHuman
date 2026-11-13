@@ -102,8 +102,10 @@ private:
 	void HandleHudTextSubmitted(const FString& Text);
 
 	// The presentation half of "a user turn arrived", shared by every input path so typed and spoken
-	// turns cannot drift into looking different to the viewer.
-	void AnnounceUserTurn(const FString& Text);
+	// turns cannot drift into looking different to the viewer. Returns false when the stage holds
+	// the turn (typed in the lobby: answered when the opening lands), in which case the caller must
+	// not submit it now.
+	bool AnnounceUserTurn(const FString& Text);
 
 	// Connects the HUD's mic button to the STT backend.
 	//

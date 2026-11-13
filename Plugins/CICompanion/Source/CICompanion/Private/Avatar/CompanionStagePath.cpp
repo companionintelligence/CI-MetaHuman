@@ -486,6 +486,7 @@ FCompanionStagePlan CompanionStage::BuildPlan(const UCompanionStageSettings* Set
 
 	const FCompanionStageShot* Opening = Settings->FindShotFor(Settings->OpeningShot, bPortrait);
 	Plan.Home = Framing(Settings->FindShotFor(Settings->HomeShot, bPortrait));
+	Plan.Close = Framing(Settings->FindShotFor(Settings->CloseShot, bPortrait));
 
 	// The move: every key resolved against her, the aim held on her eyes, her eyes composed by key.
 	TArray<FVector> Points;
@@ -660,4 +661,20 @@ FRotator CompanionStage::AimRotation(const FVector& Location, const FVector& Loo
 		return FRotator(0.0, FMath::RadiansToDegrees(FMath::Atan2(D.Y, D.X)), 0.0);
 	}
 	return D.Rotation();
+}
+
+FRotator CompanionStage::BreathOffset(float Seconds, float AmplitudeDegrees)
+{
+	if (AmplitudeDegrees <= 0.0f)
+	{
+		return FRotator::ZeroRotator;
+	}
+	// Weights sum to 1 per axis, so |yaw| <= A and |pitch| <= 0.6 A. Peak rate is
+	// 2 pi A (0.62 x 0.071 + 0.38 x 0.113) = 0.55 A deg/s for yaw; a held shot drifts a few
+	// pixels, never visibly swings.
+	const double T = Seconds;
+	const double TwoPi = 2.0 * UE_DOUBLE_PI;
+	const double Yaw = AmplitudeDegrees * (0.62 * FMath::Sin(TwoPi * 0.071 * T) + 0.38 * FMath::Sin(TwoPi * 0.113 * T + 1.3));
+	const double Pitch = 0.6 * AmplitudeDegrees * (0.55 * FMath::Sin(TwoPi * 0.089 * T + 0.4) + 0.45 * FMath::Sin(TwoPi * 0.137 * T + 2.1));
+	return FRotator(Pitch, Yaw, 0.0);
 }
