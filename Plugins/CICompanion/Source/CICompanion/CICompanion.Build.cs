@@ -95,6 +95,18 @@ public class CICompanion : ModuleRules
 		// name and signature, so this one module is all it needs. CICompanion.uplugin lists the
 		// PixelStreaming2 plugin for the same reason.
 		PrivateDependencyModuleNames.Add("PixelStreaming2");
+
+		// ---------------------------------------------------------------------------------------
+		// Live Link
+		// ---------------------------------------------------------------------------------------
+		//
+		// The face driver's Live Link sink (Avatar/CompanionLiveLinkFaceSource) publishes the composed
+		// face as a Live Link subject for a MetaHuman face, whose ABP_MH_LiveLink remaps the ARKit
+		// curves onto RigLogic (the resident "Eliza", MetaHuman variant). ILiveLinkClient and
+		// ILiveLinkSource live in the engine's LiveLinkInterface runtime module in both 5.5.4 and
+		// 5.8.4; the client itself is provided at runtime by the LiveLink plugin, which the .uproject
+		// enables. Without it the sink logs and stays off; the morph sink is unaffected.
+		PrivateDependencyModuleNames.Add("LiveLinkInterface");
 		//
 		// When the browser -> C++ text path lands (Docs/GAP-ANALYSIS.md gap #2, "nobody can address
 		// her"), add:

@@ -149,6 +149,80 @@ void FFaceProfileSpec::Define()
 		{
 			TestEqual("cc", FFaceProfile::ByName(TEXT("nonsense")).ProfileName, FName(TEXT("CC")));
 		});
+
+		It("resolves ARKitMH, and does not confuse it with ARKit", [this]()
+		{
+			TestEqual("arkitmh", FFaceProfile::ByName(TEXT("ARKitMH")).ProfileName, FName(TEXT("ARKitMH")));
+			TestEqual("case-insensitive", FFaceProfile::ByName(TEXT("arkitmh")).ProfileName, FName(TEXT("ARKitMH")));
+			TestEqual("arkit stays arkit", FFaceProfile::ByName(TEXT("ARKit")).ProfileName, FName(TEXT("ARKit")));
+		});
+	});
+
+	// The resident Eliza. Her MPFB variant carries MPFB's ARKit face units as morph targets and binds
+	// through the plain ARKit profile; her MetaHuman variant hears ARKit over Live Link through
+	// PA_MetaHuman_ARKit_Mapping, which has no mouthClose pose -- hence ARKitMH.
+	Describe("ARKit profile (Eliza, MPFB variant)", [this]()
+	{
+		It("names exactly the 37 curves her morph targets must carry", [this]()
+		{
+			TestEqual("37 curves", FFaceProfile::ARKit().AllCurves().Num(), 37);
+		});
+	});
+
+	Describe("ARKitMH profile (Eliza, MetaHuman variant)", [this]()
+	{
+		It("has 38 curves: ARKit's 37 without mouthClose, plus the two lip rolls", [this]()
+		{
+			const TArray<FName> All = FFaceProfile::ARKitMH().AllCurves();
+			TestEqual("38 curves", All.Num(), 38);
+			TestFalse("no mouthClose", All.Contains(FName(TEXT("mouthClose"))));
+			TestTrue("mouthRollLower", All.Contains(FName(TEXT("mouthRollLower"))));
+			TestTrue("mouthRollUpper", All.Contains(FName(TEXT("mouthRollUpper"))));
+			TSet<FName> Arkit(FFaceProfile::ARKit().AllCurves());
+			Arkit.Remove(FName(TEXT("mouthClose")));
+			for (const FName& C : Arkit)
+			{
+				TestTrue(FString::Printf(TEXT("keeps %s"), *C.ToString()), All.Contains(C));
+			}
+		});
+
+		It("leaves silence empty and closes PP with press and roll", [this]()
+		{
+			const FFaceProfile& P = FFaceProfile::ARKitMH();
+			TMap<FName, float> Sil;
+			P.Accumulate(EViseme::Sil, 1.0f, Sil);
+			TestEqual("Sil drives nothing", Sil.Num(), 0);
+			TMap<FName, float> PP;
+			P.Accumulate(EViseme::PP, 1.0f, PP);
+			TestEqual("press L", PP.FindRef(TEXT("mouthPressLeft")), 0.70f);
+			TestEqual("press R", PP.FindRef(TEXT("mouthPressRight")), 0.70f);
+			TestEqual("roll lower", PP.FindRef(TEXT("mouthRollLower")), 0.30f);
+			TestEqual("roll upper", PP.FindRef(TEXT("mouthRollUpper")), 0.25f);
+			TMap<FName, float> NN;
+			P.Accumulate(EViseme::NN, 1.0f, NN);
+			TestEqual("NN jaw", NN.FindRef(TEXT("jawOpen")), 0.15f);
+			TestEqual("NN press", NN.FindRef(TEXT("mouthPressLeft")), 0.20f);
+		});
+
+		It("keeps every other viseme identical to ARKit", [this]()
+		{
+			for (uint8 I = 0; I <= static_cast<uint8>(EViseme::OU); ++I)
+			{
+				const EViseme V = static_cast<EViseme>(I);
+				if (V == EViseme::Sil || V == EViseme::PP || V == EViseme::NN)
+				{
+					continue;
+				}
+				TMap<FName, float> A, B;
+				FFaceProfile::ARKit().Accumulate(V, 1.0f, A);
+				FFaceProfile::ARKitMH().Accumulate(V, 1.0f, B);
+				TestEqual(FString::Printf(TEXT("viseme %d curve count"), I), B.Num(), A.Num());
+				for (const TPair<FName, float>& Pair : A)
+				{
+					TestEqual(FString::Printf(TEXT("viseme %d %s"), I, *Pair.Key.ToString()), B.FindRef(Pair.Key), Pair.Value);
+				}
+			}
+		});
 	});
 
 	Describe("AllCurves", [this]()

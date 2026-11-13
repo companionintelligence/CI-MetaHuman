@@ -126,6 +126,35 @@ namespace
 		Add(P, EViseme::OU,  { { TEXT("mouthPucker"), 0.85f }, { TEXT("jawOpen"), 0.12f } });
 		return P;
 	}
+
+	// ARKit as a MetaHuman face hears it over Live Link (the resident "Eliza", Phase M).
+	//
+	// A MetaHuman face is moved by RigLogic joints, not by morph targets: ABP_MH_LiveLink reads a
+	// Live Link subject's ARKit curves and remaps them through PA_MetaHuman_ARKit_Mapping into the
+	// CTRL_expressions_* controls RigLogic evaluates. That pose asset carries 51 of the 52 ARKit
+	// names -- every one except mouthClose -- so a curve named mouthClose arrives and moves nothing.
+	// This profile is ARKit with mouthClose taken out and the two shapes that leaned on it rebuilt
+	// from curves the mapping does carry:
+	//   Sil: empty (it was mouthClose 0.10 alone; at rest the jaw is already closed);
+	//   PP:  lips pressed AND rolled in, which is what a bilabial closure looks like on a face that
+	//        cannot "close the mouth" as a single control;
+	//   NN:  a little jaw with a light press, in place of the jaw-plus-close blend.
+	// 38 curves: the ARKit profile's 37, less mouthClose, plus mouthRollLower and mouthRollUpper.
+	FFaceProfile BuildARKitMH()
+	{
+		FFaceProfile P = BuildARKit();
+		P.ProfileName = TEXT("ARKitMH");
+		P.Shapes.Add(EViseme::Sil, FVisemeShape());
+		Add(P, EViseme::PP, { { TEXT("mouthPressLeft"), 0.70f }, { TEXT("mouthPressRight"), 0.70f },
+							  { TEXT("mouthRollLower"), 0.30f }, { TEXT("mouthRollUpper"), 0.25f } });
+		Add(P, EViseme::NN, { { TEXT("jawOpen"), 0.15f }, { TEXT("mouthPressLeft"), 0.20f }, { TEXT("mouthPressRight"), 0.20f } });
+		// Belt and braces: no shape may still name the one curve the mapping lacks.
+		for (TPair<EViseme, FVisemeShape>& Pair : P.Shapes)
+		{
+			Pair.Value.Curves.RemoveAll([](const FFaceCurve& C) { return C.Curve == FName(TEXT("mouthClose")); });
+		}
+		return P;
+	}
 }
 
 void FFaceProfile::Accumulate(EViseme Viseme, float Weight, TMap<FName, float>& OutCurves) const
@@ -200,7 +229,17 @@ const FFaceProfile& FFaceProfile::ARKit()
 	return Profile;
 }
 
+const FFaceProfile& FFaceProfile::ARKitMH()
+{
+	static const FFaceProfile Profile = BuildARKitMH();
+	return Profile;
+}
+
 const FFaceProfile& FFaceProfile::ByName(const FString& Name)
 {
+	if (Name.Equals(TEXT("ARKitMH"), ESearchCase::IgnoreCase))
+	{
+		return ARKitMH();
+	}
 	return Name.Equals(TEXT("ARKit"), ESearchCase::IgnoreCase) ? ARKit() : CharacterCreator();
 }

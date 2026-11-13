@@ -8,6 +8,8 @@
 #include "Voice/VisemePlanner.h"
 #include "CompanionFaceComponent.generated.h"
 
+class FCompanionLiveLinkFaceSource;
+
 class USkeletalMeshComponent;
 
 // Drives a character's face by writing morph-target weights directly.
@@ -57,6 +59,30 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "MetaHumanLLM|Face")
 	int32 GetProfileCurveCount() const { return CachedAllCurves.Num(); }
+
+	// The profile's whole curve set (what is zeroed every frame, and what a Live Link sink publishes).
+	const TArray<FName>& GetProfileCurves() const { return CachedAllCurves; }
+
+	// Viseme-layer gain and pose cap (see FaceGain / VisemePoseCap below). The constructor reads
+	// MHLLM_FACE_GAIN / MHLLM_FACE_POSE_CAP with the 3.0 / 2.0 defaults tuned for Nia's subtle CC
+	// morphs; UCompanionFaceSubsystem overrides them from the resident's FaceGain= / FacePoseCap=
+	// tags when the env var is not set, because full-range ARKit shapes at 3.0 double the jaw.
+	// Non-positive values are ignored rather than zeroing the mouth.
+	void SetFaceGain(float InGain) { if (InGain > 0.0f) { FaceGain = InGain; } }
+	void SetVisemePoseCap(float InCap) { if (InCap > 0.0f) { VisemePoseCap = InCap; } }
+	float GetFaceGain() const { return FaceGain; }
+	float GetVisemePoseCap() const { return VisemePoseCap; }
+
+	// THE SINK. By default the composed face is written as morph-target weights on the target mesh
+	// (CC and MPFB faces). A MetaHuman face (Eliza, Phase M) is moved by RigLogic instead, so for her
+	// the frame is published as a Live Link subject that the face's ABP_MH_LiveLink remaps through
+	// PA_MetaHuman_ARKit_Mapping (see FCompanionLiveLinkFaceSource). FaceMesh is the MetaHuman's
+	// "Face" component: resolution is checked against the mapping's poses, and survival against the
+	// CTRL_expressions_* curves its anim instance produces. Call after SetProfile.
+	void SetLiveLinkSink(TSharedPtr<FCompanionLiveLinkFaceSource> InSink, USkeletalMeshComponent* InFaceMesh,
+		const FString& InPoseAssetPath);
+	bool IsLiveLinkSink() const { return LiveLinkSink.IsValid(); }
+	const FString& GetLiveLinkPoseAssetName() const { return LiveLinkPoseAssetName; }
 
 	// Cycles every viseme in turn, holding each for SecondsPerViseme. This is the milestone-1
 	// proof that the whole face path works end-to-end in a COOKED Linux build, before any TTS
@@ -166,6 +192,7 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 private:
 	// Counts how many profile curves the bound mesh actually provides, and logs the missing ones
@@ -210,6 +237,16 @@ private:
 	// each clamp to 1.0 independently, so without this a two-viseme frame asks the rig for gain x
 	// two full shapes at once and tears. Tunable via MHLLM_FACE_POSE_CAP.
 	float VisemePoseCap = 2.0f;
+
+	// Live Link sink state (Phase M). Empty for the morph sink.
+	TSharedPtr<FCompanionLiveLinkFaceSource> LiveLinkSink;
+	UPROPERTY(Transient)
+	TObjectPtr<USkeletalMeshComponent> LiveLinkFaceMesh;
+	FString LiveLinkPoseAssetName;
+	// Last jawOpen pushed, for the FACESURVIVE check on the next tick.
+	float LastPushedJawOpen = 0.0f;
+	bool bLiveLinkSurvivalLogged = false;
+	double LastLiveLinkSurvivalLog = 0.0;
 
 	FName LastWrittenCurve;
 	float LastWrittenWeight = 0.0f;
