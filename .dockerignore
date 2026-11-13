@@ -26,3 +26,8 @@ Scripts/
 .gitattributes
 .dockerignore
 *.md
+# Except the two the package stages beside its paks (Source/MetaHumanLocalLLM/MetaHumanLocalLLM.Build.cs,
+# with LICENSE, which no rule here excludes): the cooked set's CC BY attributions have to ship with
+# it. Editing them re-runs the cook, which is the price of the image carrying the current ones.
+!NOTICE.md
+!CREDITS.md

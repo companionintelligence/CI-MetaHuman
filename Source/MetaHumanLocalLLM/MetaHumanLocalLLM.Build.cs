@@ -16,5 +16,17 @@ public class MetaHumanLocalLLM : ModuleRules
 			"Engine",
 			"CICompanion"
 		});
+
+		// The licence and attributions travel with every package, staged as loose (NonUFS) files
+		// beside the paks: <archive>/MetaHumanLocalLLM/LICENSE, NOTICE.md and CREDITS.md. The cooked
+		// machine room contains eight CC BY 4.0 Sketchfab models, and CC BY requires their attribution
+		// wherever the set is shared (NOTICE.md, "3D models under CC BY 4.0"). PolyForm Noncommercial
+		// requires its terms and Required Notice to go with every copy. Staged here rather than copied
+		// by each build script, so every packaging path gets them: Scripts/BuildNative.ps1 and both
+		// Dockerfiles only check that the package came out with all three.
+		foreach (string LegalFile in new string[] { "LICENSE", "NOTICE.md", "CREDITS.md" })
+		{
+			RuntimeDependencies.Add("$(ProjectDir)/" + LegalFile, StagedFileType.NonUFS);
+		}
 	}
 }

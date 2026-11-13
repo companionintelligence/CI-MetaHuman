@@ -263,8 +263,10 @@ generative AI programs."* `author_diorama.py` therefore imports those slots only
 logs `prop REFUSED` and leaves the slot empty, so a stale prop folder cannot ship them. The 729 tape
 units are CI-authored as well (`Deployment/blender/make_ibm729.py`).
 
-Still open: neither the packaged build nor the container image carries these credits yet, and the
-stream page does not link to them.
+The credits travel with the build: every package, native or container, carries `CREDITS.md`,
+`NOTICE.md` and `LICENSE` in `MetaHumanLocalLLM/` beside its paks, staged by
+`Source/MetaHumanLocalLLM/MetaHumanLocalLLM.Build.cs`, and the build scripts refuse a package
+without them. Still open: the stream page does not link to them.
 
 
 <!-- companion-hub-readme-deep-review -->

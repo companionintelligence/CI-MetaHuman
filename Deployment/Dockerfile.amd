@@ -180,6 +180,14 @@ RUN /home/ue4/UnrealEngine/Engine/Build/BatchFiles/RunUAT.sh BuildCookRun \
     -archivedirectory=/home/ue4/project-src/dist \
     -platform=Linux
 
+# The licence and attributions travel with the package, as in Dockerfile (whose comment says why):
+# MetaHumanLocalLLM.Build.cs stages them, and this refuses an image that came out without them.
+RUN for f in LICENSE NOTICE.md CREDITS.md; do \
+        test -s "dist/Linux/MetaHumanLocalLLM/$f" || { \
+            echo "The package has no MetaHumanLocalLLM/$f, so it would ship without its licence and attributions." >&2; \
+            exit 1; }; \
+    done
+
 # ---- AMD runtime image ----
 # Ubuntu 26.04 matches the host's Mesa 26.x (needed for the Strix Halo / RDNA 3.5 GPU; older
 # Mesa yields VK_ERROR_INCOMPATIBLE_DRIVER). /dev/dri is passed in at runtime by the compose.

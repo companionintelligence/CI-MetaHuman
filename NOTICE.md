@@ -177,7 +177,10 @@ modified: re-exported to GLB, rescaled, given project materials, and placed and 
 CC BY 4.0 defines "Share" to include public display and communication (Section 1), so a public
 stream of the set shares these models. Section 3(a)(2) allows the attribution "in any reasonable
 manner based on the medium", so it must be reachable from the product as well as from this
-repository, for example through a credits link on the streaming page.
+repository. Every package carries this file, `CREDITS.md` and `LICENSE` as loose files in
+`MetaHumanLocalLLM/` beside its paks: `Source/MetaHumanLocalLLM/MetaHumanLocalLLM.Build.cs` stages
+them, and `Scripts/BuildNative.ps1`, `Deployment/Dockerfile` and `Deployment/Dockerfile.amd` refuse
+a package without them.
 
 ## Epic Games Unreal Engine, MetaHuman and Fab content (not covered)
 

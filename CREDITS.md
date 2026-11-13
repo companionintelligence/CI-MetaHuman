@@ -12,7 +12,8 @@ depends on, and [NOTICE.md](NOTICE.md) for anything vendored here.
 `Deployment/author_diorama.py` builds the 1970s machine room from twelve prop GLBs, loaded by
 file name from `MHLLM_GLB_DIR` (see [Docs/SCENE-AUTHORING.md](Docs/SCENE-AUTHORING.md)). The GLBs
 are not committed to this repository, but they are cooked into the packaged app and shown in the
-streamed scene. Any build that ships them must carry the attributions below.
+streamed scene. Any build that ships them must carry the attributions below, and every package
+does: this file, `NOTICE.md` and `LICENSE` are staged in `MetaHumanLocalLLM/` beside its paks.
 
 ### Sketchfab models used under CC BY 4.0
 

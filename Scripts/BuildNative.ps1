@@ -422,6 +422,7 @@ try {
     else {
         Invoke-StageAuthoring
     }
+    $uatStarted = Get-Date
     & $RunUAT @uatArgs
     $uatExit = $LASTEXITCODE
 }
@@ -444,6 +445,26 @@ finally {
     }
 }
 if ($uatExit -ne 0) { throw "BuildCookRun failed ($uatExit)" }
+
+# The licence and attributions travel with the package. MetaHumanLocalLLM.Build.cs stages LICENSE,
+# NOTICE.md and CREDITS.md as loose files beside the paks, and the cooked set includes eight CC BY 4.0
+# models whose attribution has to go wherever the build goes (NOTICE.md). Checked against the NonUFS
+# manifest THIS run wrote, so a copy left in the archive by an earlier build cannot pass for one this
+# build staged. UAT archives into $Archive itself when the path names the platform (dist/Win64 does)
+# and into $Archive\<platform> otherwise, hence the one level of recursion.
+$legal = @('LICENSE', 'NOTICE.md', 'CREDITS.md')
+$manifest = Get-ChildItem -Path $Archive -Filter 'Manifest_NonUFSFiles_*.txt' -File -Recurse -Depth 1 -ErrorAction SilentlyContinue |
+    Where-Object { $_.LastWriteTime -ge $uatStarted } | Select-Object -First 1
+$missingLegal = if (-not $manifest) { $legal } else {
+    $staged = @(Get-Content $manifest.FullName | ForEach-Object { ($_ -split "`t")[0] })
+    @($legal | Where-Object { ($staged -notcontains "MetaHumanLocalLLM/$_") -or
+                              -not (Test-Path (Join-Path $manifest.DirectoryName "MetaHumanLocalLLM\$_")) })
+}
+if ($missingLegal) {
+    throw ("The package in $Archive came out without MetaHumanLocalLLM\$($missingLegal -join ', MetaHumanLocalLLM\'), " +
+           'so it would ship without its licence and attributions. Source/MetaHumanLocalLLM/MetaHumanLocalLLM.Build.cs stages them.')
+}
+Write-Host "Licence and attributions staged: $(Join-Path $manifest.DirectoryName 'MetaHumanLocalLLM') ($($legal -join ', '))" -ForegroundColor Cyan
 
 Write-Host "OK -> $Archive (resident: $Resident)" -ForegroundColor Green
 if ($script:RefusedPropsNote) { Write-Host $script:RefusedPropsNote -ForegroundColor Yellow }

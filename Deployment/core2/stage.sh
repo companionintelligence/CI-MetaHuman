@@ -10,10 +10,13 @@ REPO="${1:?usage: stage.sh <repo-root> [host]}"
 HOST="${2:-ci@core-2}"
 
 cd "$REPO"
+# LICENSE, NOTICE.md and CREDITS.md go too: the package stages them beside its paks
+# (Source/MetaHumanLocalLLM/MetaHumanLocalLLM.Build.cs), and Dockerfile.amd refuses an image without them.
 tar czf /tmp/proj-src.tgz \
   --exclude='*/Binaries/*' --exclude='*/Intermediate/*' \
   --exclude='*/Saved/*' --exclude='*/DerivedDataCache/*' \
-  Source Plugins Config Scripts Deployment MetaHumanLocalLLM.uproject .dockerignore
+  Source Plugins Config Scripts Deployment MetaHumanLocalLLM.uproject .dockerignore \
+  LICENSE NOTICE.md CREDITS.md
 
 # The canonical name. Do NOT invent a second one: m2_clean.sh reads exactly this.
 scp -q /tmp/proj-src.tgz "$HOST:/home/ci/proj-src.tgz"
@@ -44,6 +47,10 @@ check_symbol() {  # path-in-cook-tree, pattern, human name -- a file can be pres
   if ssh "$HOST" "grep -q '$2' /home/ci/cook-clean/$1"; then echo "  OK   $3"; else echo "  MISS $3"; FAIL=1; fi
 }
 check_file "Plugins/CICompanion/Source/CICompanion/Private/Avatar/CompanionStageDirector.cpp" "stage director"
+# Without these the cook would run for 20 minutes and then fail Dockerfile.amd's check for them.
+check_file "LICENSE" "licence, staged into the package"
+check_file "NOTICE.md" "notices, staged into the package"
+check_file "CREDITS.md" "CC BY attributions, staged into the package"
 if ssh "$HOST" "find /home/ci/cook-clean -type f -name '._*' -print -quit | grep -q ."; then echo "  MISS macOS metadata sidecars removed"; FAIL=1; else echo "  OK   macOS metadata sidecars removed"; fi
 check_file "Plugins/CICompanion/Source/CICompanion/Private/Avatar/CompanionRuntimeSubsystem.cpp" "companion runtime"
 check_file "Plugins/CICompanion/Source/CICompanion/Private/Voice/KokoroTextToSpeech.cpp" "kokoro tts"

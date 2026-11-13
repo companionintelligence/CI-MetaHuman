@@ -107,6 +107,16 @@ RUN /home/ue4/UnrealEngine/Engine/Build/BatchFiles/RunUAT.sh BuildCookRun \
     -archivedirectory=/home/ue4/project-src/dist \
     -platform=Linux
 
+# The package carries its licence and attributions: MetaHumanLocalLLM.Build.cs stages LICENSE,
+# NOTICE.md and CREDITS.md beside the paks, and the cooked set includes eight CC BY 4.0 models whose
+# attribution has to travel with it (NOTICE.md). They end up in /home/ue4/project/MetaHumanLocalLLM/.
+# Refuse an image without them; the same check is in Dockerfile.amd and Scripts/BuildNative.ps1.
+RUN for f in LICENSE NOTICE.md CREDITS.md; do \
+        test -s "dist/Linux/MetaHumanLocalLLM/$f" || { \
+            echo "The package has no MetaHumanLocalLLM/$f, so it would ship without its licence and attributions." >&2; \
+            exit 1; }; \
+    done
+
 # ---- Runtime image ---------------------------------------------------------------------
 # Epic publishes this only as the floating `runtime-pixel-streaming` tag (no versioned
 # variant), which is exactly why the digest matters here.

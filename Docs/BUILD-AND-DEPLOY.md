@@ -202,6 +202,7 @@ instead of shipping an empty stage twenty minutes later. A passing build logs
 | `Invoke-StageAuthoring` | Checks the resident's inputs before launching anything: the engine's `SKM_Manny` for the default `-Resident Mannequin`, the three Seo FBX files for `-Resident MetaHuman`, or — with `-Resident Nia` only — copies Nia's content (**copied, not junctioned** — authoring re-saves what it loads, and a junction would rewrite the source project's own assets). Then purges stale imports and runs the same `author_diorama.py` with `MHLLM_RESIDENT` set |
 | **The authoring gate** | §4.2 |
 | `RunUAT.bat BuildCookRun … -ubtargs=-NoHotReloadFromIDE` | Live Coding's mutex is keyed on the **executable**, and every project's editor target is the same `UnrealEditor.exe` — so an editor open on an *unrelated* project blocks packaging this one |
+| Check the package's licence files | `MetaHumanLocalLLM.Build.cs` stages `LICENSE`, `NOTICE.md` and `CREDITS.md` as loose files in `<archive>/MetaHumanLocalLLM/`, because the cooked set includes eight CC BY 4.0 models whose attribution must travel with the build. The script fails unless this run's NonUFS manifest lists all three; `Dockerfile` and `Dockerfile.amd` refuse an image without them in the same way |
 
 Every UAT switch is an explicitly-quoted string: a bare `-platform=$Platform` token is **not
 interpolated by PowerShell in argument mode** and reaches UAT as the literal `"$Platform"`.
