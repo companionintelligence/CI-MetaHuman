@@ -274,6 +274,8 @@ private:
 	bool bDropLine = false;
 	// A turn typed in the lobby, answered when the move lands.
 	FString HeldTurn;
+	// The turn-yield line as spoken, so its audio is never taken for a reply (no CLOSE on it).
+	FString SpokenLine;
 	// Esc during the move: the cut to HOME keeps every line; the turn-yield line comes this long after.
 	float LineDueAt = -1.0f;
 

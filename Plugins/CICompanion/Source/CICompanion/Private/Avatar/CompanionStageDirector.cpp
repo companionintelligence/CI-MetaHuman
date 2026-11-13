@@ -1045,7 +1045,7 @@ void UCompanionStageDirector::OnReplyAudioStarted(const FString& Text, float Dur
 		return;
 	}
 	// The scripted lines are not replies.
-	if (Text.Equals(Plan.GreetingLine) || Clock - LiveSince < 1.0f)
+	if (Text.TrimStartAndEnd().Equals(Plan.GreetingLine.TrimStartAndEnd()) || Text.TrimStartAndEnd().Equals(SpokenLine.TrimStartAndEnd()))
 	{
 		return;
 	}
@@ -1078,8 +1078,8 @@ void UCompanionStageDirector::FinishOpening()
 		}
 		else
 		{
-			Speak(CICompanionEnv::Get(TEXT("MHLLM_OPENING_LINE"), TEXT("Welcome to Companion Intelligence, I'm Eliza. How can I help you?")),
-				TEXT("Opening line"));
+			SpokenLine = CICompanionEnv::Get(TEXT("MHLLM_OPENING_LINE"), TEXT("Welcome to Companion Intelligence, I'm Eliza. How can I help you?"));
+			Speak(SpokenLine, TEXT("Opening line"));
 		}
 	}
 	SetResidentYawOffset(0.0f);
