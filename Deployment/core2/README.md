@@ -99,12 +99,23 @@ lands — that reach the viewport and steal the caret.
 
 ## Service tunnels
 
-core-2 runs the app but none of the models. Cognition and voice both live on beta-1
-(`100.124.211.75`), and every one of those ports is bound to **beta-1's loopback** — Ollama by a
-running process that predates its own `OLLAMA_HOST=0.0.0.0`, Lemonade and kokoro-align by
-container port mappings published to `127.0.0.1`. None of them is reachable across Tailscale as
-published, so each is forwarded by a `--user` systemd unit here. Copy to
-`~/.config/systemd/user/` and `systemctl --user enable --now <unit>`.
+core-2 runs the app but none of the models. Cognition and voice both live on beta-1, and every
+one of those ports is bound to **beta-1's loopback** — Ollama by a running process that predates
+its own `OLLAMA_HOST=0.0.0.0`, Lemonade and kokoro-align by container port mappings published to
+`127.0.0.1`. None of them is reachable across Tailscale as published, so each is forwarded by a
+`--user` systemd unit here.
+
+The units do not name beta-1's address: this repository is public, and the address is deployment
+configuration. Each unit reads `BETA1_HOST` from `~/.config/ci-metahuman/tunnels.env` and refuses to
+start without that file. To install:
+
+1. Write beta-1's tailnet address or MagicDNS name, as `tailscale status` on core-2 lists it, to
+   `~/.config/ci-metahuman/tunnels.env` as one line: `BETA1_HOST=<address or name>`.
+2. Copy the units to `~/.config/systemd/user/`, then run `systemctl --user daemon-reload` and
+   `systemctl --user enable --now <unit>`.
+
+Units copied before this change name the address inline and keep working as they are. Write the
+file before replacing them with these.
 
 | unit | core-2 port | beta-1 service | used by |
 |---|---|---|---|

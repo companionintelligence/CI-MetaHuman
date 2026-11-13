@@ -99,7 +99,9 @@ here.
 Every model port on beta-1 is bound to **beta-1's loopback** — Ollama by a running process that
 predates its own `OLLAMA_HOST=0.0.0.0`, Lemonade and the aligner by container port maps published
 to `127.0.0.1`. None is reachable across Tailscale as published, so each is forwarded by its own
-`--user` systemd unit on core-2.
+`--user` systemd unit on core-2. The units read beta-1's address from `BETA1_HOST` in
+`~/.config/ci-metahuman/tunnels.env` on core-2 rather than naming it
+([`Deployment/core2/README.md`](../Deployment/core2/README.md) § *Service tunnels*).
 
 | Unit (`Deployment/core2/`) | core-2 port | beta-1 service | Consumed by |
 |---|---|---|---|

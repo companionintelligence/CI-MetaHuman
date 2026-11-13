@@ -47,9 +47,10 @@ addition to the Epic runtime base: without them, Vulkan reports
 `vulkaninfo` reports the RTX 4080 and the app has remained up with Pixel Streaming joined, all 42
 face curves bound, and its scripted opening generated and spoken by Qwen and Kokoro.
 
-The browser URL remains `https://core-2.capybara-ulmer.ts.net:10000/`; core-2's Tailscale Serve
-and CI Portal proxy serve the player, while the renderer on Razer reaches core-2's signalling,
-model, and voice services through SSH tunnels. WebRTC media relays through coturn on core-2. The
+The browser URL is unchanged: core-2's Tailscale Serve origin on port 10000 (*Access over
+Tailscale* below). core-2's Tailscale Serve and CI Portal proxy serve the player, while the renderer
+on Razer reaches core-2's signalling, model, and voice services through SSH tunnels. WebRTC media
+relays through coturn on core-2. The
 opening and TTS were verified from the app log. A browser sign-in page is reachable, but passkey
 completion still requires the viewer's authenticator. The beta-1 Kokoro aligner is currently
 unavailable, so the app uses its audio-length-rescaled lip-sync estimate until that optional
@@ -82,11 +83,13 @@ vainfo --display drm --device /dev/dri/renderD128 | grep H264   # host-side enco
 
 ## Access over Tailscale
 
-core-2 is `100.101.156.33` on the tailnet. Tailscale Serve already publishes the Hub on HTTPS
+core-2's tailnet address and MagicDNS name are what `tailscale status` on the box says; this public
+repository does not record them. Tailscale Serve already publishes the Hub on HTTPS
 port 443, so MetaHuman uses HTTPS port 10000 and forwards to the loopback listener at
 `127.0.0.1:8095`. From a tailnet client, browse to
-`https://core-2.capybara-ulmer.ts.net:10000/`. CI Portal returns to
-`https://core-2.capybara-ulmer.ts.net:10000/oauth2/callback`. Signalling ports `:8090`, `:8888`,
+`https://<core-2's MagicDNS name>:10000/`. CI Portal returns to
+`https://<core-2's MagicDNS name>:10000/oauth2/callback`, which must equal `CI_PORTAL_REDIRECT_URL`
+in `.env` (`.env.example` holds an `.invalid` placeholder). Signalling ports `:8090`, `:8888`,
 and `:8889` bind to loopback only. The OIDC proxy uses CI Portal's explicit endpoints under
 `/api/auth` because discovery is hosted at `/api/auth/.well-known/openid-configuration` while the
 issuer remains the origin root.
@@ -136,7 +139,7 @@ bring up everything except `project`:
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.amd.yml up -d turnserver signalling oidc-proxy
 # Start Tailscale Serve: tailscale serve --https=10000 --bg http://127.0.0.1:8095
-# browse https://core-2.capybara-ulmer.ts.net:10000/ -> CI Portal login gates the player page
+# browse https://<core-2's MagicDNS name>:10000/ -> CI Portal login gates the player page
 ```
 
 Image auth note: `coturn` and `oauth2-proxy` images are public. The **signalling server builds

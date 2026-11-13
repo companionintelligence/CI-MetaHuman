@@ -180,7 +180,8 @@ Probing on beta-1 returned 405 (route exists, needs POST) on `/api/v1/chat/compl
 beta-1's `ollama.service` *declares* `OLLAMA_HOST=0.0.0.0:11434`, but the running process predates
 that edit and is still bound to `127.0.0.1`; Lemonade publishes to `127.0.0.1` by container port
 mapping. If Ollama is ever restarted with its own declared setting applied, delete the tunnel and
-point `OLLAMA_BASE_URL` at `http://100.124.211.75:11434` directly.
+point `OLLAMA_BASE_URL` at beta-1's tailnet address on `:11434` directly (`tailscale status` lists
+it; set it in `.env`, since this public repository does not record addresses).
 
 ## Why not the alternatives
 

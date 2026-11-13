@@ -148,8 +148,11 @@ follow [`core-2-runbook.md`](core-2-runbook.md) — it has the measured GPU/VAAP
 box prep, and a control-plane-only smoke test you can run before the cook finishes.
 
 On core-2, Tailscale Serve publishes the loopback proxy over HTTPS at
-`https://core-2.capybara-ulmer.ts.net:10000/`. The redirect URI registered with CI Portal is
-`https://core-2.capybara-ulmer.ts.net:10000/oauth2/callback`. The browser is sent to
+`https://<core-2's MagicDNS name>:10000/`. The name ends in `.ts.net`; `tailscale status` on core-2
+shows it, and it is not recorded in this public repository. The redirect URI registered with CI
+Portal is that origin plus `/oauth2/callback`, and `CI_PORTAL_REDIRECT_URL` in `.env` must match it
+exactly (`.env.example` carries the placeholder
+`https://stream-host.example.invalid:10000/oauth2/callback`). The browser is sent to
 `https://hub.ci.computer` to sign in; after login the Pixel Streaming player loads and connects
 to the running agent. Port `:8095` itself is loopback-only, and the stream's signalling HTTP port
 must not be opened around the proxy.

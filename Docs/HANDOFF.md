@@ -157,7 +157,8 @@ Local checkouts: UE project at `C:\Users\hegem\OneDrive\Documents\Unreal Project
 
 ## 4. Infrastructure & the build/deploy loop
 
-**core-2**: AMD Ryzen AI Max+ 395 / Radeon 8060S, Ubuntu 26.04, Tailscale `100.101.156.33`.
+**core-2**: AMD Ryzen AI Max+ 395 / Radeon 8060S, Ubuntu 26.04, on the tailnet (its address is in
+`tailscale status`; this public repository does not record it).
 SSH `ci@core-2` (docker group) or `root@core-2` (for sysctl). This box also runs the CI ecosystem
 (ci-memory/ci-hermes/ci-openclaw/ci-import-tools) — **don't disturb those containers.**
 

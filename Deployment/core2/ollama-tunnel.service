@@ -6,7 +6,7 @@
 # 127.0.0.1, so nothing off-box can reach it. Applying the operator's own setting needs a service
 # restart with sudo, and beta-1 serves other work, so this takes the non-invasive route instead.
 # If that service is ever restarted, this tunnel can be dropped and OLLAMA_BASE_URL pointed
-# directly at http://100.124.211.75:11434.
+# directly at beta-1's tailnet address on :11434 (`tailscale status` on core-2 lists it).
 #
 # Auth is Tailscale SSH (no key material). Runs as a --user unit with lingering enabled, so it
 # needs no root and survives logout and reboot.
@@ -30,6 +30,13 @@ StartLimitIntervalSec=0
 # than a refusal. ConnectTimeout bounds the other end of the same problem: on ssh's default a
 # connect to a beta-1 that is unreachable rather than refusing sits in the kernel's TCP retry
 # schedule, the unit "running" throughout and the port not forwarded.
+#
+# WHERE beta-1 IS comes from the host, not from this file: its tailnet address is deployment
+# configuration, and this repository is public. Put BETA1_HOST=<beta-1's tailnet address or MagicDNS
+# name> (`tailscale status` on core-2 lists both) in ~/.config/ci-metahuman/tunnels.env, which all
+# three tunnel units read. No "-" before the path, on purpose: without the file the unit fails to
+# start and says why, instead of dialling a host nobody chose.
+EnvironmentFile=%h/.config/ci-metahuman/tunnels.env
 ExecStart=/usr/bin/ssh -N \
   -o ExitOnForwardFailure=yes \
   -o ConnectTimeout=10 \
@@ -37,7 +44,7 @@ ExecStart=/usr/bin/ssh -N \
   -o ServerAliveCountMax=3 \
   -o StrictHostKeyChecking=accept-new \
   -L 127.0.0.1:11435:127.0.0.1:11434 \
-  ci@100.124.211.75
+  ci@${BETA1_HOST}
 Restart=always
 RestartSec=5
 # Widen the gap between retries from RestartSec toward RestartMaxDelaySec over RestartSteps, so a
