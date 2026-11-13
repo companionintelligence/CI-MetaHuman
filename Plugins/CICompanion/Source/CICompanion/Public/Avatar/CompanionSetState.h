@@ -27,7 +27,7 @@ namespace CompanionSet
 	constexpr float InquiryLitGain = 100.0f;
 	CICOMPANION_API float InquiryLampScale(ECompanionPresence Presence);
 
-	// 729 #1's reels (tag StageReact.Tape), in degrees a second, Seconds into the state:
+	// The reacting tape unit's reels (tag StageReact.Tape), in degrees a second, Seconds into the state:
 	// thinking runs the tape-search pattern (0.8 s forward, 0.3 s stop, 0.4 s back, 0.1 s stop, every
 	// 1.6 s); speaking reads steadily at 0.5 rev/s; listening holds still; idle creeps at a quarter
 	// of the reel's own rate.
@@ -44,7 +44,7 @@ namespace CompanionSet
 //   InquiryLamp          the lamp's "Emissive" material parameter (a dynamic instance of its material)
 //   WallClock            the dial; its hands are WallClock.Hour and WallClock.Minute (Movable),
 //                        turned about the dial's centre to host time
-// 729 #1's reels (StageReact.Tape) are turned by UTapeReelSpinner, which reads the same presence.
+// The reacting tape unit's reels (StageReact.Tape) are turned by UTapeReelSpinner, which reads the same presence.
 UCLASS()
 class CICOMPANION_API UCompanionSetStateDisplay : public UTickableWorldSubsystem
 {

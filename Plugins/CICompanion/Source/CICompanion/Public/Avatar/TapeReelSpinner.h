@@ -56,7 +56,7 @@ private:
 		float DegreesPerSecond = 0.0f;
 		FQuat BaseQuat = FQuat::Identity;
 		double AngleDegrees = 0.0;
-		// Tagged StageReact.Tape (729 #1): it answers her presence (CompanionSet::TapeDegreesPerSecond).
+		// Tagged StageReact.Tape (the reacting tape unit): it answers her presence (CompanionSet::TapeDegreesPerSecond).
 		bool bReactive = false;
 	};
 	TArray<FReel> Reels;

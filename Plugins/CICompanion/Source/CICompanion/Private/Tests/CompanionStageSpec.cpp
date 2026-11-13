@@ -23,7 +23,8 @@ namespace
 		};
 	}
 
-	// Her home mark in the stage design: (650, -132), facing the lens down -X, eyes at 0.93 x stature.
+	// A subject on the 1963 room's home mark, (650, -132), facing the lens down -X, eyes at 0.93 x stature. The plan is
+	// solved relative to her mark and facing, so the 1979 room's mark (650, -500, facing 170) gives the same move.
 	FCompanionStageSubject StageSpecSubject(float StatureCm)
 	{
 		FCompanionStageSubject Subject;
@@ -437,13 +438,16 @@ void FCompanionStageSpec::Define()
 				TestTrue("settles before the line", Plan.SettleAt <= Plan.SpeakAt);
 				TestTrue("the line never comes before the landing", Plan.SpeakAt >= Plan.MoveSeconds);
 				TestTrue("the line within 7 s of the cut", Plan.SpeakAt <= 7.0f);
+				// The layout picks the side she works toward (WorkTurnDegrees: + to her right, - to her left; the 1979
+				// room's printout lies on her left), so the turn is checked by its size and its direction of travel.
 				float Prev = CompanionStage::ResidentYawOffsetAt(Plan, 0.0f);
-				TestEqual("at work: turned 30 degrees away", Prev, 30.0f, 0.01f);
+				TestEqual("at work: turned 30 degrees away", FMath::Abs(Prev), 30.0f, 0.01f);
+				const float Side = Prev < 0.0f ? -1.0f : 1.0f;
 				bool bOneWay = true;
 				for (float T = 0.0f; T <= Plan.MoveSeconds; T += 1.0f / 60.0f)
 				{
 					const float Offset = CompanionStage::ResidentYawOffsetAt(Plan, T);
-					bOneWay &= Offset <= Prev + 1e-4f && FMath::Abs(Offset) <= 30.0f;
+					bOneWay &= Side * Offset <= Side * Prev + 1e-4f && Side * Offset >= -1e-4f && FMath::Abs(Offset) <= 30.0f;
 					Prev = Offset;
 				}
 				TestTrue("turns one way, never more than 30 degrees", bOneWay);
@@ -685,7 +689,7 @@ void FCompanionStageSpec::Define()
 			}
 		});
 
-		It("runs 729 #1 by her state: search while thinking, read while speaking", [this]()
+		It("runs the reacting tape unit by her state: search while thinking, read while speaking", [this]()
 		{
 			const ECompanionPresence T = ECompanionPresence::Thinking;
 			TestTrue("forward first", CompanionSet::TapeDegreesPerSecond(T, 0.4f, 150.0f) > 0.0f);

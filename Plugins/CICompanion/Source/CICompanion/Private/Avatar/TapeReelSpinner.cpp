@@ -67,8 +67,9 @@ void UTapeReelSpinner::Tick(float DeltaTime)
 	Super::Tick(DeltaTime);
 
 	RunSeconds += DeltaTime;
-	// 729 #1 answers the conversation (design 10.7): it searches while she thinks and reads while
-	// she speaks. Every other reel keeps its own job.
+	// The tape unit tagged StageReact.Tape answers the conversation (design 10.7; in the 1979 room the
+	// 3420 behind her left shoulder in HOME): it searches while she thinks and reads while she speaks.
+	// Every other reel keeps its own job.
 	ECompanionPresence Presence = ECompanionPresence::Idle;
 	if (const UWorld* World = GetWorld())
 	{
