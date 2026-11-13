@@ -4,7 +4,7 @@
     "concept": "FINAL: cinematic hero set + judged grafts (documentary, conversation)",
     "units": "Unreal cm / degrees, Z up, X from the street glass (x = 0) toward the vermilion feature wall (x = 1150), Y right; yaw turns +X toward +Y",
     "date": "1963: 'LONGVIEW LAB, Bay 7, est. 1959, as it stood in 1963' (one IBM 1401 system)",
-    "props_convention": "x,y,z = GLB scene origin (actor location); glTF front faces actor-local +Y; glb names resolve in C:/devel/ci/_scratch/metahuman-glb-licensed",
+    "props_convention": "x,y,z = GLB scene origin (actor location); glTF front faces actor-local +Y; glb names resolve in $MHLLM_GLB_DIR (the licence-clean prop set)",
     "resident_stature_cm": 170.0,
     "resident_eye_z": 158.1,
     "eyeAnchor": [
@@ -292,7 +292,7 @@
       }
     ],
     "licensing": {
-      "glbDir": "C:/devel/ci/_scratch/metahuman-glb-licensed",
+      "glbDir": "$MHLLM_GLB_DIR",
       "placed": [
         {
           "glb": "ibm-1401-cpu.glb",

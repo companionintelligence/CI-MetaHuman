@@ -1,9 +1,9 @@
 # Stage design: LONGVIEW Lab, Bay 7 (1963)
 
 The stage the resident lives on, as designed and as built. The full design record, with the critique
-it answers, the judged concepts it grafts from and the previz evidence, is
-`C:\devel\ci\_scratch\stage-redesign\final\design.md`; this page is its working summary for whoever
-changes the set or the camera. Renders are referenced by their scratch path and are not committed.
+it answers, the judged concepts it grafts from and the previz evidence, was kept outside this
+repository; this page is the maintained summary for whoever changes the set or the camera. Renders are
+not committed: regenerate them with `Deployment/blender/previz_diorama.py` (`--out <folder>`).
 
 **Status.** The set, the shots and the opening's beats are implemented and data-driven (section 2),
 and the map has been authored and captured in Unreal (section 11): the luminous ceiling reads at or
@@ -51,7 +51,7 @@ toward +Y.
 
 ## 3. The room
 
-Plan: `C:\devel\ci\_scratch\stage-redesign\final\renders\top.png`.
+Plan: `top.png`, written by the previz.
 
 | Item | Position and size |
 |---|---|
@@ -116,10 +116,8 @@ key and click, local or streamed, before any widget does):
 `MHLLM_OPENING_SHOT=0` is the reduced-motion path: the lobby still, then one flagged cut to HOME at
 the end of the hold (no move, no breathing), the greeting 0.8 s and the line 2.0 s after the cut.
 `MHLLM_OPENING_REPLAY=N` is a kiosk reset only: it replays after N s without input, and never while
-a stream viewer is connected. Contact sheet of the move:
-`C:\devel\ci\_scratch\stage-redesign\final\renders\sheet_ARRIVAL.png`; first frame:
-`...\renders\opening.png`; the old opening at its true lens, for comparison:
-`...\renders\sheet_CURRENT_OPENING.jpg`.
+a stream viewer is connected. The previz writes a contact sheet of the
+move (`sheet_ARRIVAL.png`) and its first frame (`opening.png`).
 
 ## 5. Shots
 
@@ -240,7 +238,7 @@ The units, as the engine reads them:
 
 ## 9. Set dressing and licensing
 
-Placed GLBs, all from the licence-clean set (`C:\devel\ci\_scratch\metahuman-glb-licensed`): the
+Placed GLBs, all from the licence-clean prop set that `MHLLM_GLB_DIR` points at: the
 CI-authored `ibm-1401-cpu.glb` (recoloured by material), and two CC BY 4.0 models by
 museudocomputador already credited in CREDITS.md, `ibm-ramac-305.glb` (the 1405 stand-in) and
 `plugboard.glb`. The RAMAC's loose platter is removed before import: `author_diorama.py` applies the
@@ -285,7 +283,7 @@ The cleared path is a MetaHuman authored in-house in MetaHuman Creator.
 Verified in previz (EEVEE, true lenses, stand-ins at 150, 170 and 193 cm): 0 overlaps, 0 lane
 intrusions, 0 solids behind her head, 0 clearance shortfalls, every moving shot within every comfort
 budget, HOME composition and the doorway at every stature, 0 emissive and 0 edges beside her head.
-Report: `C:\devel\ci\_scratch\stage-redesign\final\renders\report.txt`.
+The previz writes these results to `report.txt` in its output folder.
 
 In this repository: `author_diorama.py` builds the layout's 879 blockouts, 44 lights, 3 props, 12
 TapeReel actors, 36 attachments and 8 TargetPoints with every count checked against the layout, and
@@ -301,7 +299,7 @@ Not verified: the session trigger, the input routing and the CLOSE punch-in on a
 are unit-tested, not watched), the cost of depth of field and reflections on the stream host, VP8
 artefacts, the portrait switch at runtime, and the real 729, 1402, 1403, 1406 and 1407 meshes. **Before sign-off, capture a
 60 fps loop of ARRIVAL and HOME from the real stream, watch it full screen, and check VITRINE and HOME
-against `C:\devel\ci\_scratch\stage-redesign\final\renders\vantages.png`.**
+against the previz's VITRINE and HOME frames.**
 
 Open owner decisions: the wall-share gate (section 7); the crane (+54 cm, default off); when to enable
 the cutaways and FRIEZE; the GDD amendments in the design record (section 13 there); rendering the
