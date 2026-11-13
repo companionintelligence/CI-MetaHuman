@@ -194,6 +194,13 @@ Those remain under the Epic Games End User License Agreement and the applicable 
 MetaHuman and Fab terms, and you must obtain and comply with them yourself. Nothing here grants
 any right in Epic's or any third party's materials.
 
+The product's credits (`CREDITS.md`, which every package stages, and the stream's
+`Deployment/pixelstreaming/credits.html`) carry the two notices that section 7(a) of the Unreal
+Engine EULA requires in the credits of a product built with the engine: that the product uses
+Unreal® Engine, with Epic's trademark statement, and Epic's copyright line from 1998 to the current
+year. CI checks both files for them word for word. The EULA grants no right in Epic's trademarks
+beyond those notices.
+
 This repository no longer carries MetaHuman or outfit source assets. `Content/MetaHumans/DefaultCompanion`,
 `Content/TestMetaHumanCharacter` and the KhaosMDF492 outfit (`Content/KhaosMDF492/`,
 `Content/OA_KhaosMDF492`, `Content/WI_KhaosMDF492`) were removed from the tree in November 2026.

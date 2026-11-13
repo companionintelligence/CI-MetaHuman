@@ -136,6 +136,20 @@ Neither one's content is in this repository, and a default build neither stages 
 became the default. [NOTICE.md](NOTICE.md) sets out why neither licence clears this use and what
 would: a MetaHuman created in-house, or written terms from the seller.
 
+## Unreal Engine
+
+The app is built with Epic Games' Unreal Engine. Section 7(a) of the
+[Unreal Engine EULA](https://www.unrealengine.com/eula/unreal) requires a product that has credits to
+place these two notices in them, with the current year:
+
+CI Metahuman uses Unreal® Engine. Unreal® is a trademark or registered trademark of Epic Games, Inc. in the United States of America and elsewhere.
+
+Unreal® Engine, Copyright 1998 – 2026, Epic Games, Inc. All rights reserved.
+
+The stream's credits page carries the same two lines, and CI fails unless both carry them word for
+word. Change the year each January. "CI Metahuman" is the product's name as this repository's README
+gives it; if the product is renamed, change the name in both places.
+
 ## Software and fonts
 
 The Unreal editor tooling in `Plugins/VibeUE` and `Plugins/VibeMetaHumans` is by Kevin Buckley /

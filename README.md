@@ -295,7 +295,11 @@ The credits travel with the build: every package, native or container, carries `
 `Source/MetaHumanLocalLLM/MetaHumanLocalLLM.Build.cs`, and the build scripts refuse a package
 without them. The stream page has a "Credits" link to `credits.html`, a page the signalling image
 serves with the eight attributions (`Deployment/pixelstreaming/credits.html`). CI fails if that page,
-CREDITS.md and NOTICE.md stop naming the same models.
+CREDITS.md and NOTICE.md stop naming the same models. Because the product has credits, the
+[Unreal Engine EULA](https://www.unrealengine.com/eula/unreal) §7(a) requires two Epic notices in
+them ("[Product name] uses Unreal® Engine. ..." and "Unreal® Engine, Copyright 1998 – xxxx, Epic
+Games, Inc. All rights reserved.", with the current year). That page and `CREDITS.md` carry both,
+word for word, and CI fails if either loses them.
 
 
 <!-- companion-hub-readme-deep-review -->

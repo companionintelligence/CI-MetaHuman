@@ -117,7 +117,10 @@ jobs:
 
       # The stream's credits page is what a viewer can reach; CREDITS.md and NOTICE.md are the
       # licensing record behind it. All three must name the same CC BY 4.0 Sketchfab models, so a
-      # model added to or dropped from the set cannot leave the page behind.
+      # model added to or dropped from the set cannot leave the page behind. The page and CREDITS.md
+      # (which every package stages) are the product's credits, so both must also carry, word for
+      # word, the two notices section 7(a) of the Unreal Engine EULA requires in the credits of a
+      # product built with the engine, with the same year; a year behind the calendar is a warning.
       - name: Credits page matches the licensing record
         run: |
           set -euo pipefail
@@ -136,7 +139,21 @@ jobs:
           done
           grep -q 'href="https://creativecommons.org/licenses/by/4.0/"' Deployment/pixelstreaming/credits.html \
             || { echo "::error file=Deployment/pixelstreaming/credits.html::no link to the CC BY 4.0 licence"; status=1; }
-          [ "$status" -eq 0 ] && echo "CREDITS.md, NOTICE.md and credits.html name the same $(wc -l < "$work/CREDITS.md.txt") CC BY models"
+          ue_mark='CI Metahuman uses Unreal® Engine. Unreal® is a trademark or registered trademark of Epic Games, Inc. in the United States of America and elsewhere.'
+          ue_copy='Unreal® Engine, Copyright 1998 – [0-9]{4}, Epic Games, Inc\. All rights reserved\.'
+          for f in CREDITS.md Deployment/pixelstreaming/credits.html; do
+            grep -qF "$ue_mark" "$f" \
+              || { echo "::error file=$f::no Unreal Engine EULA 7(a) trademark notice, expected on one line: $ue_mark"; status=1; }
+            grep -qE "$ue_copy" "$f" \
+              || { echo "::error file=$f::no Unreal Engine EULA 7(a) copyright notice ('Unreal® Engine, Copyright 1998 – <year>, ...') on one line"; status=1; }
+          done
+          years="$({ grep -ohE 'Unreal® Engine, Copyright 1998 – [0-9]{4},' CREDITS.md Deployment/pixelstreaming/credits.html || true; } | grep -oE '[0-9]{4}' | grep -v '^1998$' | sort -u || true)"
+          if [ "$(printf '%s\n' "$years" | grep -c .)" -gt 1 ]; then
+            echo "::error::the Unreal Engine copyright notices give different years: ${years//$'\n'/ }"; status=1
+          elif [ -n "$years" ] && [ "$years" -lt "$(date -u +%Y)" ]; then
+            echo "::warning::the Unreal Engine copyright notice ends in $years; EULA 7(a) asks for the current year"
+          fi
+          [ "$status" -eq 0 ] && echo "CREDITS.md, NOTICE.md and credits.html name the same $(wc -l < "$work/CREDITS.md.txt") CC BY models; CREDITS.md and credits.html carry the Unreal Engine notices ($years)"
           exit "$status"
 
   kokoro-align:
