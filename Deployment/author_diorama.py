@@ -165,6 +165,28 @@ try:
     w("layout: %s (%d props, %d blockouts, %d lights, %d sounds, %d shots)" % (
         STAGE_LAYOUT.replace("\\", "/"), len(PROPS), len(BLOCKOUTS), len(LIGHTS), len(SOUNDS), len(SHOTS)))
 
+    # ONE FILE DRIVES BOTH. The same layout's shots and beats reach the C++ stage director through
+    # Config/DefaultGame.ini ([/Script/CICompanion.CompanionStageSettings]); stage_layout.py, beside
+    # this script, writes that section. It is written only into a project that has the CICompanion
+    # plugin (the native build authors the real project). The container authors a content-only
+    # project, so there the cook reads the COMMITTED section, which `stage_layout.py --check` (run by
+    # core2/stage.sh) proves is current.
+    try:
+        import sys as _sys
+        _here = os.path.dirname(os.path.abspath(__file__))
+        if _here not in _sys.path:
+            _sys.path.insert(0, _here)
+        import stage_layout as _stage_ini
+        _proj = str(unreal.Paths.project_dir()).replace("\\", "/").rstrip("/")
+        _ini = os.path.join(_proj, "Config", "DefaultGame.ini")
+        if os.path.isdir(os.path.join(_proj, "Plugins", "CICompanion")) and os.path.isfile(_ini):
+            changed = _stage_ini.write_ini(_ini, STAGE_LAYOUT, LAYOUT)
+            w("stage ini: %s %s from the layout" % (_ini.replace("\\", "/"), "rewritten" if changed else "already current"))
+        else:
+            w("stage ini: skipped (%s has no CICompanion plugin; the cook uses the committed Config/DefaultGame.ini)" % _proj)
+    except ImportError:
+        w("stage ini: skipped (stage_layout.py is not beside this script)")
+
     # Per-group tallies for the summary lines (meta.groupLog) and the self-checks at the end.
     GROUP_TOTAL, GROUP_PLACED, GROUP_REELS = {}, {}, {}
     def tally(group, ok, reels=0):

@@ -26,7 +26,10 @@ public class CICompanion : ModuleRules
 		{
 			"AudioCapture",
 			"AudioCaptureCore",
-			"AudioMixer"
+			"AudioMixer",
+			// UCompanionStageDirector films with an ACineCameraActor: a focal length on a filmback
+			// per shot, composed with sensor shift. An engine runtime module in 5.5 through 5.8.
+			"CinematicCamera"
 		});
 
 		// ---------------------------------------------------------------------------------------

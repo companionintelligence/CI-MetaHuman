@@ -4,17 +4,24 @@
 
 #include "Avatar/CompanionFaceSubsystem.h"
 #include "Avatar/CompanionRuntimeSubsystem.h"
+#include "Settings/CompanionStageSettings.h"
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
+#include "Camera/PlayerCameraManager.h"
+#include "CineCameraActor.h"
+#include "CineCameraComponent.h"
+#include "Components/LightComponent.h"
 #include "Components/SkeletalMeshComponent.h"
-#include "Engine/SkeletalMesh.h"
+#include "Engine/Engine.h"
+#include "Engine/GameViewportClient.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "TimerManager.h"
 
-
+const FName UCompanionStageDirector::StageMarkTag(TEXT("StageMark.Home"));
+const FName UCompanionStageDirector::ExteriorLightTag(TEXT("ExteriorLight"));
 
 namespace
 {
@@ -29,13 +36,67 @@ namespace
 			|| V.Equals(TEXT("on"), ESearchCase::IgnoreCase);
 	}
 
-	// Smoothstep eases the camera at the overall move endpoints and turns the resident gently.
-	// Named uniquely because Unreal's unity build merges anonymous namespaces across the .cpp
-	// files it concatenates, so a bare "Ease" here can collide with one in a neighbouring file.
-	float StageEase(float T)
+	// The camera clock never advances more than this per frame: after a hitch the move continues
+	// from where it was instead of jumping ahead (design 10.4).
+	constexpr float StageMaxCameraStep = 1.0f / 30.0f;
+
+	// Her eye height in world Z, measured rather than assumed (a guessed eyeline once cropped her
+	// head off). Eye bones first (MetaHuman FACIAL_*, Character Creator CC_Base_*, generic eye_*),
+	// then the head bone plus 9 cm (the mannequin has no eye bones), then 93 % of the height of the
+	// whole resident including the actors ATTACHED to it: the MetaHuman resident is three skeletal
+	// meshes, and the face mesh's own bounds are a head-sized box. (GetActorBounds'
+	// bIncludeFromChildActors does not cover attached actors.) A bone outside a human's range means
+	// the pose was not evaluated yet, so it falls through to the bounds.
+	float StageMeasureEyeZ(AActor* Resident, FString& OutHow)
 	{
-		T = FMath::Clamp(T, 0.0f, 1.0f);
-		return T * T * (3.0f - 2.0f * T);
+		const float Floor = Resident->GetActorLocation().Z;
+		auto Plausible = [Floor](float Z) { return Z > Floor + 80.0f && Z < Floor + 230.0f; };
+		if (USkeletalMeshComponent* Mesh = Resident->FindComponentByClass<USkeletalMeshComponent>())
+		{
+			static const FName EyePairs[][2] = {
+				{ FName(TEXT("FACIAL_L_Eye")), FName(TEXT("FACIAL_R_Eye")) },
+				{ FName(TEXT("CC_Base_L_Eye")), FName(TEXT("CC_Base_R_Eye")) },
+				{ FName(TEXT("eye_l")), FName(TEXT("eye_r")) } };
+			for (const auto& Pair : EyePairs)
+			{
+				if (Mesh->DoesSocketExist(Pair[0]) && Mesh->DoesSocketExist(Pair[1]))
+				{
+					const float Z = 0.5f * (Mesh->GetSocketLocation(Pair[0]).Z + Mesh->GetSocketLocation(Pair[1]).Z);
+					if (Plausible(Z))
+					{
+						OutHow = Pair[0].ToString() + TEXT(" bones");
+						return Z;
+					}
+				}
+			}
+			const FName Head(TEXT("head"));
+			if (Mesh->DoesSocketExist(Head))
+			{
+				const float Z = Mesh->GetSocketLocation(Head).Z + 9.0f;
+				if (Plausible(Z))
+				{
+					OutHow = TEXT("head bone + 9 cm");
+					return Z;
+				}
+			}
+		}
+		FBox Box = Resident->GetComponentsBoundingBox(/*bNonColliding*/ true, /*bIncludeFromChildActors*/ true);
+		TArray<AActor*> Attached;
+		Resident->GetAttachedActors(Attached, /*bResetArray*/ true, /*bRecursivelyIncludeAttachedActors*/ true);
+		for (const AActor* Part : Attached)
+		{
+			if (Part)
+			{
+				Box += Part->GetComponentsBoundingBox(/*bNonColliding*/ true, /*bIncludeFromChildActors*/ true);
+			}
+		}
+		if (Box.IsValid && Box.GetExtent().Z > KINDA_SMALL_NUMBER)
+		{
+			OutHow = TEXT("0.93 x her bounds");
+			return Box.Min.Z + Box.GetSize().Z * 0.93f;
+		}
+		OutHow = TEXT("default 158 cm");
+		return Floor + 158.1f;
 	}
 }
 
@@ -51,8 +112,8 @@ bool UCompanionStageDirector::ShouldCreateSubsystem(UObject* Outer) const
 bool UCompanionStageDirector::ShouldPlayOpeningShot(TFunctionRef<FString(const TCHAR*)> Lookup)
 {
 	const FString Value = Lookup(TEXT("MHLLM_OPENING_SHOT")).TrimStartAndEnd();
-	// A level load is the opening's natural trigger: show the room tour, then settle on the
-	// resident. Explicit false values still give editor and capture workflows a static frame.
+	// A level load is the opening's natural trigger: show the move, then settle on the resident.
+	// Explicit false values still give editor and capture workflows a static frame.
 	return Value.IsEmpty() || StageOptedIn(Value);
 }
 
@@ -73,22 +134,69 @@ bool UCompanionStageDirector::ShouldAllowFreeLook()
 	return ShouldAllowFreeLook(Env);
 }
 
+TArray<FStageCameraKey> UCompanionStageDirector::FallbackKeys(const FVector& Subject, float EyeZ, float FlySeconds)
+{
+	TArray<FVector> Positions;
+	TArray<FVector> LookAts;
+	CompanionStage::FallbackKeys(Subject, EyeZ, Positions, LookAts);
+	TArray<FStageCameraKey> Keys;
+	for (int32 i = 0; i < Positions.Num(); ++i)
+	{
+		FStageCameraKey Key;
+		Key.Position = Positions[i];
+		Key.LookAt = LookAts[i];
+		Key.Time = FlySeconds * i / FMath::Max(Positions.Num() - 1, 1);
+		Keys.Add(Key);
+	}
+	return Keys;
+}
+
+EStageBeat UCompanionStageDirector::BeatAt(const FCompanionStagePlan& InPlan, float SecondsSinceStart)
+{
+	const float MoveTime = SecondsSinceStart - InPlan.HoldSeconds;
+	if (MoveTime < InPlan.MoveSeconds)
+	{
+		return EStageBeat::Flythrough;
+	}
+	if (InPlan.bFromConfig)
+	{
+		// Her look-up and turn happen DURING the move; once it lands, the frame holds until the
+		// turn-yield line.
+		return MoveTime < InPlan.SpeakAt ? EStageBeat::Settle : EStageBeat::Live;
+	}
+	// The built-in path: she turns once the camera has landed, then a beat of stillness, then the line.
+	if (MoveTime < InPlan.TurnEnd)
+	{
+		return EStageBeat::Turn;
+	}
+	return MoveTime < InPlan.SpeakAt ? EStageBeat::Speak : EStageBeat::Live;
+}
+
 void UCompanionStageDirector::OnWorldBeginPlay(UWorld& InWorld)
 {
 	Super::OnWorldBeginPlay(InWorld);
 
 	bOpeningShot = ShouldPlayOpeningShot();
 	bFreeLook = ShouldAllowFreeLook();
+	bDepthOfField = !CICompanionEnv::IsDisabled(TEXT("MHLLM_STAGE_DOF"));
+	ShiftSign = CICompanionEnv::Get(TEXT("MHLLM_STAGE_SHIFT_SIGN"), TEXT("1")).TrimStartAndEnd() == TEXT("-1") ? -1.0f : 1.0f;
 
-	// The resident is located the same way the face driver locates it -- by tag, because actor
-	// labels are editor-only and do not survive a cook. Needed in BOTH modes now: the static shot
-	// is framed on her, so it cannot be built without knowing where she is.
+	// The resident, her mark and the street-side lights are found the way the face driver finds
+	// her -- by tag, because actor labels are editor-only and do not survive a cook.
+	AActor* Mark = nullptr;
 	for (TActorIterator<AActor> It(&InWorld); It; ++It)
 	{
-		if (It->ActorHasTag(UCompanionFaceSubsystem::ResidentTag))
+		if (!Resident && It->ActorHasTag(UCompanionFaceSubsystem::ResidentTag))
 		{
 			Resident = *It;
-			break;
+		}
+		if (!Mark && It->ActorHasTag(StageMarkTag))
+		{
+			Mark = *It;
+		}
+		if (It->ActorHasTag(ExteriorLightTag))
+		{
+			ExteriorLights.Add(*It);
 		}
 	}
 	if (!Resident)
@@ -102,52 +210,42 @@ void UCompanionStageDirector::OnWorldBeginPlay(UWorld& InWorld)
 		return;
 	}
 
+	const UCompanionStageSettings* Settings = GetDefault<UCompanionStageSettings>();
+	FCompanionStageSubject Subject;
+	Subject.Mark = Mark ? Mark->GetActorLocation() : Resident->GetActorLocation();
+	Subject.FacingYaw = Mark ? Mark->GetActorRotation().Yaw : Settings->HomeFacingYaw;
+	FString EyeHow;
+	Subject.EyeZ = StageMeasureEyeZ(Resident, EyeHow);
+
+	bool bPortrait = false;
+	if (GEngine && GEngine->GameViewport)
+	{
+		FVector2D Size;
+		GEngine->GameViewport->GetViewportSize(Size);
+		bPortrait = Size.Y > Size.X;
+	}
+	auto Env = [](const TCHAR* Name) { return FPlatformMisc::GetEnvironmentVariable(Name); };
+	Plan = CompanionStage::BuildPlan(Settings, Subject, Env, bPortrait);
 	ResidentFinalYaw = Resident->GetActorRotation().Yaw;
-	ResidentStartYaw = ResidentFinalYaw;
-	if (bOpeningShot)
-	{
-		// She begins with her back to where the camera will settle, and turns through 180 to meet
-		// it. Only in the opening shot: turning her round and then NOT playing the move would leave
-		// a static shot of the back of her head.
-		ResidentStartYaw = ResidentFinalYaw + 180.0f;
-		Resident->SetActorRotation(FRotator(0.0f, ResidentStartYaw, 0.0f));
-	}
 
-	float EyeZ = 180.0f;
+	UE_LOG(LogCompanionStage, Log,
+		TEXT("Stage plan from %s: resident %.0f cm (eyes at %.1f cm by %s), mark %s%s, facing %.0f; %s; move %.2f s over %.0f cm, "
+			"peak %.2f m/s, nearest %.2f m, time to contact >= %.2f s; greeting %.2f s, look-up %.2f s, turn %.2f-%.2f s "
+			"(%.0f deg), settle %.2f s, line %.2f s; hold %.1f s."),
+		Plan.bFromConfig ? *FString::Printf(TEXT("the stage layout (%s)"), *Settings->LayoutSource) : TEXT("the built-in path"),
+		Plan.StatureCm, Subject.EyeZ, *EyeHow, *Subject.Mark.ToCompactString(), Mark ? TEXT(" (StageMark.Home)") : TEXT(" (her position)"),
+		Subject.FacingYaw, bPortrait ? TEXT("portrait") : TEXT("landscape"), Plan.MoveSeconds, Plan.Opening.GetLength(),
+		Plan.PeakSpeedCmPerSecond / 100.0f, Plan.MinEyeDistanceCm / 100.0f, Plan.MinTimeToContactSeconds, Plan.GreetingAt,
+		Plan.LookUpAt, Plan.TurnStart, Plan.TurnEnd, Plan.WorkTurnDegrees, Plan.SettleAt, Plan.SpeakAt, Plan.HoldSeconds);
+	for (const FString& Note : Plan.Notes)
 	{
-		// Measure rather than assume: a different character changes the framing, and a hard-coded
-		// eyeline is what cropped her head off the first time portrait was tried.
-		//
-		// Measured over the WHOLE resident, including the actors ATTACHED to it. The MetaHuman
-		// resident is three skeletal meshes -- the tagged Face, with Body and Outfit attached to it --
-		// and the face mesh's own bounds are a head-sized box, which would have put the eyeline near
-		// the floor. (GetActorBounds' bIncludeFromChildActors does not cover this: it means actors
-		// spawned by a ChildActorComponent, not actors attached with AttachToActor.)
-		//
-		// For a single-mesh resident such as Nia the union is that one mesh's bounds, i.e. exactly
-		// the box this used to read from the skeletal mesh component, so her framing is unchanged.
-		FBox Box = Resident->GetComponentsBoundingBox(/*bNonColliding*/ true, /*bIncludeFromChildActors*/ true);
-		TArray<AActor*> Attached;
-		Resident->GetAttachedActors(Attached, /*bResetArray*/ true, /*bRecursivelyIncludeAttachedActors*/ true);
-		for (const AActor* Part : Attached)
-		{
-			if (Part)
-			{
-				Box += Part->GetComponentsBoundingBox(/*bNonColliding*/ true, /*bIncludeFromChildActors*/ true);
-			}
-		}
-		if (Box.IsValid && Box.GetExtent().Z > KINDA_SMALL_NUMBER)
-		{
-			EyeZ = Box.GetExtent().Z * 2.0f * 0.93f;
-		}
+		UE_LOG(LogCompanionStage, Log, TEXT("Stage plan: %s"), *Note);
 	}
-
-	BuildPath(Resident->GetActorLocation(), EyeZ);
 
 	FActorSpawnParameters Params;
 	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-	const FVector SpawnAt = bOpeningShot ? Path[0].Position : Path.Last().Position;
-	Camera = InWorld.SpawnActor<ACameraActor>(ACameraActor::StaticClass(), SpawnAt, FRotator::ZeroRotator, Params);
+	// A CineCamera: a focal length on a filmback per shot, level, composed with sensor shift.
+	Camera = InWorld.SpawnActor<ACineCameraActor>(ACineCameraActor::StaticClass(), Plan.Lobby.Location, FRotator::ZeroRotator, Params);
 	if (!Camera)
 	{
 		UE_LOG(LogCompanionStage, Error, TEXT("Failed to spawn stage camera; falling back to the map's view."));
@@ -157,49 +255,43 @@ void UCompanionStageDirector::OnWorldBeginPlay(UWorld& InWorld)
 	}
 	if (UCameraComponent* Cam = Camera->GetCameraComponent())
 	{
-		Cam->SetFieldOfView(48.0f);
-		// Portrait needs BOTH the resolution and this: a CameraComponent constrains its aspect
-		// ratio by default, which letterboxes a 16:9 image inside the 9:16 canvas.
+		// Portrait needs BOTH the resolution and this: a camera constrains its aspect ratio by
+		// default, which letterboxes a 16:9 image inside the 9:16 canvas.
 		Cam->SetConstraintAspectRatio(false);
 	}
 
-	StartDelay  = FCString::Atof(*CICompanionEnv::Get(TEXT("MHLLM_OPENING_DELAY"), TEXT("3.0")));
+	ReplayEvery = FCString::Atof(*CICompanionEnv::Get(TEXT("MHLLM_OPENING_REPLAY"), TEXT("0")));
 
 	if (!bOpeningShot)
 	{
-		// DEFAULT PATH. The camera is planted on the solved call framing and never touched again.
+		// STATIC (MHLLM_OPENING_SHOT=0, the reduced-motion path). The camera is on the home framing
+		// from the first frame and never moves; she is already home. The greeting and the line
+		// still play: the line is the thing that proves the build is alive.
 		//
-		// It still owns the view target rather than deferring to the map's auto-activating
-		// StageCamera, because that camera only exists in the authored diorama: a map without it
-		// (the synthesized fallback stage, or any test map) falls through to the DefaultPawn and
-		// the shot becomes whatever the pawn happens to be looking at.
-		ApplyFinalFraming();
-		// Zeroed so the Speak beat below is timed purely by StartDelay -- there is no move and no
-		// turn to wait out.
-		FlyDuration = 0.0f;
-		TurnDuration = 0.0f;
+		// It still owns the view target rather than deferring to the map's StageCamera, because that
+		// camera only exists in the authored diorama: a map without it falls through to the
+		// DefaultPawn and the shot becomes whatever the pawn happens to be looking at.
+		bStaticShot = true;
+		SetResidentYawOffset(0.0f);
+		ApplyFraming(Plan.Home);
+		SetExteriorLightsVisible(false);
 		ReplayEvery = 0.0f;
-		// The scripted opening line is not part of the camera move; it is the thing that proves the
-		// build is alive. It still plays, just without a flythrough in front of it.
 		Beat = EStageBeat::Speak;
 		bActive = true;
 		LockPlayerView();
-
 		UE_LOG(LogCompanionStage, Log,
-			TEXT("Static shot: camera pinned to the call framing (free-look %s; set MHLLM_OPENING_SHOT=1 to replay the tour)."),
+			TEXT("Static shot: camera pinned to the home framing (free-look %s; set MHLLM_OPENING_SHOT=1 for the opening move)."),
 			bFreeLook ? TEXT("ON") : TEXT("locked"));
 		return;
 	}
 
-	FlyDuration = FCString::Atof(*CICompanionEnv::Get(TEXT("MHLLM_FLY_SECONDS"), TEXT("11.0")));
-	ReplayEvery = FCString::Atof(*CICompanionEnv::Get(TEXT("MHLLM_OPENING_REPLAY"), TEXT("0")));
-	bActive = true;
 	Beat = EStageBeat::Flythrough;
-	ApplyCameraAt(0.0f);
+	bActive = true;
+	SetResidentYawOffset(Plan.WorkTurnDegrees);
+	ApplyFraming(Plan.Lobby);
 	LockPlayerView();
-
-	UE_LOG(LogCompanionStage, Log, TEXT("Opening shot: %.1fs flythrough, then turn %.0f -> %.0f."),
-		FlyDuration, ResidentStartYaw, ResidentFinalYaw);
+	UE_LOG(LogCompanionStage, Log, TEXT("Opening: lobby held %.1f s, then %s a %.2f s move; she turns %.0f deg back to the lens."),
+		Plan.HoldSeconds, Plan.bCutIntoMove ? TEXT("a cut into") : TEXT("straight into"), Plan.MoveSeconds, Plan.WorkTurnDegrees);
 }
 
 void UCompanionStageDirector::LockPlayerView()
@@ -270,87 +362,156 @@ void UCompanionStageDirector::LockPlayerView()
 	PC->SetIgnoreMoveInput(true);
 }
 
-void UCompanionStageDirector::BuildPath(const FVector& Subject, float EyeZ)
+void UCompanionStageDirector::ApplyLens(float FocalMm, const FVector2D& FilmbackMm, float Aperture, const FVector2D& ShiftMm, float FocusCm)
 {
-	// Begin just outside the glass frontage, enter down the aisle, pass the tape and disk rows,
-	// then arc into a roomy call frame. The positions follow the authored +X hall axis. A wider
-	// final lens retains enough cabinet context to read as a datacenter rather than an avatar crop.
-	const float FinalDist = 430.0f;
-	const FVector Settle(Subject.X - FinalDist, Subject.Y, EyeZ - 8.0f);
-	const FVector SettleLook(Subject.X, Subject.Y - 8.0f, EyeZ - 18.0f);
-	UE_LOG(LogCompanionStage, Log, TEXT("Call framing measured: %.0fcm from subject, FOV 48 degrees."),
-		FVector::Dist(Settle, FVector(Subject.X, Subject.Y, EyeZ)));
-
-	Path.Reset();
-	// Uniform normalized times make the Catmull-Rom tangents predictable and easy to tune.
-	Path.Add({ FVector(Subject.X - 1550.0f, Subject.Y - 220.0f, 280.0f), FVector(Subject.X + 450.0f, Subject.Y - 80.0f, 185.0f), 0.00f });
-	Path.Add({ FVector(Subject.X - 760.0f, Subject.Y - 240.0f, 255.0f), FVector(Subject.X + 220.0f, Subject.Y - 120.0f, 165.0f), 0.20f });
-	Path.Add({ FVector(Subject.X + 80.0f, Subject.Y - 560.0f, 230.0f), FVector(Subject.X + 360.0f, Subject.Y - 250.0f, 145.0f), 0.40f });
-	Path.Add({ FVector(Subject.X + 720.0f, Subject.Y + 480.0f, 220.0f), FVector(Subject.X + 390.0f, Subject.Y + 250.0f, 145.0f), 0.60f });
-	Path.Add({ FVector(Subject.X + 400.0f, Subject.Y + 220.0f, 185.0f), FVector(Subject.X + 90.0f, Subject.Y + 40.0f, EyeZ - 25.0f), 0.80f });
-	Path.Add({ Settle, SettleLook, 1.0f });
+	if (!Camera)
+	{
+		return;
+	}
+	UCineCameraComponent* Cine = Cast<UCineCameraComponent>(Camera->GetCameraComponent());
+	if (!Cine)
+	{
+		if (UCameraComponent* Cam = Camera->GetCameraComponent())
+		{
+			Cam->SetFieldOfView(FMath::RadiansToDegrees(2.0f * FMath::Atan(FilmbackMm.X / (2.0f * FMath::Max(FocalMm, 1.0f)))));
+		}
+		return;
+	}
+	FCameraFilmbackSettings Filmback = Cine->Filmback;
+	Filmback.SensorWidth = FilmbackMm.X;
+	Filmback.SensorHeight = FilmbackMm.Y;
+	// The stage design writes shift with Blender's sign (+ moves the window right or up). Unreal's
+	// off-centre projection reads the same way by its maths, but nobody has checked it on a
+	// captured frame yet: MHLLM_STAGE_SHIFT_SIGN=-1 flips it without a rebuild.
+	Filmback.SensorHorizontalOffset = ShiftSign * ShiftMm.X;
+	Filmback.SensorVerticalOffset = ShiftSign * ShiftMm.Y;
+	Filmback.RecalcSensorAspectRatio();
+	Cine->SetFilmback(Filmback);
+	Cine->SetCurrentFocalLength(FocalMm);
+	FCameraFocusSettings Focus = Cine->FocusSettings;
+	if (bDepthOfField && Aperture > 0.0f)
+	{
+		Focus.FocusMethod = ECameraFocusMethod::Manual;
+		Focus.ManualFocusDistance = FMath::Max(FocusCm, 15.0f);
+		Cine->SetCurrentAperture(Aperture);
+	}
+	else
+	{
+		Focus.FocusMethod = ECameraFocusMethod::Disable;
+	}
+	Cine->SetFocusSettings(Focus);
 }
 
-FVector UCompanionStageDirector::SampleSpline(const TArray<FStageCameraKey>& Keys, float T, bool bLookAt)
+void UCompanionStageDirector::ApplyFraming(const FCompanionStageFraming& Framing)
 {
-	if (Keys.Num() == 0)
+	if (!Camera || !Framing.bValid)
 	{
-		return FVector::ZeroVector;
+		return;
 	}
-	if (T <= Keys[0].Time)
+	Camera->SetActorLocationAndRotation(Framing.Location, CompanionStage::AimRotation(Framing.Location, Framing.LookAt, Plan.bLevel));
+	const FVector2D Shift = Framing.bHoldScreen
+		? CompanionStage::SensorShiftFor(Framing.Location, Framing.LookAt, Framing.Screen, Framing.FocalMm, Framing.FilmbackMm)
+		: Framing.ShiftMm;
+	ApplyLens(Framing.FocalMm, Framing.FilmbackMm, Framing.Aperture, Shift, FVector::Dist(Framing.Location, Framing.LookAt));
+}
+
+void UCompanionStageDirector::ApplyMoveAt(float MoveTime)
+{
+	if (!Camera)
 	{
-		return bLookAt ? Keys[0].LookAt : Keys[0].Position;
+		return;
 	}
-	for (int32 i = 1; i < Keys.Num(); ++i)
+	const FVector Pos = Plan.Opening.PositionAt(MoveTime);
+	const FVector Look = Plan.Opening.LookAtAt(MoveTime);
+	Camera->SetActorLocationAndRotation(Pos, CompanionStage::AimRotation(Pos, Look, Plan.bLevel));
+	const FVector2D Shift = Plan.bLevel
+		? CompanionStage::SensorShiftFor(Pos, Look, Plan.Opening.ScreenAt(MoveTime), Plan.FocalMm, Plan.FilmbackMm)
+		: FVector2D::ZeroVector;
+	ApplyLens(Plan.FocalMm, Plan.FilmbackMm, Plan.Aperture, Shift, FVector::Dist(Pos, Look));
+}
+
+void UCompanionStageDirector::SetResidentYawOffset(float Degrees)
+{
+	if (Resident)
 	{
-		if (T <= Keys[i].Time)
+		Resident->SetActorRotation(FRotator(0.0f, ResidentFinalYaw + Degrees, 0.0f));
+	}
+}
+
+void UCompanionStageDirector::SetExteriorLightsVisible(bool bVisible)
+{
+	int32 Changed = 0;
+	for (const TWeakObjectPtr<AActor>& Weak : ExteriorLights)
+	{
+		if (AActor* Actor = Weak.Get())
 		{
-			const float Span = FMath::Max(Keys[i].Time - Keys[i - 1].Time, KINDA_SMALL_NUMBER);
-			const float Alpha = FMath::Clamp((T - Keys[i - 1].Time) / Span, 0.0f, 1.0f);
-			const FVector A = bLookAt ? Keys[i - 1].LookAt : Keys[i - 1].Position;
-			const FVector B = bLookAt ? Keys[i].LookAt : Keys[i].Position;
-			const int32 PreviousIndex = FMath::Max(i - 2, 0);
-			const int32 NextIndex = FMath::Min(i + 1, Keys.Num() - 1);
-			const FVector Previous = bLookAt ? Keys[PreviousIndex].LookAt : Keys[PreviousIndex].Position;
-			const FVector Next = bLookAt ? Keys[NextIndex].LookAt : Keys[NextIndex].Position;
-			const float StartSpan = i == 1 ? Span : FMath::Max(Keys[i].Time - Keys[PreviousIndex].Time, KINDA_SMALL_NUMBER);
-			const float EndSpan = i == Keys.Num() - 1 ? Span : FMath::Max(Keys[NextIndex].Time - Keys[i - 1].Time, KINDA_SMALL_NUMBER);
-			const FVector StartTangent = (i == 1 ? (B - A) / Span : (B - Previous) / StartSpan) * Span * 0.5f;
-			const FVector EndTangent = (i == Keys.Num() - 1 ? (B - A) / Span : (Next - A) / EndSpan) * Span * 0.5f;
-			return FMath::CubicInterp(A, StartTangent, B, EndTangent, Alpha);
+			TInlineComponentArray<ULightComponent*> Lights(Actor);
+			for (ULightComponent* Light : Lights)
+			{
+				if (Light && Light->IsVisible() != bVisible)
+				{
+					Light->SetVisibility(bVisible);
+					++Changed;
+				}
+			}
 		}
 	}
-	const FStageCameraKey& Last = Keys.Last();
-	return bLookAt ? Last.LookAt : Last.Position;
+	if (Changed > 0)
+	{
+		UE_LOG(LogCompanionStage, Log, TEXT("%s %d street-side light(s) (tag %s)."), bVisible ? TEXT("Restored") : TEXT("Culled"),
+			Changed, *ExteriorLightTag.ToString());
+	}
 }
 
-void UCompanionStageDirector::ApplyCameraAt(float TimeSeconds)
+void UCompanionStageDirector::MarkCameraCut()
 {
-	if (!Camera || Path.Num() == 0)
+	// Every discontinuity is flagged, so motion blur, TAA and the streamer's encoder treat it as a
+	// cut rather than smearing one frame into the next.
+	if (UWorld* World = GetWorld())
+	{
+		if (APlayerController* PC = World->GetFirstPlayerController())
+		{
+			if (PC->PlayerCameraManager)
+			{
+				PC->PlayerCameraManager->SetGameCameraCutThisFrame();
+			}
+		}
+	}
+}
+
+void UCompanionStageDirector::Speak(const FString& Line, const TCHAR* What)
+{
+	if (Line.TrimStartAndEnd().IsEmpty())
 	{
 		return;
 	}
-	// Ease only at the shot's endpoints. The interior samples stay on a continuous cubic spline,
-	// rather than stopping and restarting at every key.
-	const float T = StageEase(FMath::Clamp(TimeSeconds / FMath::Max(FlyDuration, KINDA_SMALL_NUMBER), 0.0f, 1.0f));
-	const FVector Pos = SampleSpline(Path, T, false);
-	const FVector Look = SampleSpline(Path, T, true);
-	Camera->SetActorLocation(Pos);
-	Camera->SetActorRotation((Look - Pos).Rotation());
+	if (UWorld* World = GetWorld())
+	{
+		if (UCompanionRuntimeSubsystem* Runtime = World->GetSubsystem<UCompanionRuntimeSubsystem>())
+		{
+			// Spoken VERBATIM, not generated. A scripted line must be the same every time and must
+			// not wait on an LLM round trip.
+			Runtime->SpeakLiteral(Line);
+		}
+	}
+	UE_LOG(LogCompanionStage, Log, TEXT("%s: %s"), What, *Line);
 }
 
-void UCompanionStageDirector::ApplyFinalFraming()
+void UCompanionStageDirector::FinishOpening()
 {
-	if (!Camera || Path.Num() == 0)
+	if (!bSpoken)
 	{
-		return;
+		bSpoken = true;
+		Speak(CICompanionEnv::Get(TEXT("MHLLM_OPENING_LINE"), TEXT("Welcome to Companion Intelligence, I'm Eliza. How can I help you?")),
+			TEXT("Opening line"));
 	}
-	// Deliberately NOT ApplyCameraAt(FlyDuration): that divides by max(FlyDuration, epsilon), so
-	// with the static path's FlyDuration of 0 it would sample T=0 and park the camera on the wide
-	// establishing key at the far end of the hall.
-	const FStageCameraKey& Last = Path.Last();
-	Camera->SetActorLocation(Last.Position);
-	Camera->SetActorRotation((Last.LookAt - Last.Position).Rotation());
+	SetResidentYawOffset(0.0f);
+	Beat = EStageBeat::Live;
+	LiveSince = Elapsed;
+	// Keep ticking ONLY to time the attract loop; with replay off this subsystem goes quiet.
+	bActive = ReplayEvery > 0.0f;
+	UE_LOG(LogCompanionStage, Log, TEXT("Stage handed over to live conversation.%s"),
+		ReplayEvery > 0.0f ? *FString::Printf(TEXT(" Replaying every %.0fs."), ReplayEvery) : TEXT(""));
 }
 
 void UCompanionStageDirector::Tick(float DeltaTime)
@@ -359,41 +520,7 @@ void UCompanionStageDirector::Tick(float DeltaTime)
 	{
 		return;
 	}
-	Elapsed += DeltaTime;
-
-	if (Beat == EStageBeat::Flythrough)
-	{
-		// Hold on the opening pose through StartDelay so a viewer joining at startup sees the move
-		// begin rather than arriving to find it finished.
-		if (Elapsed < StartDelay)
-		{
-			ApplyCameraAt(0.0f);
-			return;
-		}
-		ApplyCameraAt(Elapsed - StartDelay);
-		if (Elapsed - StartDelay >= FlyDuration)
-		{
-			Beat = EStageBeat::Turn;
-			UE_LOG(LogCompanionStage, Log, TEXT("Camera settled; turning to face."));
-		}
-		return;
-	}
-
-	if (Beat == EStageBeat::Turn)
-	{
-		const float T = StageEase(FMath::Clamp((Elapsed - StartDelay - FlyDuration) / TurnDuration, 0.0f, 1.0f));
-		if (Resident)
-		{
-			// Interpolate the SHORT way round, so she never spins the long way to arrive.
-			const float Yaw = ResidentStartYaw + FMath::UnwindDegrees(ResidentFinalYaw - ResidentStartYaw) * T;
-			Resident->SetActorRotation(FRotator(0.0f, Yaw, 0.0f));
-		}
-		if (T >= 1.0f)
-		{
-			Beat = EStageBeat::Speak;
-		}
-		return;
-	}
+	Elapsed += FMath::Clamp(DeltaTime, 0.0f, StageMaxCameraStep);
 
 	if (Beat == EStageBeat::Live)
 	{
@@ -404,50 +531,83 @@ void UCompanionStageDirector::Tick(float DeltaTime)
 		return;
 	}
 
-	if (Beat == EStageBeat::Speak)
+	if (bStaticShot)
 	{
-		if (Elapsed < StartDelay + FlyDuration + TurnDuration + SpeakDelay)
+		const float SinceHold = Elapsed - Plan.HoldSeconds;
+		if (!bGreeted && Plan.StaticGreetingAt >= 0.0f && SinceHold >= Plan.StaticGreetingAt)
 		{
-			return;
+			bGreeted = true;
+			Speak(Plan.GreetingLine, TEXT("Greeting"));
 		}
-		if (!bSpoken)
+		if (SinceHold >= Plan.StaticSpeakAt)
 		{
-			bSpoken = true;
-			const FString Line = CICompanionEnv::Get(TEXT("MHLLM_OPENING_LINE"),
-				TEXT("Welcome to Companion Intelligence, I'm Eliza. How can I help you?"));
-			if (UWorld* World = GetWorld())
-			{
-				if (UCompanionRuntimeSubsystem* Runtime = World->GetSubsystem<UCompanionRuntimeSubsystem>())
-				{
-					// Spoken VERBATIM, not generated. An opening line is a brand statement; it must
-					// be the same every time and must not wait on an LLM round trip.
-					Runtime->SpeakLiteral(Line);
-				}
-			}
-			UE_LOG(LogCompanionStage, Log, TEXT("Opening line: %s"), *Line);
+			FinishOpening();
 		}
-		Beat = EStageBeat::Live;
-		LiveSince = Elapsed;
-		// Keep ticking ONLY to time the attract loop; with replay off this subsystem goes quiet.
-		bActive = ReplayEvery > 0.0f;
-		UE_LOG(LogCompanionStage, Log, TEXT("Stage handed over to live conversation.%s"),
-			ReplayEvery > 0.0f ? *FString::Printf(TEXT(" Replaying every %.0fs."), ReplayEvery) : TEXT(""));
 		return;
 	}
+
+	const float MoveTime = Elapsed - Plan.HoldSeconds;
+	if (MoveTime < 0.0f)
+	{
+		// The lobby still: held, so a viewer connecting at startup is present for the move rather
+		// than joining after the camera has already landed.
+		return;
+	}
+	if (!bMoveStarted)
+	{
+		bMoveStarted = true;
+		if (Plan.bCutIntoMove)
+		{
+			MarkCameraCut();
+		}
+		if (Plan.bFromConfig)
+		{
+			// Inside now: the street-side lights only lit what the lobby still saw.
+			SetExteriorLightsVisible(false);
+		}
+		UE_LOG(LogCompanionStage, Log, TEXT("Opening move: %.2f s, %s."), Plan.MoveSeconds,
+			Plan.bCutIntoMove ? TEXT("cut in from the lobby still") : TEXT("from the held first key"));
+	}
+	ApplyMoveAt(FMath::Min(MoveTime, Plan.MoveSeconds));
+	SetResidentYawOffset(CompanionStage::ResidentYawOffsetAt(Plan, MoveTime));
+	if (!bGreeted && Plan.GreetingAt >= 0.0f && MoveTime >= Plan.GreetingAt)
+	{
+		bGreeted = true;
+		Speak(Plan.GreetingLine, TEXT("Greeting"));
+	}
+
+	const EStageBeat Next = BeatAt(Plan, Elapsed);
+	if (Next == Beat)
+	{
+		return;
+	}
+	if (Next == EStageBeat::Live)
+	{
+		FinishOpening();
+		return;
+	}
+	UE_LOG(LogCompanionStage, Log, TEXT("Stage beat %s at %.2f s into the move."),
+		*StaticEnum<EStageBeat>()->GetNameStringByValue((int64)Next), MoveTime);
+	Beat = Next;
 }
 
 void UCompanionStageDirector::ReplayOpening()
 {
-	if (!Camera || !Resident || Path.Num() == 0)
+	if (!Camera || !Resident)
 	{
 		return;
 	}
-	Resident->SetActorRotation(FRotator(0.0f, ResidentStartYaw, 0.0f));
 	Elapsed = 0.0f;
+	bMoveStarted = false;
+	bGreeted = false;
 	bSpoken = false;
+	bStaticShot = false;
 	Beat = EStageBeat::Flythrough;
 	bActive = true;
-	ApplyCameraAt(0.0f);
+	SetExteriorLightsVisible(true);
+	SetResidentYawOffset(Plan.WorkTurnDegrees);
+	ApplyFraming(Plan.Lobby);
+	MarkCameraCut();
 	UE_LOG(LogCompanionStage, Log, TEXT("Replaying opening shot."));
 }
 
@@ -457,11 +617,10 @@ void UCompanionStageDirector::SkipToLive()
 	{
 		return;
 	}
-	if (Resident)
-	{
-		Resident->SetActorRotation(FRotator(0.0f, ResidentFinalYaw, 0.0f));
-	}
-	ApplyFinalFraming();
+	SetResidentYawOffset(0.0f);
+	ApplyFraming(Plan.Home);
+	MarkCameraCut();
+	SetExteriorLightsVisible(false);
 	Beat = EStageBeat::Live;
 	bActive = false;
 	UE_LOG(LogCompanionStage, Log, TEXT("Cut to live conversation framing."));

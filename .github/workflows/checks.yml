@@ -58,6 +58,13 @@ jobs:
       - name: Byte-compile every script
         run: python -m compileall -q Deployment Scripts
 
+      # Deployment/stage_layout.json drives both the map and the stage camera: author_diorama.py
+      # builds the set from it, and stage_layout.py writes its shots and beats into
+      # Config/DefaultGame.ini for the C++ director. A layout edit without the regenerated section
+      # would cook last revision's camera over this revision's set.
+      - name: Stage camera config matches the stage layout
+        run: python Deployment/stage_layout.py --check
+
       # Dockerfile.signalling runs this script over Epic's player page at the ref it pins, so test
       # it against that exact page: it must patch once, then recognise its own patch.
       - name: Test patch_pixelstreaming_player.py
