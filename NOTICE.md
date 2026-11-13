@@ -10,11 +10,12 @@ for acknowledgements.
 
 **The repository itself** contains two copyleft or reciprocal-licence components.
 
-- **Four Blender scripts, GPL-3.0-or-later.** `Deployment/blender/make_period_props.py`,
-  `Deployment/blender/make_ibm729.py`, `Deployment/blend_fix_mats.py` and
-  `Deployment/ue_prop_fbx.py` run inside Blender and import its Python API (`bpy`, with `bmesh`
-  and `mathutils`). Blender is GPL-3.0-or-later (`license/license.md` in the Blender
-  installation), and the `bpy` package carries `SPDX-License-Identifier: GPL-2.0-or-later`. The
+- **Five Blender scripts, GPL-3.0-or-later.** `Deployment/blender/make_period_props.py`,
+  `Deployment/blender/make_ibm729.py`, `Deployment/blender/previz_diorama.py` (the stage previz),
+  `Deployment/blend_fix_mats.py` and `Deployment/ue_prop_fbx.py` run inside Blender and import its
+  Python API (`bpy`, with `bmesh` and `mathutils`). Blender is GPL-3.0-or-later
+  (`license/license.md` in the Blender installation), and the `bpy` package carries
+  `SPDX-License-Identifier: GPL-2.0-or-later`. The
   FSF holds that a program which reaches GPL-covered facilities through an interpreter's
   bindings is linked to them and must be released in a GPL-compatible way
   ([GPL FAQ](https://www.gnu.org/licenses/gpl-faq.html#IfInterpreterIsGPL)). Blender's
@@ -22,7 +23,7 @@ for acknowledgements.
   apply this to scripts: published scripts that use the Blender Python API must be shared under
   the GPL. The Blender manual requires GPL-3.0-or-later for add-ons
   ([Extension Licenses](https://docs.blender.org/manual/en/latest/advanced/extensions/licenses.html)).
-  PolyForm Noncommercial is not GPL-compatible. These four files are therefore licensed under the
+  PolyForm Noncommercial is not GPL-compatible. These five files are therefore licensed under the
   GNU General Public License v3.0 or later, not PolyForm Noncommercial, as their
   `SPDX-License-Identifier` headers state. The full text is in
   [`LICENSES/GPL-3.0-or-later.txt`](LICENSES/GPL-3.0-or-later.txt). Anyone may use, change and
@@ -187,7 +188,7 @@ CI fails unless that page, this list and `CREDITS.md` name the same models.
 ## Epic Games Unreal Engine, MetaHuman and Fab content (not covered)
 
 The PolyForm Noncommercial License 1.0.0 applies to Companion Intelligence's own code and content
-only, apart from the four GPL-3.0-or-later Blender scripts listed above. It does **not** cover
+only, apart from the five GPL-3.0-or-later Blender scripts listed above. It does **not** cover
 Epic Games' Unreal Engine, Unreal Engine source or tools, MetaHuman characters, or any other Epic
 Games or Fab/Marketplace assets used or referenced by this project.
 Those remain under the Epic Games End User License Agreement and the applicable Unreal Engine,
