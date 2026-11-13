@@ -46,6 +46,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM")
 	void SubmitUserText(const FString& Text);
  
+	// Starts over: cancels the reply in flight, stops speech and any listening (discarding what was
+	// heard), and re-seeds the history with the system prompt. With MHLLM_MEMORY=1 the saved
+	// transcript is overwritten too. UCompanionRuntimeSubsystem calls it when the last Pixel
+	// Streaming viewer disconnects.
 	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM")
 	void ResetConversation();
 

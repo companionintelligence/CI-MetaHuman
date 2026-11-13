@@ -26,6 +26,10 @@ public:
 	virtual void StartListening() override;
 	virtual void StopListening() override;
 
+	// Stops capture WITHOUT transcribing, and drops any transcription still in flight (see
+	// TranscriptionGeneration).
+	virtual void CancelListening() override;
+
 	// Transcribes a complete WAV buffer by POSTing it to the configured whisper server.
 	// On success fires OnTranscribed with the recognized text.
 	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM|Voice")
@@ -52,7 +56,16 @@ public:
 	static bool ParseTranscriptionResponse(const FString& ResponseBody, FString& OutText);
 
 private:
-	void HandleTranscriptionComplete(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful);
+	// Generation is the TranscriptionGeneration the request was sent under.
+	void HandleTranscriptionComplete(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful, uint32 Generation);
+
+	// Stops the device and unhooks the capture callback. Shared by StopListening and CancelListening.
+	void StopCapture();
+
+	// Bumped by CancelListening. A request carries the value it was sent under, and a reply that
+	// comes back under a different one is dropped, so speech captured for a viewer who has since
+	// gone is never transcribed into the next viewer's conversation.
+	uint32 TranscriptionGeneration = 0;
 
 	TArray<uint8> ConvertToWav(const TArray<float>& FloatSamples, int32 InputSampleRate);
 

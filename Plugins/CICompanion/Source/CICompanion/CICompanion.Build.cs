@@ -86,17 +86,20 @@ public class CICompanion : ModuleRules
 		// fail until the compatibility table is taught about it, which is the intended behaviour.
 
 		// ---------------------------------------------------------------------------------------
-		// Pixel Streaming (not yet a dependency, on purpose)
+		// Pixel Streaming
 		// ---------------------------------------------------------------------------------------
 		//
-		// Nothing in this module references Pixel Streaming today -- a search for "PixelStreaming"
-		// across the whole plugin Source tree returns no files -- so adding the modules now would be a
-		// dependency with no consumer.
+		// One consumer so far: UCompanionRuntimeSubsystem resets the conversation when the last
+		// viewer disconnects, through UPixelStreaming2Delegates::OnAllConnectionsClosedNative. That
+		// class lives in the PixelStreaming2 module in both 5.5.4 and 5.8.4, with the same delegate
+		// name and signature, so this one module is all it needs. CICompanion.uplugin lists the
+		// PixelStreaming2 plugin for the same reason.
+		PrivateDependencyModuleNames.Add("PixelStreaming2");
 		//
 		// When the browser -> C++ text path lands (Docs/GAP-ANALYSIS.md gap #2, "nobody can address
 		// her"), add:
 		//
-		//     PrivateDependencyModuleNames.AddRange(new string[] { "PixelStreaming2", "PixelStreaming2Input" });
+		//     PrivateDependencyModuleNames.Add("PixelStreaming2Input");
 		//     if (minor >= 8)
 		//     {
 		//         // 5.8 split several public headers into these modules; they do not exist in 5.5.

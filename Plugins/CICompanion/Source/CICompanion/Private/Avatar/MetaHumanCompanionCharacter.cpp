@@ -292,6 +292,13 @@ void AMetaHumanCompanionCharacter::ResetConversation()
 	}
 	StopVisemePlayback();
 
+	// Speech that was being captured, or is still being transcribed, belongs to the conversation
+	// being thrown away. StopListening would transcribe it into the new one.
+	if (SpeechToText)
+	{
+		SpeechToText->CancelListening();
+	}
+
 	const UMetaHumanLLMSettings* Settings = GetDefault<UMetaHumanLLMSettings>();
 	Conversation->Reset(Settings->SystemPrompt);
 	Conversation->SetMaxRetainedTurns(Settings->MaxRetainedTurns);

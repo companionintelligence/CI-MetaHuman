@@ -3,6 +3,19 @@
   ghcr.io/epicgames/pixel-streaming-signalling-server:5.5), byte-for-byte, with ONE inline script
   added ahead of player.js. Mounted over the stock path from docker-compose.yml.
 
+  One later change: the stock page loaded Montserrat and Michroma from Google Fonts, so every
+  viewer's browser contacted Google's font servers before the stream started. Those links are
+  gone, and the style block at the end of the head serves Montserrat SemiBold from fonts/ next to
+  the page: the same block Deployment/patch_pixelstreaming_player.py writes into the page the
+  signalling image builds (that image copies Deployment/pixelstreaming/fonts/ there). Where fonts/
+  is not served, the text falls back to a system sans-serif rather than reaching out to Google.
+
+  And a second: the "Credits" link at the end of the body, the same element the patch script adds,
+  which opens credits.html next to the page (the signalling image copies
+  Deployment/pixelstreaming/credits.html there). It is how the CC BY 4.0 attribution for the
+  streamed set's eight Sketchfab models is reachable from the stream; serve credits.html with this
+  page, or the link has nothing to open.
+
   WHY: the stock frontend defaults to the LOCKED-MOUSE control scheme. On the first click it calls
   requestPointerLock, and from then on the browser stops reporting where the pointer is -- every
   mousedown carries clientX/clientY frozen at the centre of the video. The frontend therefore sends
@@ -107,4 +120,16 @@
     }, 1000);
   } catch (e) { /* never let this stop the player from loading */ }
 })();
-</script><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Michroma&family=Montserrat:wght@600&display=swap" rel="stylesheet"><link rel="shortcut icon" href="43ef81525e6853dc.ico" type="image/x-icon"><link rel="icon" type="image/png" sizes="96x96" href="images/favicon-96x96.png"><link rel="icon" type="image/png" sizes="32x32" href="images/favicon-32x32.png"><link rel="icon" type="image/png" sizes="16x16" href="images/favicon-16x16.png"><title>Pixel Streaming</title><script defer="defer" src="player.js"></script></head><body style="width:100vw;height:100vh;min-height:-webkit-fill-available;font-family:Montserrat;margin:0"></body></html>
+</script><link rel="shortcut icon" href="43ef81525e6853dc.ico" type="image/x-icon"><link rel="icon" type="image/png" sizes="96x96" href="images/favicon-96x96.png"><link rel="icon" type="image/png" sizes="32x32" href="images/favicon-32x32.png"><link rel="icon" type="image/png" sizes="16x16" href="images/favicon-16x16.png"><title>Pixel Streaming</title><script defer="defer" src="player.js"></script><style data-ci-companion="ci-companion-self-hosted-font-v1">
+/* Montserrat SemiBold, served from this image (fonts/OFL-Montserrat.txt: SIL Open Font License 1.1).
+   It replaces the Google Fonts stylesheet Epic's page loads. */
+@font-face {
+  font-family: 'Montserrat';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('fonts/Montserrat-SemiBold.ttf') format('truetype');
+}
+</style>
+</head><body style="width:100vw;height:100vh;min-height:-webkit-fill-available;font-family: 'Montserrat', system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;margin:0"><a data-ci-companion="ci-companion-credits-link-v1" href="credits.html" target="_blank" rel="noopener" style="position: fixed; top: 6px; left: 50%; transform: translateX(-50%); z-index: 2147483647; padding: 2px 10px; border-radius: 10px; background: rgba(0, 0, 0, 0.55); color: rgba(255, 255, 255, 0.92); font: 600 12px/1.5 'Montserrat', system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif; text-decoration: none;">Credits</a>
+</body></html>

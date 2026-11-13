@@ -22,8 +22,10 @@ must, or you ship an empty room:
 
 | consumer | how | inputs |
 |---|---|---|
-| the Linux cook on core-2 | `Deployment/core2/run_author_m2.sh` -> `dev-5.5` container, `-nullrhi` | mounted at `/glb`, `/mh`, `/audio`, `/nia` |
-| the native Windows build | `Scripts/BuildNative.ps1` -> installed `UnrealEditor-Cmd.exe`, `-nullrhi` | `MHLLM_GLB_DIR` / `MHLLM_MH_DIR` / `MHLLM_AUDIO_DIR` / `MHLLM_GEN_DIR`, Nia staged into `Content/CC_ControlRig_Nia` |
+| the Linux cook on core-2 | `Deployment/core2/run_author_m2.sh` -> `dev-5.8` container, `-nullrhi` | mounted at `/glb`, `/audio`; `/mh` **only** with `MHLLM_RESIDENT=metahuman` or `nia`, `/nia` **only** with `nia` |
+| the native Windows build | `Scripts/BuildNative.ps1` -> installed `UnrealEditor-Cmd.exe`, `-nullrhi` | `MHLLM_GLB_DIR` / `MHLLM_MH_DIR` (`-MetaHumanDir`, read only with `-Resident MetaHuman`) / `MHLLM_AUDIO_DIR` / `MHLLM_GEN_DIR`; Nia staged into `Content/CC_ControlRig_Nia` **only** with `-Resident Nia` |
+
+Both pass the resident choice to the script as `MHLLM_RESIDENT` — see [The resident](#the-resident).
 
 The script reads every external path through `MHLLM_*` environment variables whose **defaults are
 the container mount points**, so the server pipeline is unchanged and the local build simply
@@ -48,11 +50,153 @@ fails loudly if the authoring did not report `SUCCESS`, did not place a resident
 map under 200 KB, and it puts the stub back afterwards: an authored `.umap` is a build artifact of
 ONE engine version, and a 5.8-authored map cannot be loaded by the 5.5 cook.
 
+## The resident
+
+The default resident is **Epic's UE mannequin**, a placeholder. The MetaHuman **"Seo"** and the
+Reallusion Character Creator **"Nia"** are still fully supported, but only when asked for by name:
+
+| | UE mannequin (default) | MetaHuman "Seo" (opt-in) | Reallusion "Nia" (opt-in) |
+|---|---|---|---|
+| select it | nothing, or `-Resident Mannequin` / `MHLLM_RESIDENT=mannequin` | `-Resident MetaHuman` / `MHLLM_RESIDENT=metahuman` | `-Resident Nia` / `MHLLM_RESIDENT=nia` |
+| input | none: `SKM_Manny` and `MM_Idle` from the engine's MoverTests plugin | FBX export: `fbx/SKM_MHC_Seo_BodyMesh.fbx`, `fbx/SKM_MHC_Seo_FaceMesh.fbx`, `fbx/MHC_Seo_Outfits.fbx` | the `CC_ControlRig_Nia` content folder |
+| where it lives | the engine (`Engine/Plugins/Experimental/MoverTests`) | core-2 `/home/ci/mh-seo` (`/mh`); Windows `-MetaHumanDir`, `MHLLM_MH_DIR`, default `C:\devel\_mh-convert\out\seo` | core-2 `/home/ci/nia-content`; Windows `-NiaContent` / `MHLLM_NIA_CONTENT` |
+| placed as | one `SkeletalMeshActor` playing `MM_Idle` | three `SkeletalMeshActor`s (Face, Body, Outfit) at one transform; **Body and Outfit attached to the Face** | one `SkeletalMeshActor` (`SK_Nia`) with her baked idle |
+| tags | `CompanionFace` (no rig, so no `FaceProfile=`) | `CompanionFace`, `FaceProfile=ARKit` on the Face | `CompanionFace`, `FaceProfile=CC` |
+| gate line | `resident: MANNEQUIN placed` | `resident: METAHUMAN placed` (else `METAHUMAN INCOMPLETE`) | `resident: NIA placed` — unchanged |
+| licence | Licensed Technology under the Unreal Engine EULA; no AI restriction | Fab listing tagged **NoAI** | Fab listing tagged **NoAI** |
+
+**Why the default is a mannequin.** Both characters the project has used are Fab content whose
+listings read **"Allows usage with AI: No"** (the `NoAI` tag), checked 2026-11-12: *Character Creator:
+Nia* by Reallusion Inc, and *Seo - Editable MetaHuman Character* by Groomchenko, which is what
+`mhc_seo.mhpkg` is (same name and format, and its embedded thumbnail shows the listing's face). Under
+the Fab EULA (§6(b)(vii), defined in §16(l)(i)), NoAI content may not be used "(a) in datasets utilized
+by Generative AI Programs, (b) in the development of Generative AI Programs, or (c) as training inputs
+to Generative AI Programs". An LLM companion that speaks through either of them is, at best, unclear
+against (b), and an unclear licence is treated as a licence problem. Epic's MetaHuman terms do not
+rescue Seo: the Unreal Engine EULA §1 excludes assets downloaded from Fab from the Licensed
+Technology, so the seller's licence governs her, not Epic's MetaHuman FAQ. The mannequin is
+Epic-provided content installed with the engine, which §1 does include, and the current EULA has no
+AI clause (EULA update 22, October 30, 2026, removed §6(e)'s). The README's *Licensing* section has the
+links and the quotes; [`NOTICE.md`](../NOTICE.md) is the licensing record.
+
+**A face without a licence problem** needs a character the project may use with AI. The practical
+route is a MetaHuman created in-house with MetaHuman Creator (not one bought on Fab): assemble it in
+the interactive 5.8 editor and export it the way Seo was (below). The export and authoring path is
+still written for Seo, so `03_export_fbx_from_GUI.py`'s source path, the `SKM_MHC_Seo_*` file names in
+`author_diorama.py` and `BuildNative.ps1`, and the `/Game/Seo` destinations need to take the new
+character's name. Written permission for AI use from Groomchenko or Reallusion is the other route.
+
+Seo and Nia are **not even loaded** unless requested. A mannequin build does not read `MH_DIR` and
+creates nothing under `/Game/Seo`. A checkout that once built with `-Resident Nia` keeps her staged in
+`Content/CC_ControlRig_Nia` (gitignored, not deleted); the old script loaded her unconditionally and
+would have made her the resident of every later build. A leftover copy is not cooked into another
+resident's build either: `DefaultGame.ini`'s `MapsToCook` lists only `/Game/Maps/CompanionStage`, so
+the cook takes that map and what it references, and those maps reference nothing of hers.
+`m2_clean.sh` additionally refuses to cook a mannequin or MetaHuman build whose tree contains her, and
+a mannequin build whose tree contains `Content/Seo`. The builds that cook a map without authoring it
+(`CHECK_MAP` in both Dockerfiles, `BuildNative.ps1 -SkipAuthoring`) refuse the same, and cook an
+authored map only beside the `Content/AUTHOR_RESULT.txt` its authoring run wrote: every line of the
+result goes there too, ending with the saved map's `map sha256` and `SUCCESS`, so a map authored
+before the switch, or before the NoAI prop gate, cannot pass for a current one
+([`BUILD-AND-DEPLOY.md`](BUILD-AND-DEPLOY.md) §2.2).
+
+**What the mannequin does not have.** A face. It carries no morph targets, so the face driver binds
+and logs `0/N profile curves resolved` (the profile falls back to `CC`; nothing matches). Lip-sync,
+expression, blinking and gaze are all inert, by design rather than by fault. Its eyeline is measured
+from the mesh for the authored fallback camera, and the stage director frames it like any resident.
+
+**Why the Face carries the tags.** The runtime treats the *tagged actor* as the whole character:
+`UCompanionFaceSubsystem` drives the morph targets on its skeletal mesh, and `UCompanionStageDirector`
+turns it to meet the camera and frames the shot on it. Seo's facial morph targets (849) are on the
+Face mesh, so the Face is tagged; Body and Outfit are **attached** to it so the opening turn rotates the
+whole figure rather than a head above a still body; and the director measures the eyeline over the
+resident *plus its attached actors*, because the face's own bounds are a head-sized box. Before this,
+Seo carried no tag at all: the face driver reached her only through its "most morph targets" fallback,
+and the stage director found no resident.
+
+**Which rig the face assumes.** `MHLLM_FACE_PROFILE` if set, else the resident's `FaceProfile=` tag,
+else `CC` — so an old Nia map with no profile tag behaves exactly as before.
+`docker-compose.face.yml` now leaves the variable empty for that reason; it used to pin `CC`.
+
+**Producing the Seo export.** The export is not committed (it is a build input, like the prop GLBs).
+core-2's authoring mounts it from `/home/ci/mh-seo`; if that folder is intact, copying it is the
+quickest way to a local one. To make it from source, `mhc_seo.mhpkg` (a UE 5.6 MetaHuman
+EditableCharacter) has to be imported and **assembled in the interactive 5.8 editor** and exported
+with `Deployment/metahuman/03_export_fbx_from_GUI.py` from *Tools > Execute Python*, which writes
+`C:\devel\_mh-convert\out\seo\fbx\`. Both steps deadlock headless — see `HANDOFF-METAHUMAN-SKIN.md`.
+`BuildNative.ps1` checks for all three FBX files before it launches the editor and names the missing
+ones; the outfit is not optional, because MetaHuman removes the body geometry under clothing.
+
+**What the opt-in MetaHuman resident does not have yet** — none of this blocks a build, all of it is
+visible:
+
+- **The face mapping is unverified.** Her face is tagged `FaceProfile=ARKit`, the profile this codebase
+  designates for MetaHuman faces, but nobody has listed the morph-target names on the *FBX-exported*
+  `SKM_MHC_Seo_FaceMesh`. A MetaHuman face is normally driven through RigLogic (joints plus corrective
+  shapes); an FBX round-trip keeps the blend shapes, possibly under DNA-style names rather than ARKit
+  ones. The runtime log settles it: `Face driver bound to '…': R/N profile curves resolved`, followed
+  by either `Face profile 'ARKit': all N curves resolved on '…'` or the list of missing curves. If R is
+  0, the resident needs a MetaHuman-specific profile.
+  `Deployment/metahuman/09_probe_face_rig.py` lists a mesh's morph names and counts the ARKit and CC
+  samples it carries; set `MHLLM_PROBE_MESH` to the Seo face under `/Game/Seo/Face` (it defaults to
+  Nia) and `MHLLM_PROBE_OUT` to where the report should go.
+- **No idle animation.** She stands in the export's bind pose. Nia ships a baked idle; Seo does not.
+- **Flat skin.** The constant-colour `M_SeoSkin` instances from the original port, not MetaHuman's
+  skin shader (`HANDOFF-METAHUMAN-SKIN.md` §4 ranks the fixes).
+- **Eyeline literal.** The authored fallback `StageCamera` uses `EYE_Z = 165` because only Nia's and
+  the mannequin's heights are measured in the script. The runtime director, which owns the shot,
+  measures it.
+
+**Prop slots that only take CI-authored models.** `ibm-1401-cpu.glb`, `ibm-3178-terminal.glb` and
+`ibm-3350-disk.glb` used to hold maxdragon's CC BY 4.0 Sketchfab models, whose pages carry the `noai`
+tag; Sketchfab's Terms of Use bar NoAI content from use "as inputs to generative AI programs". The
+script now reads each of those files' glTF `asset.copyright` before importing it and accepts it only
+if it names Companion Intelligence, which is what `Deployment/blender/make_period_props.py` writes into
+its replacements. Anything else is never imported: the result shows `prop REFUSED …`, the slot and the
+hall rows that reuse it stay empty, and `NoAI prop slots: N of 3 refused` sums it up. Neither
+`BuildNative.ps1` nor `m2_clean.sh` fails on it, so a prop folder that still holds the old downloads
+gives a licence-clean set with gaps rather than no build. The README's *Licensing* section has the
+sources, and [`CREDITS.md`](../CREDITS.md) the CC BY attributions for the eight models that remain.
+
 ## Assets: scavenged vs authored
 
-Eleven hero props are Sketchfab GLBs. They are imported as **GLB, never FBX** — Blender's FBX
-exporter only writes textures wired to a Principled BSDF, so several machines exported with no
-textures at all and rendered as blank white blocks.
+Eight hero props are Sketchfab GLBs under CC BY 4.0, credited in [`CREDITS.md`](../CREDITS.md).
+The 1401 processing unit, the terminal, the 3350 and the tape units are authored in Blender by
+scripts in this repo. All of them are imported as **GLB, never FBX**. Blender's FBX exporter only
+writes textures wired to a Principled BSDF, so several machines exported with no textures at all
+and rendered as blank white blocks.
+
+**Three slots are authored because their Sketchfab models carried a NoAI tag.** The models that
+used to fill `ibm-1401-cpu.glb`, `ibm-3178-terminal.glb` and `ibm-3350-disk.glb` are CC BY 4.0,
+but their pages carry Sketchfab's NoAI meta tag. Sketchfab's Terms of Use bar NoAI-tagged content
+from use as inputs to generative AI programs, and this product is an AI companion, so
+`Deployment/blender/make_period_props.py` builds replacements under the same file names:
+
+```
+blender --background --python Deployment/blender/make_period_props.py -- --out <glb dir>
+```
+
+- **IBM 1401 Processing Unit**, 4-cube: 1.475 x 0.780 x 1.527 m (Ingenium artifact 1979.0133.001).
+  The front follows Figure 8 of IBM's 1960 General Information Manual: four framed cubes, a console
+  in the upper-left cube, grey ridged panels and a blue band across the top.
+- **IBM 3277 Display Station Model 2** with keyboard: 0.457 x 0.749 x 0.483 m (IBM SY27-2349-4).
+  The slot keeps the `3178` file name, but the 3178 is a 1983 terminal. The 3277 (1971) is what
+  a 1970s machine room had on its desks.
+- **IBM 3350 dual-drive unit**, with a 3-inch end cover on each side: 1.219 x 0.851 x 1.181 m
+  (IBM GC22-7064-10). The front follows Figure 1 of the 3350 Reference Manual (GA26-1638-2): a door,
+  a smoked window and a top-mounted operator panel per drive.
+
+Each prop faces -Y like the model it replaces, so the yaws in `PROPS` and `HALL` still hold. Each
+is ONE mesh object, because `import_prop()` takes the first StaticMesh it finds. Lamps and
+phosphor get a bright base colour as well as emission, because the `M_PropGLTF` re-parent drops
+emission. The script fails if any exported bounding box drifts more than 0.5 mm from its published
+envelope, and two builds are byte-identical.
+
+`place_prop()` still normalizes each of these props to its `PROPS`/`HALL` target. They therefore
+fill the same envelope as the models they replaced, not their true size. The 3350, for example,
+comes out 1.50 m wide and 1.45 m tall instead of 1.22 x 1.18 m, and the hero 3277 at two-thirds
+of its real size. To show them at true scale, set each target to the model's largest real
+dimension (153, 75 and 122 cm). Do that with a capture, because it changes the composition.
 
 The tape units are **authored in Blender**, not scavenged, because no scavenged prop was an IBM
 729. `Deployment/blender/make_ibm729.py` rebuilds it: real proportions (0.76 x 0.74 x 1.80 m),

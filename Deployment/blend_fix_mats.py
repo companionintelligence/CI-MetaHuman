@@ -1,3 +1,10 @@
+# SPDX-FileCopyrightText: 2026 LifeScope INC, DBA Companion Intelligence (https://ci.computer)
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# This script imports Blender's Python API (bpy), so it is licensed under the GNU General Public
+# License v3.0 or later (LICENSES/GPL-3.0-or-later.txt), not under the PolyForm Noncommercial
+# licence that covers the rest of this repository. NOTICE.md explains why.
+#
 # Headless Blender: rebuild each material as a clean Principled BSDF with its image wired to
 # Base Color, then export GLB.
 #

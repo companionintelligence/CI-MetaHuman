@@ -24,6 +24,8 @@
 #include "GameFramework/PlayerController.h"
 #include "Widgets/SWeakWidget.h"
 #include "UObject/Class.h"
+#include "Async/Async.h"
+#include "PixelStreaming2Delegates.h"
 
 
 
@@ -64,6 +66,37 @@ void UCompanionRuntimeSubsystem::OnWorldBeginPlay(UWorld& InWorld)
 	Companion->OnCompanionSpoke.AddDynamic(this, &UCompanionRuntimeSubsystem::HandleCompanionSpoke);
 	// Without this the HUD has no way to learn a turn FAILED, so it holds "thinking..." forever.
 	Companion->OnCompanionError.AddDynamic(this, &UCompanionRuntimeSubsystem::HandleCompanionError);
+
+	// A new viewer must not inherit the last one's conversation. See ResetForNextViewer.
+	//
+	// A lambda holding a WEAK pointer rather than AddUObject: this is a thread-safe multicast
+	// delegate, and 5.5's streamer broadcasts it from its own thread (5.8 marshals it to the game
+	// thread first). Off the game thread nothing here may touch a UObject, so the call is re-queued
+	// onto the game thread and the pointer is only resolved there.
+	if (UPixelStreaming2Delegates* StreamDelegates = UPixelStreaming2Delegates::Get())
+	{
+		ViewersLeftHandle = StreamDelegates->OnAllConnectionsClosedNative.AddLambda(
+			[WeakThis = TWeakObjectPtr<UCompanionRuntimeSubsystem>(this)](FString StreamerId)
+			{
+				auto Reset = [WeakThis, StreamerId]()
+				{
+					if (UCompanionRuntimeSubsystem* Self = WeakThis.Get())
+					{
+						UE_LOG(LogCompanionRuntime, Log,
+							TEXT("Last Pixel Streaming viewer left (streamer '%s'); starting the next session fresh."), *StreamerId);
+						Self->ResetForNextViewer();
+					}
+				};
+				if (IsInGameThread())
+				{
+					Reset();
+				}
+				else
+				{
+					AsyncTask(ENamedThreads::GameThread, MoveTemp(Reset));
+				}
+			});
+	}
 
 	// Voice is opt-in on configuration alone: with no Kokoro URL the mouth still moves from planned
 	// text, so a missing speech service degrades to a silent talker rather than a dead face.
@@ -184,7 +217,29 @@ void UCompanionRuntimeSubsystem::CreateHud()
 	Initial.TtsVoice = CICompanionEnv::Get(TEXT("KOKORO_VOICE"), Initial.TtsVoice);
 	Initial.TtsModel = CICompanionEnv::Get(TEXT("KOKORO_MODEL"), Initial.TtsModel);
 	Initial.LlmModel = CICompanionEnv::Get(TEXT("OLLAMA_MODEL"), Initial.LlmModel);
-	Initial.FaceProfile = CICompanionEnv::Get(TEXT("MHLLM_FACE_PROFILE"), Initial.FaceProfile);
+	// The SAME resolution the face driver uses -- MHLLM_FACE_PROFILE, then the resident's
+	// FaceProfile= tag, then CC -- so the console opens on the profile actually driving the face.
+	// Seeding it from the env var alone (default "CC") was harmless while every resident was the CC
+	// rig Nia. With the MetaHuman resident it would show CC while the face ran ARKit, and the first
+	// unrelated console change (a voice, say) would re-apply CC through ApplySettings and silently
+	// swap the face onto curve names its rig does not have.
+	{
+		const AActor* Resident = nullptr;
+		if (const UCompanionFaceComponent* BoundFace = ResolveFace())
+		{
+			Resident = BoundFace->GetOwner();
+		}
+		else if (UWorld* World = GetWorld())
+		{
+			// The face subsystem may not have run its BeginPlay yet: world subsystems are not
+			// ordered. FindResident is the same const query it will make, so ask it directly.
+			if (const UCompanionFaceSubsystem* FaceSubsystem = World->GetSubsystem<UCompanionFaceSubsystem>())
+			{
+				Resident = FaceSubsystem->FindResident(*World);
+			}
+		}
+		Initial.FaceProfile = UCompanionFaceSubsystem::ResolveProfileName(Resident);
+	}
 	Initial.bVoiceEnabled = !CICompanionEnv::Get(TEXT("KOKORO_SERVER_URL"), FString()).IsEmpty();
 	// Seeded from the SAME env var UCompanionFaceSubsystem reads, because otherwise the two
 	// disagree and this one wins. The face subsystem starts the self-test on MHLLM_FACE_SELFTEST=1
@@ -467,6 +522,17 @@ bool UCompanionRuntimeSubsystem::SubmitUserText(const FString& Text)
 
 void UCompanionRuntimeSubsystem::Deinitialize()
 {
+	// The delegates object is a rooted singleton that outlives this world. Get() cannot create one
+	// here: a valid handle means it already existed.
+	if (ViewersLeftHandle.IsValid())
+	{
+		if (UPixelStreaming2Delegates* StreamDelegates = UPixelStreaming2Delegates::Get())
+		{
+			StreamDelegates->OnAllConnectionsClosedNative.Remove(ViewersLeftHandle);
+		}
+		ViewersLeftHandle.Reset();
+	}
+
 	if (UWorld* World = GetWorld())
 	{
 		FTimerManager& Timers = World->GetTimerManager();
@@ -552,6 +618,36 @@ void UCompanionRuntimeSubsystem::CancelUtterance()
 	bAudioReady = false;
 	bAudioFailed = false;
 	bMouthDriven = true;
+}
+
+void UCompanionRuntimeSubsystem::ResetForNextViewer()
+{
+	// The mouth, the alignment in flight and the grace timer: the reply being spoken is for nobody.
+	CancelUtterance();
+
+	// The conversation itself: the request in flight, the voice, any listening (discarded, not
+	// transcribed) and the history, which goes back to the system prompt alone.
+	if (Companion)
+	{
+		Companion->ResetConversation();
+	}
+
+	if (UCompanionFaceComponent* Face = ResolveFace())
+	{
+		Face->SetGazeMode(FCompanionGazeState::EGazeMode::Contact);
+		Face->ReleaseEmotion(0.0f);
+	}
+
+	// What the next viewer would SEE of the last session: the chat log, a lit mic and a stale status.
+	if (Hud.IsValid())
+	{
+		Hud->ClearChatLog();
+		Hud->SetMicListening(false);
+		Hud->SetStatusText(TEXT("Type to Eliza and press Enter"));
+	}
+
+	UE_LOG(LogCompanionRuntime, Log, TEXT("Session reset for the next viewer: conversation history cleared%s."),
+		GetDefault<UMetaHumanLLMSettings>()->bPersistConversation ? TEXT(" (saved transcript too, MHLLM_MEMORY=1)") : TEXT(""));
 }
 
 void UCompanionRuntimeSubsystem::HandleMicToggled(bool bListening)

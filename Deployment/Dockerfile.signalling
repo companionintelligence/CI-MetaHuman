@@ -1,6 +1,12 @@
+# syntax=docker/dockerfile:1.27.1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 # Build Epic's UE 5.8 Pixel Streaming infrastructure from its public source. Epic's published
 # signalling image stops at 5.5, which makes it an unreliable default for this 5.8 project.
-FROM node:lts
+#
+# The base is pinned by digest. Upstream's own SignallingWebServer/Dockerfile uses the floating
+# `node:lts`; this is what that tag resolved to on 2026-11-12 (Node 26.13.1, Debian trixie).
+# setup.sh accepts any Node >= the NODE_VERSION file at the pinned ref (v22.14.0), so moving the
+# pin forward is safe as long as it stays at or above that.
+FROM node:26.13.1-trixie@sha256:e18c3ccdf7d71619990b0e85639f506e2028a95410999cab24cc373cbd10e0ac
 
 ARG PIXEL_STREAMING_INFRASTRUCTURE_REF=289b9542159a6ee6a5d0f62834f1f27a472397b6
 
@@ -26,5 +32,17 @@ RUN cp /src/NODE_VERSION . \
     && cp /src/package-lock.json . \
     && cp -a /src/Common /src/Signalling /src/SignallingWebServer /src/Frontend . \
     && SignallingWebServer/platform_scripts/bash/setup.sh --build
+
+# The player page's font, served from this image instead of Google Fonts: the patched page names
+# fonts/Montserrat-SemiBold.ttf relative to itself (patch_pixelstreaming_player.py). Copied AFTER
+# the frontend build because webpack empties www/ when it builds; start.sh only rebuilds the
+# frontend when www/ is missing or --build is passed, and without this file the page falls back to
+# a system sans-serif rather than to Google. The OFL licence travels with the font, as it requires.
+COPY pixelstreaming/fonts/ /SignallingWebServer/SignallingWebServer/www/fonts/
+
+# The page the patched player's "Credits" link opens, next to the page for the same reason as the
+# font. It carries the CC BY 4.0 attribution for the eight Sketchfab models in the streamed set,
+# which has to be reachable from the stream itself (NOTICE.md, "3D models under CC BY 4.0").
+COPY pixelstreaming/credits.html /SignallingWebServer/SignallingWebServer/www/credits.html
 
 EXPOSE 8090 8888 8889

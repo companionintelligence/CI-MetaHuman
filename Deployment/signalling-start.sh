@@ -1,14 +1,16 @@
 #!/bin/bash
 # Copyright Epic Games, Inc. All Rights Reserved.
 #
-# PATCHED for ci-metahermit: this is the stock SignallingWebServer start.sh with two changes:
+# PATCHED for ci-metahermit: this is the stock SignallingWebServer start.sh with these changes:
 #   - "--https_redirect" removed from SERVER_ARGS (it binds port 80, which is already taken on
-#     core-2), and
-#   - explicit "--player_port=8090 --streamer_port=8888" added.
+#     core-2),
+#   - explicit "--player_port=8090 --streamer_port=8888" added,
+#   - "--max_players=1" added (one viewer per streamer; see the comment where it is set), and
+#   - the ICE servers are built here instead of by setup_turn_stun (see "ICE servers" below).
 # Everything else — the common.sh sourcing, parse_args, setup (npm install/link/build),
-# set_public_ip, setup_turn_stun, and start_wilbur (npm start) — is verbatim stock, so the
-# build/link/run path is exactly Epic's (my earlier hand-rolled launcher skipped setup's
-# workspace linking and failed at runtime). Mounted over the stock path from the host.
+# set_public_ip, and start_wilbur (npm start) — is verbatim stock, so the build/link/run path is
+# exactly Epic's (my earlier hand-rolled launcher skipped setup's workspace linking and failed at
+# runtime). Mounted over the stock path from the host.
 SCRIPT_DIR="$(cd -P -- "$(dirname -- "$0")" && pwd -P)"
 
 . ${SCRIPT_DIR}/common.sh
@@ -20,19 +22,93 @@ setup $@
 if [[ -z "${PUBLIC_IP:-}" ]]; then
     set_public_ip
 fi
-setup_turn_stun "bg"
+
+# --- ICE servers ---------------------------------------------------------------------------------
+# setup_turn_stun is deliberately NOT called. Without --start-turn all it does is fill in defaults,
+# and those are a public Google STUN server and Epic's well-known static TURN account -- which the
+# stock script then wrote, password included, into the peer options every browser is sent. Here an
+# empty STUN_SERVER means no STUN entry, never a public fallback; compose points it at coturn.
+#
+# Here the TURN entry carries NO credentials. When TURN_STATIC_AUTH_SECRET is set, the server's
+# --turn_secret_file option mints a username/credential pair for each peer as it connects (TURN
+# REST API: the username carries an expiry, the credential is an HMAC of it under the secret coturn
+# also holds), valid for TURN_CREDENTIAL_TTL seconds for a player. Without the secret TURN is left
+# out entirely: a TURN entry nobody can authenticate against only fails later, at ICE, and looks
+# like a network problem.
+#
+# The secret reaches the server through a file in a root-only directory rather than --turn_secret,
+# because SERVER_ARGS is printed by print_config and every argument is visible in `ps`.
+RUNTIME_DIR="/tmp/ci-signalling"
+PEER_OPTIONS_FILE="${RUNTIME_DIR}/peer_options.json"
+TURN_SECRET_FILE="${RUNTIME_DIR}/turn_secret"
+mkdir -p "${RUNTIME_DIR}" && chmod 700 "${RUNTIME_DIR}" && rm -f "${TURN_SECRET_FILE}" || exit 1
+
+# Compose writes these as "${PUBLIC_IP}:3478", which arrives as ":3478" when PUBLIC_IP was blank
+# there; complete it with the address set_public_ip resolved above.
+complete_host() {
+    if [[ "$1" == :* ]]; then echo "${PUBLIC_IP}$1"; else echo "$1"; fi
+}
+# Each value becomes part of an ICE URL inside a JSON string, so refuse anything that could break
+# either: host names, IPv4, bracketed IPv6 and a port only.
+HOST_PORT_RE='^[]A-Za-z0-9._:[-]+$'
+ICE_SERVERS=()
+add_ice_server() { # <scheme> <host:port> [suffix]
+    if [[ "$2" =~ $HOST_PORT_RE ]]; then
+        ICE_SERVERS+=("{\"urls\":[\"$1:$2${3:-}\"]}")
+    else
+        echo "WARNING: ignoring $1 server '$2': expected host:port" >&2
+    fi
+}
+
+STUN_SERVER="$(complete_host "${STUN_SERVER:-}")"
+TURN_SERVER="$(complete_host "${TURN_SERVER:-}")"
+
+if [[ -n "${STUN_SERVER}" ]]; then
+    add_ice_server "stun" "${STUN_SERVER}"
+fi
+# A third-party STUN server is opt-in only: EXTERNAL_STUN_SERVER, comma-separated host:port, empty
+# by default. Every peer that queries one discloses its public address to that server's operator.
+IFS=, read -r -a EXTERNAL_STUN_SERVERS <<< "${EXTERNAL_STUN_SERVER:-}"
+for server in "${EXTERNAL_STUN_SERVERS[@]}"; do
+    server="${server//[[:space:]]/}"
+    if [[ -n "${server}" ]]; then
+        add_ice_server "stun" "${server}"
+    fi
+done
+
+TURN_ARGS=""
+if [[ -n "${TURN_SERVER}" && -n "${TURN_STATIC_AUTH_SECRET:-}" ]]; then
+    TURN_TTL="${TURN_CREDENTIAL_TTL:-3600}"
+    if [[ ! "${TURN_TTL}" =~ ^[1-9][0-9]*$ ]]; then
+        echo "WARNING: TURN_CREDENTIAL_TTL '${TURN_TTL}' is not a positive number of seconds; using 3600" >&2
+        TURN_TTL=3600
+    fi
+    (umask 077 && printf '%s' "${TURN_STATIC_AUTH_SECRET}" > "${TURN_SECRET_FILE}") || exit 1
+    add_ice_server "turn" "${TURN_SERVER}"
+    # coturn's TLS listener, when it has a certificate. The server fills in credentials for turns:
+    # entries exactly as for turn: ones. The browser checks the certificate against this name.
+    if [[ -n "${TURN_TLS_SERVER:-}" ]]; then
+        add_ice_server "turns" "${TURN_TLS_SERVER}" "?transport=tcp"
+    fi
+    TURN_ARGS=" --turn_secret_file=${TURN_SECRET_FILE} --turn_ttl=${TURN_TTL}"
+elif [[ -n "${TURN_SERVER}" ]]; then
+    echo "WARNING: TURN_STATIC_AUTH_SECRET is not set, so no TURN credentials can be issued." \
+         "Offering STUN only; peers that cannot connect directly will fail." >&2
+fi
+unset TURN_STATIC_AUTH_SECRET
+
+(IFS=,; printf '{"iceServers":[%s]}\n' "${ICE_SERVERS[*]}") > "${PEER_OPTIONS_FILE}" || exit 1
 
 SERVER_ARGS+=" --serve --player_port=8090 --streamer_port=8888 --public_ip=${PUBLIC_IP}"
-if [[ ! -z "$STUN_SERVER" && ! -z "$TURN_SERVER" ]]; then
-    PEER_OPTIONS='{\"iceServers\":[{\"urls\":[\"stun:'${STUN_SERVER}'\",\"turn:'${TURN_SERVER}'\"],\"username\":\"'${TURN_USER}'\",\"credential\":\"'${TURN_PASS}'\"}]}'
-elif [[ ! -z "$STUN_SERVER" ]]; then
-    PEER_OPTIONS='{\"iceServers\":[{\"urls\":[\"stun:'${STUN_SERVER}'\"]}]}'
-elif [[ ! -z "$TURN_SERVER" ]]; then
-    PEER_OPTIONS='{\"iceServers\":[{\"urls\":[\"turn:'${TURN_SERVER}'\"],\"username\":\"'${TURN_USER}'\",\"credentials\":\"'${TURN_PASS}'\"}]}'
-fi
-if [[ ! -z "$PEER_OPTIONS" ]]; then
-    SERVER_ARGS+=" --peer_options=\"${PEER_OPTIONS}\""
-fi
+# ONE VIEWER PER STREAMER. The app holds a single conversation, chat log and microphone, so every
+# player subscribed to the streamer shares them: a second viewer would read the first one's
+# conversation and type into it. --max_players is the pinned server's own limit (SignallingWebServer
+# src/index.ts at PIXEL_STREAMING_INFRASTRUCTURE_REF, "maximum number of subscribers per streamer",
+# default 0 = unlimited): a player over it is refused at subscribe with "Streamer ... is full".
+# When that one viewer leaves, the app starts the next session on a fresh conversation
+# (UCompanionRuntimeSubsystem::ResetForNextViewer, bound to Pixel Streaming's "all connections closed").
+SERVER_ARGS+=" --max_players=1"
+SERVER_ARGS+=" --peer_options_file=${PEER_OPTIONS_FILE}${TURN_ARGS}"
 if [[ ! -z "$FRONTEND_DIR" ]]; then
     SERVER_ARGS+=" --http_root=\"$FRONTEND_DIR\""
 fi

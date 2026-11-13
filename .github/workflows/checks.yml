@@ -1,0 +1,538 @@
+name: Checks
+
+# Engine-free checks. Every job here runs on a stock GitHub-hosted runner in a few minutes, with no
+# Unreal Engine and no GPU. One step reads Epic's registry ("Epic digests resolve" in `pins`), and
+# only when the EPIC_GHCR_* secrets are set; without them it warns and passes. The engine-bound
+# suites (Automation specs, packaging, the container cook) are in unreal-self-hosted.yml, which is
+# off by default.
+# Docs/TESTING.md section 8 says what each job proves and what it cannot.
+#
+# Reproducible on purpose, like the release builds it guards: actions are pinned to a commit, the
+# Python tools to exact versions with hashes (Deployment/requirements-ci.txt), and the runner image
+# and Python to exact versions.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The Python of the kokoro-align image (python:3.12.16-slim-trixie in its Dockerfile).
+  PYTHON_VERSION: "3.12.16"
+
+jobs:
+  python:
+    name: Python lint and tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install the pinned CI tools
+        run: python -m pip install --require-hashes -r Deployment/requirements-ci.txt
+
+      # Syntax errors and the pyflakes rules: undefined names, unused variables, broken imports.
+      # Most of these scripts run inside Unreal's embedded Python 3.11, hence the target version.
+      # F401 (unused import) is ignored only until its three existing hits are deleted --
+      # kokoro-align/app.py (io), metahuman/01_import_and_api_probe.py (os), test_import.py (os) --
+      # after which drop the --ignore.
+      - name: Ruff
+        run: >-
+          ruff check --no-cache --isolated --target-version py311
+          --select E9,F --ignore F401 --output-format github
+          Deployment Scripts
+
+      - name: Byte-compile every script
+        run: python -m compileall -q Deployment Scripts
+
+      # Dockerfile.signalling runs this script over Epic's player page at the ref it pins, so test
+      # it against that exact page: it must patch once, then recognise its own patch.
+      - name: Test patch_pixelstreaming_player.py
+        run: |
+          set -euo pipefail
+          patch=Deployment/patch_pixelstreaming_player.py
+          work="$(mktemp -d)"
+
+          ref="$(sed -n 's/^ARG PIXEL_STREAMING_INFRASTRUCTURE_REF=//p' Deployment/Dockerfile.signalling)"
+          test -n "$ref"
+          curl -fsSL --retry 3 -o "$work/player.html" \
+            "https://raw.githubusercontent.com/EpicGames/PixelStreamingInfrastructure/${ref}/Frontend/implementations/typescript/src/player.html"
+          test "$(python "$patch" "$work/player.html")" = "patched"
+          test "$(python "$patch" "$work/player.html")" = "already patched"
+          test "$(grep -c 'data-ci-companion="ci-companion-stream-fixes-v1"' "$work/player.html")" -eq 1
+          # The font is served by the signalling image, not Google: no Google Fonts host may survive,
+          # the @font-face block goes in once, and the file it names is the one the image copies.
+          if grep -nE 'fonts\.(googleapis|gstatic)\.com' "$work/player.html"; then
+            echo "::error file=$patch::the patched page still loads Google Fonts"
+            exit 1
+          fi
+          test "$(grep -c 'data-ci-companion="ci-companion-self-hosted-font-v1"' "$work/player.html")" -eq 1
+          grep -q "url('fonts/Montserrat-SemiBold.ttf')" "$work/player.html"
+          test -s Deployment/pixelstreaming/fonts/Montserrat-SemiBold.ttf
+          test -s Deployment/pixelstreaming/fonts/OFL-Montserrat.txt
+          grep -q '^COPY pixelstreaming/fonts/ ' Deployment/Dockerfile.signalling
+          if grep -nE 'fonts\.(googleapis|gstatic)\.com' Deployment/pixelstreaming/player.html; then
+            echo "::error file=Deployment/pixelstreaming/player.html::still loads Google Fonts"
+            exit 1
+          fi
+          # The credits: one link to credits.html, in the patched page and in the legacy one, and the
+          # signalling image copies the page that link opens.
+          test "$(grep -c 'data-ci-companion="ci-companion-credits-link-v1"' "$work/player.html")" -eq 1
+          grep -q 'href="credits.html"' "$work/player.html"
+          test "$(grep -c 'data-ci-companion="ci-companion-credits-link-v1"' Deployment/pixelstreaming/player.html)" -eq 1
+          test -s Deployment/pixelstreaming/credits.html
+          grep -q '^COPY pixelstreaming/credits.html ' Deployment/Dockerfile.signalling
+
+          # It must refuse a page it cannot patch safely, for the right reason, and leave it untouched.
+          printf '<html><head></head><head></head><title>Pixel Streaming</title></html>\n' > "$work/two-heads.html"
+          printf '<html><head><title>Something else</title></head></html>\n' > "$work/not-a-player.html"
+          printf '<html><head><title>Pixel Streaming</title></head></html>\n' > "$work/no-body.html"
+          refuse() { # refuse <page> <expected error text>
+            cp "$work/$1.html" "$work/$1.orig"
+            if python "$patch" "$work/$1.html" 2> "$work/$1.err"; then
+              echo "::error file=$patch::accepted $1.html"
+              exit 1
+            fi
+            grep -q "$2" "$work/$1.err" || { cat "$work/$1.err"; exit 1; }
+            cmp "$work/$1.html" "$work/$1.orig"
+            echo "refused $1.html: $2"
+          }
+          refuse two-heads 'expected exactly one </head>'
+          refuse not-a-player 'not an Unreal Pixel Streaming player page'
+          refuse no-body 'expected exactly one </body>'
+          echo "patch_pixelstreaming_player.py: OK"
+
+      # The stream's credits page is what a viewer can reach; CREDITS.md and NOTICE.md are the
+      # licensing record behind it. All three must name the same CC BY 4.0 Sketchfab models, so a
+      # model added to or dropped from the set cannot leave the page behind.
+      - name: Credits page matches the licensing record
+        run: |
+          set -euo pipefail
+          work="$(mktemp -d)"
+          models() { { grep -oE 'https://sketchfab\.com/3d-models/[A-Za-z0-9-]+' || true; } | sort -u; }
+          sed -n '/^### Sketchfab models used under CC BY 4.0/,/^### /p' CREDITS.md | models > "$work/CREDITS.md.txt"
+          sed -n '/^## 3D models under CC BY 4.0/,/^## /p' NOTICE.md | models > "$work/NOTICE.md.txt"
+          models < Deployment/pixelstreaming/credits.html > "$work/credits.html.txt"
+          test "$(wc -l < "$work/CREDITS.md.txt")" -gt 0 \
+            || { echo "::error file=CREDITS.md::no models found under 'Sketchfab models used under CC BY 4.0'"; exit 1; }
+          status=0
+          for other in NOTICE.md credits.html; do
+            if ! diff -u "$work/CREDITS.md.txt" "$work/$other.txt"; then
+              echo "::error::CREDITS.md and $other list different CC BY models (diff above)"; status=1
+            fi
+          done
+          grep -q 'href="https://creativecommons.org/licenses/by/4.0/"' Deployment/pixelstreaming/credits.html \
+            || { echo "::error file=Deployment/pixelstreaming/credits.html::no link to the CC BY 4.0 licence"; status=1; }
+          [ "$status" -eq 0 ] && echo "CREDITS.md, NOTICE.md and credits.html name the same $(wc -l < "$work/CREDITS.md.txt") CC BY models"
+          exit "$status"
+
+  kokoro-align:
+    name: kokoro-align lock and smoke test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      # The same install the image runs. --require-hashes also proves the lock is complete: pip
+      # refuses any dependency that is not pinned in it.
+      - name: Install the locked dependencies
+        run: |
+          python -m pip install --require-hashes -r Deployment/kokoro-align/requirements.txt
+          python -m pip check
+
+      # No server, no model download (HF_HUB_OFFLINE), no network: what app.py needs at import and
+      # what misaki needs to phonemize must already be in the lock.
+      - name: Smoke test app.py
+        working-directory: Deployment/kokoro-align
+        env:
+          HF_HUB_OFFLINE: "1"
+        run: |
+          python - <<'PY'
+          import struct
+
+          import numpy as np
+          import spacy.cli
+          import spacy.util
+
+          import app
+
+          routes = {route.path for route in app.app.routes}
+          assert {"/health", "/speak"} <= routes, routes
+          assert app.health() == {"ok": True, "model": app.MODEL_FILE, "frame_rate": app.FRAME_RATE}
+
+          # The RIFF header the client parses: sizes must agree with the payload.
+          wav = app._wav_bytes(np.zeros(2400, dtype=np.float32))
+          assert wav[:4] == b"RIFF" and wav[8:16] == b"WAVEfmt " and wav[36:40] == b"data", wav[:44]
+          assert struct.unpack("<I", wav[4:8])[0] == len(wav) - 8
+          assert struct.unpack("<I", wav[24:28])[0] == app.SAMPLE_RATE
+          assert struct.unpack("<I", wav[40:44])[0] == len(wav) - 44 == 4800
+
+          # en_core_web_sm is baked into the image. If misaki ever reaches for spacy.cli.download,
+          # the image would fetch a model at runtime again, so make that a failure here.
+          assert spacy.util.is_package("en_core_web_sm"), "en_core_web_sm is not installed"
+
+          def refuse_download(*args, **kwargs):
+              raise AssertionError(f"misaki tried to download a spaCy model at runtime: {args}")
+
+          spacy.cli.download = refuse_download
+
+          from misaki import en, espeak
+
+          g2p = en.G2P(trf=False, british=False, fallback=espeak.EspeakFallback(british=False))
+          phonemes, _ = g2p("Welcome to Companion Intelligence, I am Eliza.")
+          print("phonemes:", phonemes)
+          assert phonemes.strip(), "G2P produced no phonemes"
+          # The espeak fallback is what keeps an out-of-vocabulary name from vanishing or turning
+          # into misaki's unknown-word marker (app.py tells the story).
+          eliza, _ = g2p("Eliza")
+          assert eliza.strip(" .,") and "\u2753" not in eliza, f"the espeak fallback did not phonemize 'Eliza': {eliza!r}"
+          print("kokoro-align smoke test: OK")
+          PY
+
+  shell:
+    name: shellcheck and workflow lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install the pinned CI tools
+        run: python -m pip install --require-hashes -r Deployment/requirements-ci.txt
+
+      # Every tracked script except the vendored plugins' (third-party, replaced on update).
+      # Warning-level findings fail the job. The exclusions are the findings that were already there
+      # when this check was added, each scoped to its file: fix the file, then delete its entry.
+      #   signalling-start.sh SC2068: Epic's stock start.sh, kept verbatim apart from two flags.
+      #   m2_clean.sh, m2_full.sh SC2164: `cd` with no `|| exit`, in scripts without `set -e`.
+      - name: shellcheck
+        run: |
+          set -euo pipefail
+          shellcheck --version
+          declare -A known=(
+            [Deployment/signalling-start.sh]=SC2068
+            [Deployment/core2/m2_clean.sh]=SC2164
+            [Deployment/core2/m2_full.sh]=SC2164
+          )
+          status=0
+          while IFS= read -r script; do
+            exclude=()
+            if [ -n "${known[$script]:-}" ]; then exclude=(--exclude="${known[$script]}"); fi
+            shellcheck --severity=warning --format=gcc "${exclude[@]}" "$script" || status=1
+          done < <(git ls-files -- '*.sh' ':!:Plugins/**')
+          exit "$status"
+
+      # actionlint's image bundles shellcheck and pyflakes, so the scripts inside these workflows
+      # are linted too. `unreal` and `docker` are the custom labels unreal-self-hosted.yml asks its
+      # self-hosted runners for; actionlint only knows GitHub's own labels.
+      - name: actionlint
+        run: >-
+          docker run --rm -v "$PWD:/repo:ro" -w /repo
+          rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
+          -color -ignore 'label "(unreal|docker)" is unknown'
+
+  compose:
+    name: Compose config
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: Deployment
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Every combination the compose headers and Docs/BUILD-AND-DEPLOY.md document, rendered twice:
+      # as a clean checkout (no .env, which must still render) and with .env.example, which must
+      # render with NO warnings -- i.e. .env.example names every variable the files interpolate
+      # without a default. Rendering validates the schema, the merge and the interpolation; it
+      # starts nothing, so no image or GPU is needed.
+      - name: Render every documented combination
+        run: |
+          set -euo pipefail
+          docker compose version
+          combos=(
+            "docker-compose.yml"
+            "docker-compose.yml docker-compose.nvidia.yml"
+            "docker-compose.yml docker-compose.amd.yml"
+            "docker-compose.yml docker-compose.amd.yml docker-compose.ollama.yml"
+            "docker-compose.yml docker-compose.amd.yml docker-compose.ollama.yml docker-compose.face.yml"
+            "docker-compose.yml docker-compose.amd.yml docker-compose.ollama.yml docker-compose.ue55.yml"
+            "docker-compose.yml docker-compose.amd.yml docker-compose.ollama.yml docker-compose.mesagit.yml"
+          )
+          test ! -e .env
+          status=0
+          for combo in "${combos[@]}"; do
+            files=()
+            for f in $combo; do files+=(-f "$f"); done
+            echo "== $combo"
+            docker compose "${files[@]}" config --quiet || status=1
+            if ! warnings="$(docker compose --env-file .env.example "${files[@]}" config --quiet 2>&1)"; then
+              echo "$warnings"; status=1
+            elif [ -n "$warnings" ]; then
+              echo "::error::with .env.example, '$combo' renders with warnings:"; echo "$warnings"; status=1
+            fi
+          done
+          exit "$status"
+
+  pins:
+    name: Pins and the stub-map gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Docs/BUILD-AND-DEPLOY.md section 7. Every Dockerfile pins its frontend and every base by
+      # digest (locally built ci/* images excepted); each image:tag has ONE digest across the
+      # Dockerfiles, core2/pin-engine-image.sh, the compose files, these workflows and the docs;
+      # section 7.1 lists exactly the pinned set; the engines agree file to file; and the Pixel
+      # Streaming source ref agrees between Dockerfile.signalling, compose and .env.example.
+      - name: Pin policy
+        run: |
+          python3 - <<'PY'
+          import pathlib
+          import re
+          import sys
+
+          DIGEST = re.compile(r"@sha256:[0-9a-f]{64}$")
+          PINNED = re.compile(r"([a-z0-9][a-z0-9./_-]*):([A-Za-z0-9._-]+)@sha256:([0-9a-f]{64})")
+          root = pathlib.Path(".")
+          dockerfiles = sorted({*root.glob("Deployment/Dockerfile*"), *root.glob("Deployment/*/Dockerfile")})
+          errors = []
+          stage_refs = {}
+
+          for path in dockerfiles:
+              lines = path.read_text(encoding="utf-8").splitlines()
+              if not (lines and lines[0].startswith("# syntax=") and DIGEST.search(lines[0])):
+                  errors.append(f"{path}:1: the first line must be a digest-pinned '# syntax=' directive")
+              args, stages = {}, {}
+              for number, line in enumerate(lines, 1):
+                  arg = re.match(r"ARG\s+(\w+)=(\S+)", line)
+                  if arg:
+                      args.setdefault(arg[1], arg[2])
+                  m = re.match(r"FROM\s+(?:--platform=\S+\s+)?(\S+)(?:\s+AS\s+(\S+))?", line, re.I)
+                  if not m:
+                      continue
+                  ref = re.sub(r"\$\{(\w+)\}", lambda a: args.get(a[1], a[0]), m[1])
+                  if DIGEST.search(ref) or ref in stages:
+                      pass
+                  elif ref.startswith("ci/"):
+                      print(f"{path}:{number}: {ref} is built locally, so it has no registry digest (allowed)")
+                  else:
+                      errors.append(f"{path}:{number}: FROM {m[1]} is not pinned by digest")
+                  if m[2]:
+                      stages[m[2]] = ref
+              stage_refs[path.as_posix()] = stages
+
+          doc = root / "Docs/BUILD-AND-DEPLOY.md"
+          code = [
+              *dockerfiles,
+              root / "Deployment/core2/pin-engine-image.sh",
+              *sorted(root.glob("Deployment/docker-compose*.yml")),
+              *sorted(root.glob(".github/workflows/*.yml")),
+          ]
+          seen, in_code, in_doc = {}, set(), set()
+          for path in [*code, doc]:
+              for m in PINNED.finditer(path.read_text(encoding="utf-8")):
+                  seen.setdefault(f"{m[1]}:{m[2]}", {}).setdefault(m[3], set()).add(path.as_posix())
+                  (in_doc if path == doc else in_code).add(m[0])
+          for name, digests in sorted(seen.items()):
+              if len(digests) > 1:
+                  where = "; ".join(f"{d[:12]} in {', '.join(sorted(p))}" for d, p in digests.items())
+                  errors.append(f"{name} is pinned to {len(digests)} different digests: {where}")
+          for ref in sorted(in_code - in_doc):
+              errors.append(f"{ref} is pinned but not listed in {doc.as_posix()} section 7.1")
+          for ref in sorted(in_doc - in_code):
+              errors.append(f"{doc.as_posix()} section 7.1 lists {ref}, which nothing pins any more")
+
+          nvidia = stage_refs["Deployment/Dockerfile"]
+          amd = stage_refs["Deployment/Dockerfile.amd"]
+          preview = stage_refs["Deployment/Dockerfile.editorpreview"]
+          for stage in ("engine-5.8", "engine-5.5"):
+              if nvidia.get(stage) != amd.get(stage):
+                  errors.append(f"{stage} differs: Dockerfile {nvidia.get(stage)} vs Dockerfile.amd {amd.get(stage)}")
+          if preview.get("engine") != nvidia.get("engine-5.5"):
+              errors.append("Dockerfile.editorpreview's engine is not Dockerfile's engine-5.5")
+          pin_script = (root / "Deployment/core2/pin-engine-image.sh").read_text(encoding="utf-8")
+          default = re.search(r'^DEFAULT_IMAGE="([^"]+)"', pin_script, re.M)
+          if not default or default[1] != nvidia.get("engine-5.8"):
+              errors.append("core2/pin-engine-image.sh DEFAULT_IMAGE is not the engine-5.8 stage the cook uses")
+
+          ps_refs = {
+              "Dockerfile.signalling": re.search(r"^ARG PIXEL_STREAMING_INFRASTRUCTURE_REF=(\S+)", (root / "Deployment/Dockerfile.signalling").read_text(encoding="utf-8"), re.M),
+              "docker-compose.yml": re.search(r"PIXEL_STREAMING_INFRASTRUCTURE_REF:-([0-9a-f]+)\}", (root / "Deployment/docker-compose.yml").read_text(encoding="utf-8")),
+              ".env.example": re.search(r"^PIXEL_STREAMING_INFRASTRUCTURE_REF=(\S+)", (root / "Deployment/.env.example").read_text(encoding="utf-8"), re.M),
+          }
+          values = {k: (v[1] if v else None) for k, v in ps_refs.items()}
+          if len(set(values.values())) != 1 or None in values.values():
+              errors.append(f"PIXEL_STREAMING_INFRASTRUCTURE_REF disagrees: {values}")
+
+          for error in errors:
+              print(f"::error::{error}")
+          sys.exit(1 if errors else 0)
+          PY
+
+      # A digest that does not exist would otherwise first show up as a failed FROM on the build
+      # host. Epic's images are the next step's: reading them needs an Epic-linked GHCR login.
+      - name: Public digests resolve
+        run: |
+          set -euo pipefail
+          refs="$(grep -rhoE '[a-z0-9][a-z0-9./_-]*:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}' \
+            Deployment/Dockerfile* Deployment/*/Dockerfile | sort -u | grep -v '^ghcr.io/epicgames/')"
+          status=0
+          for ref in $refs; do
+            ok=0
+            for attempt in 1 2 3; do
+              if docker buildx imagetools inspect "$ref" > /dev/null; then ok=1; break; fi
+              sleep $((attempt * 5))
+            done
+            if [ "$ok" = 1 ]; then echo "resolves: $ref"; else echo "::error::does not resolve: $ref"; status=1; fi
+          done
+          exit "$status"
+
+      # Epic's digests: every NVIDIA, AMD and editor-preview build starts FROM one of them. Reading
+      # them needs an Epic-linked login, from the EPIC_GHCR_USER and EPIC_GHCR_TOKEN secrets that
+      # unreal-self-hosted.yml also uses (a GitHub account linked to Epic, and a classic token of
+      # it with read:packages). A run without them -- every pull request from a fork is one --
+      # warns that they went unchecked and passes. Docs/BUILD-AND-DEPLOY.md section 7.5 has the
+      # manual check, and section 7.1 the date it last passed.
+      - name: Epic digests resolve
+        env:
+          EPIC_GHCR_USER: ${{ secrets.EPIC_GHCR_USER }}
+          EPIC_GHCR_TOKEN: ${{ secrets.EPIC_GHCR_TOKEN }}
+        run: |
+          set -euo pipefail
+          refs="$(grep -rhoE 'ghcr\.io/epicgames/[a-z0-9./_-]+:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}' \
+            Deployment/Dockerfile* Deployment/*/Dockerfile Deployment/core2/pin-engine-image.sh | sort -u)"
+          test -n "$refs"
+          if [ -z "${EPIC_GHCR_USER:-}" ] || [ -z "${EPIC_GHCR_TOKEN:-}" ]; then
+            echo "::warning::Epic's image digests were NOT checked: this run has no EPIC_GHCR_USER and EPIC_GHCR_TOKEN secrets. Docs/BUILD-AND-DEPLOY.md section 7.5"
+            for ref in $refs; do echo "unchecked: $ref"; done
+            exit 0
+          fi
+          trap 'docker logout ghcr.io > /dev/null 2>&1 || true' EXIT
+          printf '%s' "$EPIC_GHCR_TOKEN" | docker login ghcr.io --username "$EPIC_GHCR_USER" --password-stdin
+          status=0
+          for ref in $refs; do
+            ok=0
+            for attempt in 1 2 3; do
+              if docker buildx imagetools inspect "$ref" > /dev/null; then ok=1; break; fi
+              sleep $((attempt * 5))
+            done
+            if [ "$ok" = 1 ]; then echo "resolves: $ref"; else echo "::error::does not resolve: $ref"; status=1; fi
+          done
+          exit "$status"
+
+      # Run the CHECK_MAP script from Deployment/Dockerfile (and prove Dockerfile.amd carries the
+      # identical script) against fixtures, under the image's /bin/sh. Its stub hash must be the
+      # committed stub's Git LFS oid; this checkout skips LFS, so the map on disk IS that pointer.
+      # The authored cases also need the Content/AUTHOR_RESULT.txt author_diorama.py writes beside
+      # the map, and the provenance cases are what the gate exists for: a map authored before the
+      # resident switch or the NoAI prop gate, and NoAI residents' content nobody asked for.
+      - name: Stub-map gate (CHECK_MAP)
+        run: |
+          set -euo pipefail
+          extract() { sed -n "/^RUN <<'CHECK_MAP'\$/,/^CHECK_MAP\$/p" "$1" | sed '1d;$d'; }
+          work="$(mktemp -d)"
+          extract Deployment/Dockerfile > "$work/check_map.sh"
+          extract Deployment/Dockerfile.amd > "$work/check_map.amd.sh"
+          test -s "$work/check_map.sh"
+          diff -u "$work/check_map.sh" "$work/check_map.amd.sh"
+
+          oid="$(git show HEAD:Content/Maps/CompanionStage.umap | sed -n 's/^oid sha256://p')"
+          test -n "$oid"
+          grep -qx "stub_sha256=$oid" "$work/check_map.sh" \
+            || { echo "::error file=Deployment/Dockerfile::CHECK_MAP's stub_sha256 is not the committed stub's LFS oid ($oid)"; exit 1; }
+
+          status=0
+          expect() { # expect <exit code> <name> <command that prepares Content/Maps>
+            local want=$1 name=$2 setup=$3 dir="$work/$2" got=0
+            mkdir -p "$dir/Content/Maps"
+            (cd "$dir" && eval "$setup" && sh "$work/check_map.sh") > "$dir/out.txt" 2>&1 || got=$?
+            if [ "$got" = "$want" ]; then
+              echo "ok   $name (exit $got): $(head -n 1 "$dir/out.txt")"
+            else
+              echo "::error::CHECK_MAP case '$name' exited $got, expected $want"; cat "$dir/out.txt"; status=1
+            fi
+          }
+          map=Content/Maps/CompanionStage.umap
+          authored() { head -c 300000 /dev/urandom > "$map"; }
+          # result <resident line> [map sha256]: what a successful authoring run leaves beside the map
+          result() {
+            printf '%s\n' start 'NoAI prop slots: 0 of 3 refused' "$1" \
+              "map sha256: ${2:-$(sha256sum "$map" | cut -d ' ' -f 1)}" SUCCESS > Content/AUTHOR_RESULT.txt
+          }
+          manny='resident: MANNEQUIN placed (SKM_Manny)'
+          expect 1 missing 'true'
+          expect 1 lfs-pointer "cp '$GITHUB_WORKSPACE/$map' $map"
+          expect 1 small "head -c 150000 /dev/urandom > $map"
+          expect 0 authored "authored && result '$manny'"
+          expect 0 authored-on-windows "authored && result '$manny' && sed -i 's/\$/\\r/' Content/AUTHOR_RESULT.txt"
+          expect 1 authored-no-result 'authored'
+          expect 1 result-of-another-map "authored && result '$manny' $(printf '%064d' 0)"
+          expect 1 failed-run "authored && result '$manny' && sed -i '/^SUCCESS\$/d' Content/AUTHOR_RESULT.txt"
+          expect 1 before-noai-prop-gate "authored && result '$manny' && sed -i '/^NoAI prop slots/d' Content/AUTHOR_RESULT.txt"
+          expect 1 nia-map-unasked "authored && result 'resident: NIA placed'"
+          expect 1 nia-content-unasked "authored && result '$manny' && mkdir -p Content/CC_ControlRig_Nia"
+          expect 1 seo-content-unasked "authored && result '$manny' && mkdir -p Content/Seo"
+          expect 0 nia-asked-for "authored && result 'resident: NIA placed' && mkdir -p Content/CC_ControlRig_Nia && export RESIDENT=Nia"
+          expect 0 metahuman-asked-for "authored && result 'resident: METAHUMAN placed' && mkdir -p Content/Seo && export RESIDENT=metahuman"
+          expect 1 metahuman-without-seo "authored && result 'resident: METAHUMAN placed' && export RESIDENT=metahuman"
+          expect 1 unknown-resident "authored && result '$manny' && export RESIDENT=someone"
+          expect 0 allow-stub "head -c 150000 /dev/urandom > $map && export ALLOW_STUB_MAP=1"
+          expect 1 allow-stub-authored-no-result 'authored && export ALLOW_STUB_MAP=1'
+          expect 0 synthesized "touch /tmp/CompanionStage.synthesized"
+          rm -f /tmp/CompanionStage.synthesized
+          exit "$status"
+
+  tailnet:
+    name: No tailnet names or addresses
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # This repository is public, and the hosts' tailnet addresses and MagicDNS names are deployment
+      # configuration (Docs/ARCHITECTURE.md section 2.2): .env, core-2's tunnels.env, `tailscale
+      # status`. Fails on a MagicDNS name (<tailnet>.ts.net, with or without a machine in front), on
+      # an address in 100.64.0.0/10, the block Tailscale assigns from, and on a full address in its
+      # IPv6 prefix. The two ends of 100.64.0.0/10 are allowed: coturn's denied-peer-ip names the
+      # block by them.
+      - name: No tailnet host names or addresses in the tree
+        run: |
+          set -euo pipefail
+          hits="$(git grep -nIoE '[A-Za-z0-9-]+\.ts\.net|(^|[^0-9.])100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.[0-9]{1,3}\.[0-9]{1,3}|fd7a:115c:a1e0:[0-9A-Fa-f]{0,4}:[0-9A-Fa-f:]+' || true)"
+          hits="$(printf '%s\n' "$hits" | grep -vE ':[^0-9]?100\.(64\.0\.0|127\.255\.255)$' | grep . || true)"
+          if [ -n "$hits" ]; then
+            printf '%s\n' "$hits" | while IFS=: read -r file line match; do
+              echo "::error file=$file,line=$line::a tailnet host name or address in this public repository: $match"
+            done
+            exit 1
+          fi
+          echo "no tailnet host names or addresses in $(git ls-files | wc -l) tracked files"

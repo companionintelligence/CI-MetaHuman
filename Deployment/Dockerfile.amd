@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1.27.1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 #
 # AMD Pixel Streaming image — parameterized by engine version. ONE file builds either engine:
 #
@@ -55,10 +55,21 @@
 # the two failures above depending on which way you then edit the .ini, so do not "simplify" it.
 #
 # Stage 1 packages on Epic's dev image; stage 2 is an Ubuntu+Mesa (RADV/VAAPI) runtime so the app
-# renders with Vulkan and hardware-encodes over /dev/dri. Prereq: ghcr.io/epicgames access.
+# renders with Vulkan and hardware-encodes over /dev/dri. Prereq: ghcr.io/epicgames access, and the
+# AUTHORED set in Content/ with its AUTHOR_RESULT.txt -- the build refuses to cook the committed
+# 23 KB stub map, or an authored map nothing vouches for (CHECK_MAP).
+#
+# BASE IMAGES ARE PINNED BY DIGEST (tag kept beside each for the reader). RELEASE selects one of
+# the digest-pinned engine stages below instead of the floating dev-<release> tag; BuildKit pulls
+# only the stage it names. The engine digests are shared with Dockerfile, Dockerfile.editorpreview
+# and core2/pin-engine-image.sh -- move them together (CI checks that they agree). See
+# Docs/BUILD-AND-DEPLOY.md section 7.
 
 ARG RELEASE=5.8
-FROM ghcr.io/epicgames/unreal-engine:dev-${RELEASE} AS builder
+FROM ghcr.io/epicgames/unreal-engine:dev-5.8.4@sha256:675755b3b06fc3bf450a1eafe52a75f0d043e8b060932a3e1e703f6cf91b7810 AS engine-5.8
+FROM ghcr.io/epicgames/unreal-engine:dev-5.5.4@sha256:3f7b292cda7f6066aeaea46fa95a520a0d26811810e0d082cfbf5dc85018bd82 AS engine-5.5
+
+FROM engine-${RELEASE} AS builder
 ARG RELEASE
 
 COPY --chown=ue4:ue4 . /home/ue4/project-src
@@ -83,21 +94,164 @@ RUN cd /home/ue4/project-src \
             /home/ue4/UnrealEngine/Engine/Binaries/Linux/UnrealEditor-Cmd /tmp/stage-authoring/StageAuthoring.uproject -run=pythonscript -script=/home/ue4/project-src/Deployment/author_companion_stage.py -unattended -nop4 -nosplash -nullrhi; \
             cp /tmp/stage-authoring/Content/Maps/CompanionStage.umap Content/Maps/CompanionStage.umap; \
             rm -rf /tmp/stage-authoring; \
+            touch /tmp/CompanionStage.synthesized; \
         fi; \
         test -f Content/Maps/CompanionStage.umap; \
     fi
 
+# ---- Refuse to cook the stub map, or a map nothing vouches for -----------------------------
+# The same gate as Dockerfile, byte-for-byte (CI runs this script against fixtures and fails if
+# the two copies differ); Dockerfile's comment explains both halves. On core-2, m2_clean.sh
+# copies the authored Content/ in before building, AUTHOR_RESULT.txt included, and passes the
+# resident it authored as --build-arg RESIDENT, so this passes; what it stops is a build from a
+# clean checkout, whose CompanionStage.umap is the 23 KB stub committed to git, and a build from
+# a stale tree. A pre-5.6 build whose context has NO map still gets the minimal synthesized stage
+# above -- that branch leaves /tmp/CompanionStage.synthesized, and the gate lets it through with
+# a warning. See Docs/BUILD-AND-DEPLOY.md section 2.2.
+ARG ALLOW_STUB_MAP=0
+ARG RESIDENT=mannequin
+WORKDIR /home/ue4/project-src
+RUN <<'CHECK_MAP'
+set -eu
+map=Content/Maps/CompanionStage.umap
+result=Content/AUTHOR_RESULT.txt
+stub_sha256=688fb6b8f0f6528404e9088ba389fd876c344044c947a28395ab0aac64b6fc10
+min_bytes=204800
+resident="$(printf '%s' "${RESIDENT:-mannequin}" | tr '[:upper:]' '[:lower:]')"
+refuse() {
+    echo "CHECK_MAP: REFUSING TO COOK: $1" >&2
+    shift
+    for line in "$@"; do echo "CHECK_MAP: $line" >&2; done
+    exit 1
+}
+lines() { tr -d '\r' < "$result"; }
+case "$resident" in
+    mannequin) placed="resident: MANNEQUIN placed" ;;
+    metahuman) placed="resident: METAHUMAN placed" ;;
+    nia)       placed="resident: NIA placed" ;;
+    *) refuse "RESIDENT=$resident is not one of mannequin (the default), metahuman or nia." ;;
+esac
+# Seo and Nia are Fab content tagged NoAI (NOTICE.md): cooked only when asked for by name, the same
+# rule m2_clean.sh applies to its cook tree. The mannequin is engine content, so nothing under
+# Content/ belongs to it; either folder in a mannequin build's context is a stale tree.
+if [ -d Content/CC_ControlRig_Nia ] && [ "$resident" != nia ]; then
+    refuse "Content/CC_ControlRig_Nia is in the build context of a $resident build." \
+        "It is Reallusion's \"Nia\", Fab content tagged NoAI (NOTICE.md), and a stale tree is how she would" \
+        "ride into an image nobody asked her into. Remove it, or ask for her: --build-arg RESIDENT=nia."
+fi
+if [ -d Content/Seo ] && [ "$resident" = mannequin ]; then
+    refuse "Content/Seo is in the build context of a mannequin build." \
+        "It is the MetaHuman \"Seo\", Fab content tagged NoAI (NOTICE.md), and a mannequin build authors" \
+        "nothing under /Game/Seo. Remove it, or ask for her: --build-arg RESIDENT=metahuman."
+fi
+if [ "$resident" = nia ] && [ ! -d Content/CC_ControlRig_Nia ]; then
+    refuse "RESIDENT=nia, but the build context has no Content/CC_ControlRig_Nia."
+fi
+if [ "$resident" = metahuman ] && [ ! -d Content/Seo ]; then
+    refuse "RESIDENT=metahuman, but the build context has no Content/Seo."
+fi
+if [ -f /tmp/CompanionStage.synthesized ]; then
+    echo "CHECK_MAP: WARNING: $map is the minimal fallback stage this build synthesized for a"
+    echo "CHECK_MAP: pre-5.6 engine (no set, no resident). Cooking it because the context supplied no map."
+    exit 0
+fi
+problem=""
+if [ ! -f "$map" ]; then
+    problem="is missing"
+elif head -c 100 "$map" | grep -q '^version https://git-lfs'; then
+    problem="is a Git LFS pointer, not a map (the checkout was made without git-lfs)"
+elif [ "$(sha256sum "$map" | cut -d ' ' -f 1)" = "$stub_sha256" ]; then
+    problem="is the 23 KB stub committed to git (sky and ground: no set, no resident)"
+elif [ "$(wc -c < "$map")" -lt "$min_bytes" ]; then
+    problem="is only $(wc -c < "$map") bytes, which is a stub rather than the authored set"
+fi
+if [ -z "$problem" ]; then
+    # An authored map, so it is cooked only on the word of the run that authored it. Its bytes cannot
+    # say who stands in it or which props it placed: a map authored before the resident switch (Nia)
+    # or before the NoAI prop gate (three Sketchfab models) passes every check above.
+    if [ ! -f "$result" ]; then
+        refuse "$map has no $result beside it, so nothing vouches for what it contains." \
+            "author_diorama.py writes that file into Content/ with the map; a map authored before it did," \
+            "or copied without it, may hold Nia or the NoAI-tagged props. Copy the authored Content/ whole," \
+            "or re-author: Docs/BUILD-AND-DEPLOY.md section 2.2."
+    fi
+    lines | grep -qx 'SUCCESS' || refuse "$result does not report SUCCESS: that authoring run failed."
+    lines | grep -q "^$placed" || refuse "$result has no \"$placed\" line (RESIDENT=$resident)." \
+        "The map holds another resident, or none: $(lines | grep '^resident: ' | tail -n 1)"
+    lines | grep -q '^NoAI prop slots: ' || refuse "$result has no \"NoAI prop slots\" line." \
+        "It predates author_diorama.py refusing NoAI-tagged props, so ibm-1401-cpu, ibm-3178-terminal and" \
+        "ibm-3350-disk may be the Sketchfab models CREDITS.md says were replaced. Re-author."
+    recorded="$(lines | sed -n 's/^map sha256: \([0-9a-f]\{64\}\)$/\1/p' | tail -n 1)"
+    actual="$(sha256sum "$map" | cut -d ' ' -f 1)"
+    if [ "$recorded" != "$actual" ]; then
+        refuse "$result belongs to another map: it records map sha256 ${recorded:-(none)}, and $map is $actual." \
+            "Copy the authored Content/ whole, map and result together, or re-author."
+    fi
+    echo "CHECK_MAP: OK, $map is $(wc -c < "$map") bytes, and $result vouches for it:"
+    echo "CHECK_MAP: $placed; $(lines | grep '^NoAI prop slots: ' | tail -n 1)"
+    exit 0
+fi
+if [ "${ALLOW_STUB_MAP:-0}" = "1" ]; then
+    echo "CHECK_MAP: WARNING: $map $problem."
+    echo "CHECK_MAP: ALLOW_STUB_MAP=1, so cooking it anyway. This image opens onto an EMPTY STAGE; never ship it."
+    exit 0
+fi
+echo "CHECK_MAP: REFUSING TO COOK: $map $problem." >&2
+echo "CHECK_MAP: This Dockerfile does not author the set. Author it, put the authored Content/ in the" >&2
+echo "CHECK_MAP: build context, and rebuild: Docs/BUILD-AND-DEPLOY.md section 2.2. (Dockerfile.amd with" >&2
+echo "CHECK_MAP: RELEASE < 5.6 instead synthesizes a minimal fallback stage when the context has NO map.)" >&2
+echo "CHECK_MAP: --build-arg ALLOW_STUB_MAP=1 builds anyway, for a toolchain smoke test only." >&2
+exit 1
+CHECK_MAP
+
+# ---- RADV workarounds, baked into the image's config ---------------------------------------
+# docker-compose.amd.yml used to pass these as -ExecCmds. This image is now a Shipping build (see
+# the cook below), and Shipping compiles out every command-line route to a cvar (-ExecCmds, -ini:
+# and -dpcvars), so they would have been dropped without a word. They go into the project's Linux
+# engine config instead: [SystemSettings] is read at startup by every build configuration, and only
+# this AMD image writes the file, so the NVIDIA image keeps the engine defaults. Two differences
+# from -ExecCmds, both in the direction the list intends: the values hold from the first frame
+# rather than after it (so read-only cvars such as r.RayTracing now apply too), and the cook sees
+# them as well. -noraytracing stays on the compose command line; Shipping honours it.
+# Not yet measured on the Strix Halo host: verify the stream there before relying on it.
+RUN mkdir -p Config/Linux \
+ && printf '%s\n' '' \
+        '; Written by Deployment/Dockerfile.amd: the RADV workarounds from docker-compose.amd.yml.' \
+        '[SystemSettings]' \
+        'r.RayTracing=0' \
+        'r.Lumen.HardwareRayTracing=0' \
+        'r.DynamicGlobalIlluminationMethod=0' \
+        'r.ReflectionMethod=0' \
+        'r.SkyLight.RealTimeReflectionCapture=0' \
+        'r.SkyAtmosphere=0' \
+        'r.ReflectionCaptureResolution=0' \
+        'r.Vulkan.WaitForIdleOnSubmit=2' \
+        'r.GenerateMeshDistanceFields=0' \
+        'r.Nanite=0' \
+    >> Config/Linux/LinuxEngine.ini \
+ && cat Config/Linux/LinuxEngine.ini
+
+# Shipping, like Dockerfile: no console, cheat or stat commands, no command-line overrides, and no
+# engine log on stdout (Dockerfile's cook step says why an installed engine cannot add it back).
 RUN /home/ue4/UnrealEngine/Engine/Build/BatchFiles/RunUAT.sh BuildCookRun \
     -project=/home/ue4/project-src/MetaHumanLocalLLM.uproject \
-    -clientconfig=Development -utf8output -nodebuginfo -map=/Game/Maps/CompanionStage -noP4 \
+    -clientconfig=Shipping -utf8output -nodebuginfo -map=/Game/Maps/CompanionStage -noP4 \
     -cook -build -stage -prereqs -pak -archive \
     -archivedirectory=/home/ue4/project-src/dist \
     -platform=Linux
 
+# The licence and attributions travel with the package, as in Dockerfile (whose comment says why):
+# MetaHumanLocalLLM.Build.cs stages them, and this refuses an image that came out without them.
+RUN for f in LICENSE NOTICE.md CREDITS.md; do \
+        test -s "dist/Linux/MetaHumanLocalLLM/$f" || { \
+            echo "The package has no MetaHumanLocalLLM/$f, so it would ship without its licence and attributions." >&2; \
+            exit 1; }; \
+    done
+
 # ---- AMD runtime image ----
 # Ubuntu 26.04 matches the host's Mesa 26.x (needed for the Strix Halo / RDNA 3.5 GPU; older
 # Mesa yields VK_ERROR_INCOMPATIBLE_DRIVER). /dev/dri is passed in at runtime by the compose.
-FROM ubuntu:26.04
+FROM ubuntu:26.04@sha256:065aa8626841f16057b78b027b464cd59c4fac36c204c72dcbf48d66f5fa8a96
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         mesa-vulkan-drivers mesa-va-drivers libvulkan1 vulkan-tools vainfo \
         libva2 libva-drm2 libegl1 libgl1 libglu1-mesa \

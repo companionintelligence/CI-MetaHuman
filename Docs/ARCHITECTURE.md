@@ -18,14 +18,16 @@ conversational turn actually travels*. Deeper topics have their own files — se
 
 ## 1. What Eliza is
 
-A photoreal Reallusion Character Creator avatar ("Nia", named Eliza in persona) standing in a
-1970s mainframe room, rendered in Unreal Engine, holding a conversation with a visitor. Every
+An avatar (named Eliza in persona) standing in a 1970s mainframe room, rendered in Unreal Engine,
+holding a conversation with a visitor. By default the avatar is a faceless placeholder, Epic's UE
+mannequin, because both photoreal characters on hand (the MetaHuman "Seo" and the Reallusion Character
+Creator "Nia") are Fab content tagged NoAI and are built only when asked for by name. Every
 model runs on hardware we own. Nothing leaves the tailnet.
 
 | | |
 |---|---|
 | **Engine** | UE **5.8** — what the project authors, builds and cooks. The C++ still compiles on 5.5 and is still tested there (§5.4); the **content** is what cannot go back. Every git-tracked package under `Content/` is UE5 package version **1018**, UE 5.5.4 reads at most **1013**, and package serialisation is forward-only, so a 5.5 cook fails at asset *load* — see the header of `Scripts/BuildNative.ps1` and [`COMPAT-AND-ECOSYSTEM-REVIEW.md`](COMPAT-AND-ECOSYSTEM-REVIEW.md) |
-| **Avatar** | Reallusion CC "Nia" — **CC-named** morph targets (`V_*`), *not* ARKit. 286 morph targets, all 15 CC visemes present |
+| **Avatar** | Epic's UE mannequin by default: no facial rig, so the face driver resolves 0 curves ([`SCENE-AUTHORING.md`](SCENE-AUTHORING.md#the-resident)). Opt-in only, because both listings say no to AI use: the MetaHuman "Seo" (`-Resident MetaHuman`), face tagged `FaceProfile=ARKit` and unverified against the exported face, and the Reallusion CC "Nia" (`-Resident Nia`) — **CC-named** morph targets (`V_*`), *not* ARKit, 286 morph targets, all 15 CC visemes present. The measurements in this document were taken on Nia |
 | **Cognition** | Ollama `qwen3.8:27b`, thinking disabled — **424–914 ms** warm on beta-1 |
 | **Voice out** | Kokoro via AMD Lemonade Server, OpenAI-shaped HTTP — **1166 ms** median |
 | **Voice in** | Whisper via the same Lemonade endpoint — **66 ms** median. Service works; **not wired to a UI control** (§6) |
@@ -83,17 +85,23 @@ has (the core-2 tunnels are a core-2 arrangement, not part of the app).
 
 ### 2.2 The two hosts
 
+Machine names only. Their tailnet addresses and MagicDNS names are deployment configuration
+(`PUBLIC_IP`, `CI_PORTAL_REDIRECT_URL`, the tunnel units' targets) and are deliberately not written
+here.
+
 | Host | Hardware | Runs | Why |
 |---|---|---|---|
-| **core-2** `100.101.156.33` | Ryzen AI Max+ 395 "Strix Halo" iGPU (gfx1151), shared memory | UE app, Pixel Streaming, signalling, TURN | Renders and encodes. **Measured: not a cognition host** — `gemma4:e2b` takes ~12 s a reply here because inference contends with the same silicon that is rendering and VP8-encoding a live stream |
-| **beta-1** `100.124.211.75` | 2× discrete Navi 31, 2×25.7 GB VRAM, ROCm 6.4, 64c Threadripper PRO | Ollama, Lemonade (Kokoro + Whisper), kokoro-align | Moving inference here turned a 12 s reply into **814 ms while going from a 2 B model to a 27 B one** — measured at the time on `qwen3.6:27b`, which beta-1 no longer serves; the current model is `qwen3.8:27b`. The accelerator was the bottleneck, never the model size |
+| **core-2** (streaming host) | Ryzen AI Max+ 395 "Strix Halo" iGPU (gfx1151), shared memory | UE app, Pixel Streaming, signalling, TURN | Renders and encodes. **Measured: not a cognition host** — `gemma4:e2b` takes ~12 s a reply here because inference contends with the same silicon that is rendering and VP8-encoding a live stream |
+| **beta-1** (inference host) | 2× discrete Navi 31, 2×25.7 GB VRAM, ROCm 6.4, 64c Threadripper PRO | Ollama, Lemonade (Kokoro + Whisper), kokoro-align | Moving inference here turned a 12 s reply into **814 ms while going from a 2 B model to a 27 B one** — measured at the time on `qwen3.6:27b`, which beta-1 no longer serves; the current model is `qwen3.8:27b`. The accelerator was the bottleneck, never the model size |
 
 ### 2.3 The tunnels
 
 Every model port on beta-1 is bound to **beta-1's loopback** — Ollama by a running process that
 predates its own `OLLAMA_HOST=0.0.0.0`, Lemonade and the aligner by container port maps published
 to `127.0.0.1`. None is reachable across Tailscale as published, so each is forwarded by its own
-`--user` systemd unit on core-2.
+`--user` systemd unit on core-2. The units read beta-1's address from `BETA1_HOST` in
+`~/.config/ci-metahuman/tunnels.env` on core-2 rather than naming it
+([`Deployment/core2/README.md`](../Deployment/core2/README.md) § *Service tunnels*).
 
 | Unit (`Deployment/core2/`) | core-2 port | beta-1 service | Consumed by |
 |---|---|---|---|

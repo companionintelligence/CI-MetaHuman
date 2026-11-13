@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1.27.1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 #
 # FAST-PREVIEW editor image. The problem this solves:
 #
@@ -16,10 +16,14 @@
 #   docker build -f Deployment/Dockerfile.editorpreview -t ci/ue55-editor-preview:mesa .
 #
 # The build context is irrelevant (both FROM images are local); nothing is COPYed from context.
+#
+# Both bases are pinned by digest (tag kept beside each for the reader). The dev-5.5 digest is
+# shared with Dockerfile and Dockerfile.amd, and ubuntu:26.04 with Dockerfile.amd: move them
+# together (CI checks that they agree). See Docs/BUILD-AND-DEPLOY.md section 7.
 
-FROM ghcr.io/epicgames/unreal-engine:dev-5.5 AS engine
+FROM ghcr.io/epicgames/unreal-engine:dev-5.5.4@sha256:3f7b292cda7f6066aeaea46fa95a520a0d26811810e0d082cfbf5dc85018bd82 AS engine
 
-FROM ubuntu:26.04
+FROM ubuntu:26.04@sha256:065aa8626841f16057b78b027b464cd59c4fac36c204c72dcbf48d66f5fa8a96
 ENV DEBIAN_FRONTEND=noninteractive
 # The deploy runtime set (proven to render UE 5.5 on this GPU) + editor extras: python3 for
 # -run=pythonscript, icu/xml/fontconfig for the editor's non-nullrhi module set. The engine

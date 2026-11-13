@@ -119,7 +119,7 @@ implies — verified by probe against a running instance, not assumed.
 | `MHLLM_HUD` | *(unset = on)* | `0` suppresses the chat HUD |
 | `MHLLM_CONSOLE` | `0` | `1` opens the operator console at startup. `/console` toggles it live |
 | `MHLLM_GREETING` | `none` | An LLM-generated opening turn on a 5 s timer. **Default `none`** because the opening is now scripted, and two greetings collide |
-| `MHLLM_FACE_PROFILE` | `CC` (hard-coded) | `CC` = Reallusion Character Creator; `ARKit` = MetaHuman. **The two share no curve names** — anything unrecognised silently becomes `CC` |
+| `MHLLM_FACE_PROFILE` | *(empty)* | `CC` = Reallusion Character Creator; `ARKit` = MetaHuman. **The two share no curve names** — anything unrecognised silently becomes `CC`. Empty means *the rig the map declares*: the resident's `FaceProfile=` tag (`ARKit` on the opt-in MetaHuman, `CC` on Nia), and `CC` for a map authored before that tag existed or for the default mannequin, which has no rig and resolves nothing either way. It used to be a hard-coded `CC` |
 | `MHLLM_FACE_SELFTEST` | `0` (hard-coded) | Cycles all 15 visemes. Off deliberately: with it on the mouth moves whether or not the LLM ever replies, masking the exact failure the deployment exists to expose |
 | `MHLLM_EMOTION` | `1` | `0` disables facial emotion. Deliberately opt-**out**, unlike `MHLLM_OPENING_SHOT`: *"an expressionless face is the regression"*. Set to `0` to isolate a lip-sync problem from an expression problem in a capture |
 | `MHLLM_GAZE` | *(unset = on)* | `0` disables eye aim, saccades and the planning aversion. Opt-**out** for the same reason `MHLLM_EMOTION` is: a dead stare is the regression this fixes. Set to `0` to isolate an eye problem from a lip-sync one |
@@ -136,7 +136,7 @@ and appear in no compose file and no `.env.example`, so in practice they are alw
 | Variable | Default | Effect |
 |---|---|---|
 | `MHLLM_MAX_TURNS` | `24` | Retained user+assistant **pairs**, excluding the system prompt. `0` = unlimited. `/api/chat` has no server-side session, so the entire transcript is re-sent every turn: uncapped, each turn costs more than the last until the request overruns the context window, at which point the server truncates **from the front** and the first thing lost is the persona. She does not error — she stops being Eliza |
-| `MHLLM_MEMORY` | `0` | `1` persists the conversation across sessions. **Opt-in, deliberately**: turning it on writes everything anyone says to this companion to disk in plain text, indefinitely. Reasonable for an operator to choose, unreasonable to choose on their behalf — a kiosk must not quietly accumulate transcripts of its visitors |
+| `MHLLM_MEMORY` | `0` | `1` persists the conversation across sessions. **Opt-in, deliberately**: turning it on writes everything anyone says to this companion to disk in plain text, indefinitely. Reasonable for an operator to choose, unreasonable to choose on their behalf — a kiosk must not quietly accumulate transcripts of its visitors. Over Pixel Streaming the conversation is reset when the last viewer disconnects (`UCompanionRuntimeSubsystem::ResetForNextViewer`), and with this on the saved transcript is overwritten too: the stream cannot tell one visitor from the next, so it does not carry one's conversation into another's |
 | `MHLLM_MEMORY_PATH` | *(empty)* | Absolute path for that transcript. Blank uses `Saved/Companion/Conversation.json`, which survives a cook and is never packaged into one |
 | `MHLLM_CHAT_TIMEOUT` | `180` | Seconds before a chat request is abandoned. `0` keeps the engine default. Neither client set a timeout at all, so a backend that accepted the connection and then went quiet left the HUD on `thinking...` for the rest of the session, with no error and no way back short of a restart |
 
@@ -163,12 +163,13 @@ would be silently ignored on every machine that had already held one conversatio
 
 | Variable | Container default | Windows value |
 |---|---|---|
-| `MHLLM_GLB_DIR` | `/glb` | `C:\devel\llm-metahuman\scene\glb` or `-GlbDir` |
-| `MHLLM_MH_DIR` | `/mh` | `Deployment\metahuman` |
+| `MHLLM_RESIDENT` | `mannequin` | `mannequin` (default), `metahuman` or `nia`, set by `-Resident`. `metahuman` (Seo) and `nia` are opt-in for licence reasons (README *Licensing*); anything else fails the authoring run |
+| `MHLLM_GLB_DIR` | `/glb` | `C:\devel\llm-metahuman\scene\glb` or `-GlbDir`. `ibm-1401-cpu.glb`, `ibm-3178-terminal.glb` and `ibm-3350-disk.glb` are imported only if CI-authored (`asset.copyright` names Companion Intelligence) |
+| `MHLLM_MH_DIR` | `/mh` | the Seo FBX export: `-MetaHumanDir`, else `C:\devel\_mh-convert\out\seo`; read only with `-Resident MetaHuman` (or Nia's fall-back). Was `Deployment\metahuman`, which holds the conversion scripts and no FBX |
 | `MHLLM_AUDIO_DIR` | `/audio` | `Deployment\audio` |
 | `MHLLM_GEN_DIR` | `MHLLM_GLB_DIR` | `Deployment\generated` |
-| `MHLLM_AUTHOR_RESULT` | `/out/AUTHOR_RESULT.txt` | `Saved\AUTHOR_RESULT.txt` |
-| `MHLLM_NIA_CONTENT` | — | `..\CharacterCreatorNia\Content\CC_ControlRig_Nia` or `-NiaContent` |
+| `MHLLM_AUTHOR_RESULT` | `/out/AUTHOR_RESULT.txt` | `Saved\AUTHOR_RESULT.txt`. Either way every line also goes to `Content/AUTHOR_RESULT.txt`, beside the map, for the image builds' `CHECK_MAP` and `-SkipAuthoring` |
+| `MHLLM_NIA_CONTENT` | — | `..\CharacterCreatorNia\Content\CC_ControlRig_Nia` or `-NiaContent`; read only with `-Resident Nia` |
 
 ---
 
@@ -180,8 +181,14 @@ would be silently ignored on every machine that had already held one conversatio
 | `UE_RELEASE_SHORT` | `5.8` (from `.env.example`) | **Nothing reads it.** Repo-wide the name occurs only in `.env.example`, in a `docker-compose.yml` comment recording that it is dead, and in this table — no compose file consumes it and no source file reads it. Dead rather than merely undelivered |
 | `PROJECT_DOCKERFILE` | `Deployment/Dockerfile` | Set to `Deployment/Dockerfile.amd` on core-2 |
 | `SIGNALLING_IMAGE` | `ci/pixelstreaming-signalling:ue5.8` | Built from the pinned Epic Pixel Streaming Infrastructure source |
-| `PUBLIC_IP` | auto-detected by `run.sh` (via `api.ipify.org`, curl or wget) | `--publicIp` and the TURN ICE URL. `docker-compose.ollama.yml` defaults the signalling service's copy to `127.0.0.1` |
-| `TURN_USER` / `TURN_PASSWORD` | `ci-agent` / `change-me-turn-password`, both from `.env.example` — the compose interpolates them with no fallback | coturn credentials |
+| `PUBLIC_IP` | auto-detected by `run.sh` (via `api.ipify.org`, curl or wget) | `--public_ip`, and the host in the STUN and TURN ICE URLs (both coturn on `:3478`). coturn also exempts it from `denied-peer-ip`, alongside the host's own interface addresses (see `TURN_ALLOWED_PEER_IPS`). Unset when the signalling container starts, `signalling-start.sh` falls back to the same `api.ipify.org` lookup — a request that leaves the tailnet, so pin it. No compose file in `Deployment/` overrides it |
+| `TURN_STATIC_AUTH_SECRET` | empty — **required for a TURN relay**; generate once with `openssl rand -hex 32` | Shared secret for coturn's `use-auth-secret` mode (the TURN REST API scheme). `coturn/entrypoint.sh` appends it to the runtime config and **refuses to start** without it, so there is never an open or static-account relay. `signalling-start.sh` hands it to the signalling server through a `0600` file (`--turn_secret_file`), and the server mints a username/credential pair for each peer as it connects: the username carries an expiry, the credential is an HMAC of it. Blanked for the `project` container. Unset, the peer options carry no TURN entry at all |
+| `TURN_CREDENTIAL_TTL` | `3600` | Seconds a credential issued to a **player** (browser) can open a relay (`--turn_ttl`). A relay already open keeps running past it, and each new connection is issued a fresh pair. The streamer is configured once, so the server gives it a long-lived pair instead |
+| ~~`TURN_USER` / `TURN_PASSWORD`~~ | **retired** | One static coturn account whose password the signalling server wrote into the peer options of every browser that loaded the player page. Delete both from an older `.env`; the `project` service still blanks `TURN_PASSWORD` for an `.env` that has it |
+| `TURN_TLS_CERT_FILE` / `TURN_TLS_KEY_FILE` | empty — `/dev/null` is mounted in their place and the TLS listener stays off (`no-tls`) | Host paths to a PEM certificate chain and key for coturn's TLS listener on `5349` (TLS 1.0/1.1 refused). Set both or neither — half a pair stops the container. The key must be readable by the image's `nobody:nogroup` (uid/gid 65534) |
+| `TURN_TLS_SERVER` | empty | `host:5349` advertised to peers as `turns:…?transport=tcp`, with the same minted credentials. Must be the **name** in the certificate, not an IP |
+| `EXTERNAL_STUN_SERVER` | empty | **Opt-in** third-party STUN, comma-separated `host:port`, added to the default. The default STUN server is the stack's own coturn at `PUBLIC_IP:3478`; the base compose used to hard-code a public Google server, which disclosed every viewer's address to a third party. An empty value adds nothing — there is no public fallback |
+| `TURN_ALLOWED_PEER_IPS` | empty | Extra exemptions from `turnserver.conf`'s `denied-peer-ip` ranges (loopback, link-local, RFC 1918, CGNAT/tailnet, ULA, IPv4-mapped and more; multicast via `no-multicast-peers`). Comma-separated addresses or `first-last` ranges; an invalid entry stops the container. Needed only for a peer on **another** machine inside those ranges: `coturn/entrypoint.sh` already exempts each of the host's own addresses (every interface address except loopback and link-local, read from `/proc/net` when the container starts), because the host-networked streamer's candidates and coturn's own relays are on them, and `PUBLIC_IP` as well. That is what keeps relaying working on a host behind NAT (a cloud VM with 1:1 NAT, a port-forwarded box), where `PUBLIC_IP` is the NAT's address and every interface address is private. Each exemption is a single address, never its subnet. An address the host gains after coturn starts needs a `turnserver` restart |
 | `STREAM_RES_X` / `STREAM_RES_Y` | `720` / `1280` (AMD override) | **Portrait** — the product is a video call |
 | `RENDER_GID` / `VIDEO_GID` | `992` / `44` (AMD override) | `/dev/dri` access by **numeric GID**, because the group *names* (`render`, `video`) may not exist inside the container. These are core-2's; use `getent group render video` for another host |
 | `LIBVA_DRIVER_NAME` | `radeonsi` (AMD override) | VAAPI encoder driver |
@@ -190,7 +197,18 @@ would be silently ignored on every machine that had already held one conversatio
 | `XDG_RUNTIME_DIR` | `/tmp` (AMD override) | Vulkan/offscreen runtime dir |
 | `KOKORO_REPO` | `onnx-community/Kokoro-82M-v1.0-ONNX-timestamped` | Aligner sidecar model repo |
 | `KOKORO_MODEL_FILE` | `onnx/model.onnx` | **Not** `model_q8f16.onnx` — that one *segfaults* the CPU execution provider on load (exit 139, no Python traceback). Full precision runs 6× realtime on this box, so the quantized variants buy nothing |
+| `KOKORO_ALIGN_SUBNET` / `KOKORO_ALIGN_IP` | `10.213.13.0/29` / `10.213.13.2` (NVIDIA override) | The aligner sidecar's own bridge network and its fixed address on it. It used to run with `network_mode: host`, listening on every host interface; now it publishes no port and is reachable only from this host. `project` is host-networked and cannot resolve service names, hence a fixed address: set `KOKORO_ALIGNER_URL=http://10.213.13.2:13401` (or your `KOKORO_ALIGN_IP`) — `127.0.0.1:13401` no longer reaches it. Not `internal: true`, because first use downloads the Kokoro weights and misaki's spaCy model |
+| `KOKORO_ALIGN_TOKEN` | empty — no check | Optional shared token the sidecar requires on `/speak` (`Authorization: Bearer …`, or HTTP Basic with the token as password); `/health` stays open for the healthcheck. **The UE client sends no `Authorization` header yet** (`KokoroPhonemeAligner.cpp`), so setting it turns alignment off for the app until the client does |
 | `CI_PORTAL_*`, `OIDC_COOKIE_SECRET` | **no longer in `.env.example`** — moved to `.env.edge.example` and renamed to `OAUTH2_PROXY_CLIENT_SECRET` / `OAUTH2_PROXY_COOKIE_SECRET` (still the `change-me-…` placeholders), so the app container stops receiving them | oauth2-proxy, via its own `env_file`. **Never worked**, per `HANDOFF.md` lesson 15: the configured issuer `portal.companionintelligence.com` is NXDOMAIN, and the client id/secret were never registered in CI-Portal. The proxy was not run; only the file contents were checked |
+| `CI_PORTAL_ALLOWED_EMAILS_FILE` | empty — `/dev/null` is mounted in its place, an empty list | Host path to oauth2-proxy's `authenticated_emails_file`, one address per line. Keep it outside the checkout (it lists real people) and world-readable; restart `oidc-proxy` after editing. A path that does not exist stops the container rather than opening the gate |
+| `CI_PORTAL_ALLOWED_EMAIL_DOMAINS` | empty | Comma-separated domains whose addresses pass → `OAUTH2_PROXY_EMAIL_DOMAINS` |
+| `CI_PORTAL_ALLOWED_GROUPS` | empty | Comma-separated groups from the ID token's `groups` claim → `OAUTH2_PROXY_ALLOWED_GROUPS`. **Narrows** the address check rather than adding to it: oauth2-proxy requires the address to pass *and* the group to match. To admit by group alone, set `CI_PORTAL_ALLOWED_EMAIL_DOMAINS=*` with it — never `*` on its own |
+
+**The sign-in gate denies by default.** `oauth2-proxy.cfg` used to carry `email_domains = ["*"]`, so
+any account CI Portal would sign in could watch the stream. It now sets no domains at all, and with
+the three `CI_PORTAL_ALLOWED_*` keys blank every account gets a 403 after signing in. A domain list
+must not go back into the `.cfg`: oauth2-proxy treats an *empty* `OAUTH2_PROXY_EMAIL_DOMAINS` as unset
+and falls back to the file, so a value there would silently become the default.
 
 ---
 

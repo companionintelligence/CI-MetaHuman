@@ -36,6 +36,11 @@ StartLimitIntervalSec=0
 # than a refusal. ConnectTimeout bounds the other end of the same problem: on ssh's default a
 # connect to a beta-1 that is unreachable rather than refusing sits in the kernel's TCP retry
 # schedule, the unit "running" throughout and the port not forwarded.
+#
+# beta-1's address is read from BETA1_HOST in ~/.config/ci-metahuman/tunnels.env, the file all three
+# tunnel units share; it is deployment configuration and is not recorded in this public repository.
+# The file is required: without it the unit refuses to start (see core2/README.md).
+EnvironmentFile=%h/.config/ci-metahuman/tunnels.env
 ExecStart=/usr/bin/ssh -N \
   -o ExitOnForwardFailure=yes \
   -o ConnectTimeout=10 \
@@ -43,7 +48,7 @@ ExecStart=/usr/bin/ssh -N \
   -o ServerAliveCountMax=3 \
   -o StrictHostKeyChecking=accept-new \
   -L 127.0.0.1:13305:127.0.0.1:13305 \
-  ci@100.124.211.75
+  ci@${BETA1_HOST}
 Restart=always
 RestartSec=5
 # Widen the gap between retries from RestartSec toward RestartMaxDelaySec over RestartSteps, so a

@@ -23,10 +23,10 @@ MEASURED (beta-1, CPU only, no ROCm needed for an 82M model):
     "Welcome to Companion Intelligence." -> 34 phonemes, 499ms inference for 3.02s of audio
     (6.1x realtime); durations summed to 3.05s against 3.02s of emitted audio, a 1% match.
 """
-import base64, io, os, struct, time
+import base64, hmac, io, os, struct, time
 import numpy as np
 import onnxruntime as ort
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException, Request
 from pydantic import BaseModel
 from huggingface_hub import hf_hub_download
 import json
@@ -41,6 +41,33 @@ SAMPLE_RATE = 24000
 # Confirmed empirically rather than assumed: predicted durations summed to 3.05s against
 # 3.02s of actual audio.
 FRAME_RATE = 40.0
+
+# Optional shared token. Blank (the default) leaves /speak open, which is only acceptable because
+# the compose stack keeps this service off the host network with no published port. When set,
+# /speak requires `Authorization: Bearer <token>`; HTTP Basic with the token as the password is
+# accepted too, for clients that can only put credentials in a URL. /health stays open so the
+# container healthcheck and a bare status probe need no secret -- it reveals nothing but the model
+# file name.
+_TOKEN = os.environ.get("KOKORO_ALIGN_TOKEN", "").strip()
+
+
+def _require_token(request: Request) -> None:
+    if not _TOKEN:
+        return
+    scheme, _, value = request.headers.get("authorization", "").partition(" ")
+    supplied = ""
+    if scheme.lower() == "bearer":
+        supplied = value.strip()
+    elif scheme.lower() == "basic":
+        try:
+            supplied = base64.b64decode(value.strip(), validate=True).decode("utf-8").partition(":")[2]
+        except ValueError:  # bad base64, non-ASCII header, or undecodable bytes
+            supplied = ""
+    # Constant-time comparison, so response timing does not leak how much of a guess was right.
+    if not supplied or not hmac.compare_digest(supplied.encode("utf-8"), _TOKEN.encode("utf-8")):
+        raise HTTPException(status_code=401, detail="missing or invalid token",
+                            headers={"WWW-Authenticate": "Bearer"})
+
 
 app = FastAPI(title="kokoro-align")
 _sess = None
@@ -108,7 +135,7 @@ def health():
     return {"ok": True, "model": MODEL_FILE, "frame_rate": FRAME_RATE}
 
 
-@app.post("/speak")
+@app.post("/speak", dependencies=[Depends(_require_token)])
 def speak(req: SpeakRequest):
     sess, vocab, g2p = _load()
     t0 = time.time()

@@ -8,8 +8,8 @@ them to `/home/ci/` rather than editing the server copies in place.
 
 | script | what it does | cost |
 |---|---|---|
-| `run_author_m2.sh` | Authors the map headlessly (`author_diorama.py`) in the content-only project via `dev-5.5` + `-nullrhi` (still 5.5 — see **Engine version**). Mounts the prop GLBs, the Seo FBX/textures and `nia-content`. Writes `stage-out/Content` + `AUTHOR_RESULT.txt`. | ~3 min |
-| `m2_full.sh` | The full pipeline: author → purge + refresh `cook-m2/Content` → `docker build Dockerfile.amd --build-arg RELEASE=5.8` → `docker compose up -d project` (the tag it just built) → capture a frame. | ~20 min |
+| `run_author_m2.sh` | Authors the map headlessly (`author_diorama.py`) in the content-only project via `dev-5.5` + `-nullrhi` (still 5.5 — see **Engine version**). Mounts the prop GLBs; the default resident (`MHLLM_RESIDENT=mannequin`) is engine content and needs nothing else. Mounts the MetaHuman Seo FBX export (`/home/ci/mh-seo`) **only** with `metahuman` or `nia`, and mounts and copies `nia-content` **only** with `nia`. Writes `stage-out/Content` (with a copy of the result, `AUTHOR_RESULT.txt`, beside the map: the image build's `CHECK_MAP` cooks an authored map only with it) + `AUTHOR_RESULT.txt`. | ~3 min |
+| `m2_full.sh` | The full pipeline: author → purge + refresh `cook-m2/Content` → `docker build Dockerfile.amd --build-arg RELEASE=5.8 --build-arg RESIDENT=$MHLLM_RESIDENT` → `docker compose up -d project` (the tag it just built) → capture a frame. | ~20 min |
 | `gpu_preview.sh` | Renders the **uncooked** authored map on the real GPU via `ci/ue55-editor-preview:mesa`. Skips the cook entirely. See `Dockerfile.editorpreview` for the ICD/`setpriv` gotchas that make this work at all. | ~3-5 min |
 | `cap2.mjs` / `cap5.mjs` | Headless Playwright capture of the live WebRTC stream into a PNG + luminance stats. `cap2` writes `m2-canvas.png`, `cap5` writes `ship-view.png` (no mouse input, so it does not rotate the camera). | ~30 s |
 | `chat_ps.mjs` | Drives the on-screen chat box **from a browser** over the stream: types with no click, clicks-then-types, presses the Send button, waits for the reply. See "Typing over the stream" below. | ~90 s |
@@ -99,12 +99,23 @@ lands — that reach the viewport and steal the caret.
 
 ## Service tunnels
 
-core-2 runs the app but none of the models. Cognition and voice both live on beta-1
-(`100.124.211.75`), and every one of those ports is bound to **beta-1's loopback** — Ollama by a
-running process that predates its own `OLLAMA_HOST=0.0.0.0`, Lemonade and kokoro-align by
-container port mappings published to `127.0.0.1`. None of them is reachable across Tailscale as
-published, so each is forwarded by a `--user` systemd unit here. Copy to
-`~/.config/systemd/user/` and `systemctl --user enable --now <unit>`.
+core-2 runs the app but none of the models. Cognition and voice both live on beta-1, and every
+one of those ports is bound to **beta-1's loopback** — Ollama by a running process that predates
+its own `OLLAMA_HOST=0.0.0.0`, Lemonade and kokoro-align by container port mappings published to
+`127.0.0.1`. None of them is reachable across Tailscale as published, so each is forwarded by a
+`--user` systemd unit here.
+
+The units do not name beta-1's address: this repository is public, and the address is deployment
+configuration. Each unit reads `BETA1_HOST` from `~/.config/ci-metahuman/tunnels.env` and refuses to
+start without that file. To install:
+
+1. Write beta-1's tailnet address or MagicDNS name, as `tailscale status` on core-2 lists it, to
+   `~/.config/ci-metahuman/tunnels.env` as one line: `BETA1_HOST=<address or name>`.
+2. Copy the units to `~/.config/systemd/user/`, then run `systemctl --user daemon-reload` and
+   `systemctl --user enable --now <unit>`.
+
+Units copied before this change name the address inline and keep working as they are. Write the
+file before replacing them with these.
 
 | unit | core-2 port | beta-1 service | used by |
 |---|---|---|---|

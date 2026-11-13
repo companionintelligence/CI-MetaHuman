@@ -1,3 +1,10 @@
+# SPDX-FileCopyrightText: 2026 LifeScope INC, DBA Companion Intelligence (https://ci.computer)
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# This script imports Blender's Python API (bpy), so it is licensed under the GNU General Public
+# License v3.0 or later (LICENSES/GPL-3.0-or-later.txt), not under the PolyForm Noncommercial
+# licence that covers the rest of this repository. NOTICE.md explains why.
+#
 # Headless Blender: prop source (FBX or .blend) -> self-contained FBX for Unreal import.
 # ROBUST transform handling: parent transforms (Sketchfab roots often carry 0.01 scale
 # and/or -90deg rotations) are BAKED into each mesh before measuring, so deleting the

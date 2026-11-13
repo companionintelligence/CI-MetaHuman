@@ -163,16 +163,7 @@ void UWhisperSpeechToText::StopListening()
 	}
 
 	bIsListening = false;
-
-	if (AudioCapture)
-	{
-		AudioCapture->StopCapturingAudio();
-		if (bCaptureDelegateRegistered)
-		{
-			AudioCapture->RemoveGeneratorDelegate(AudioCaptureHandle);
-			bCaptureDelegateRegistered = false;
-		}
-	}
+	StopCapture();
 
 	TArray<float> CapturedBuffer;
 	{
@@ -197,6 +188,39 @@ void UWhisperSpeechToText::StopListening()
 
 		TArray<uint8> WavBytes = ConvertToWav(CapturedBuffer, DeviceSampleRate);
 		TranscribeWav(WavBytes);
+	}
+}
+
+void UWhisperSpeechToText::CancelListening()
+{
+	// First, and even when not listening: a clip from an earlier StopListening may still be at the
+	// server, and its reply belongs to whoever spoke it, not to whoever is here when it lands.
+	++TranscriptionGeneration;
+
+	if (!bIsListening)
+	{
+		return;
+	}
+	bIsListening = false;
+	StopCapture();
+	{
+		FScopeLock Lock(&CapturedFloatsMutex);
+		CapturedFloats.Empty();
+	}
+	UE_LOG(LogMetaHumanLLM, Log, TEXT("WhisperSpeechToText: capture cancelled; nothing was transcribed."));
+}
+
+void UWhisperSpeechToText::StopCapture()
+{
+	if (!AudioCapture)
+	{
+		return;
+	}
+	AudioCapture->StopCapturingAudio();
+	if (bCaptureDelegateRegistered)
+	{
+		AudioCapture->RemoveGeneratorDelegate(AudioCaptureHandle);
+		bCaptureDelegateRegistered = false;
 	}
 }
 
@@ -304,7 +328,7 @@ void UWhisperSpeechToText::TranscribeWav(const TArray<uint8>& WavBytes)
 	Request->SetVerb(TEXT("POST"));
 	Request->SetHeader(TEXT("Content-Type"), MultipartContentType(Boundary));
 	Request->SetContent(Body);
-	Request->OnProcessRequestComplete().BindUObject(this, &UWhisperSpeechToText::HandleTranscriptionComplete);
+	Request->OnProcessRequestComplete().BindUObject(this, &UWhisperSpeechToText::HandleTranscriptionComplete, TranscriptionGeneration);
 
 	if (!Request->ProcessRequest())
 	{
@@ -312,8 +336,15 @@ void UWhisperSpeechToText::TranscribeWav(const TArray<uint8>& WavBytes)
 	}
 }
 
-void UWhisperSpeechToText::HandleTranscriptionComplete(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful)
+void UWhisperSpeechToText::HandleTranscriptionComplete(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful, uint32 Generation)
 {
+	if (Generation != TranscriptionGeneration)
+	{
+		// CancelListening ran after this clip was sent: the person who said it has gone.
+		UE_LOG(LogMetaHumanLLM, Log, TEXT("WhisperSpeechToText: dropped a transcription requested before the listener was cancelled."));
+		return;
+	}
+
 	if (!bWasSuccessful || !Response.IsValid())
 	{
 		UE_LOG(LogMetaHumanLLM, Warning, TEXT("WhisperSpeechToText: transcription request failed"));
