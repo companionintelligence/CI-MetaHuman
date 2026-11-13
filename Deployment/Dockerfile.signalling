@@ -40,4 +40,9 @@ RUN cp /src/NODE_VERSION . \
 # a system sans-serif rather than to Google. The OFL licence travels with the font, as it requires.
 COPY pixelstreaming/fonts/ /SignallingWebServer/SignallingWebServer/www/fonts/
 
+# The page the patched player's "Credits" link opens, next to the page for the same reason as the
+# font. It carries the CC BY 4.0 attribution for the eight Sketchfab models in the streamed set,
+# which has to be reachable from the stream itself (NOTICE.md, "3D models under CC BY 4.0").
+COPY pixelstreaming/credits.html /SignallingWebServer/SignallingWebServer/www/credits.html
+
 EXPOSE 8090 8888 8889

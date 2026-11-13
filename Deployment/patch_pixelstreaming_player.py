@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Patch Epic's pinned Pixel Streaming player defaults, attach inbound audio, and self-host its font.
+"""Patch Epic's pinned Pixel Streaming player: defaults, inbound audio, a self-hosted font, credits.
 
-Two independent patches, each applied once and recognised by its marker:
+Three independent patches, each applied once and recognised by its marker:
 
 - the stream fixes (HoveringMouse and VP8 URL defaults, inbound audio attached to the <video>);
 - the font: Epic's page loads Montserrat and Michroma from Google Fonts, so every viewer's
@@ -10,6 +10,9 @@ Two independent patches, each applied once and recognised by its marker:
   License 1.1) is served by the signalling image itself from fonts/ next to the page:
   Dockerfile.signalling copies Deployment/pixelstreaming/fonts/ there. Michroma is not vendored, so
   the UI library's own "'Michroma', sans-serif" falls back to the browser's sans-serif.
+- the credits: a "Credits" link to credits.html next to the page, which Dockerfile.signalling
+  copies from Deployment/pixelstreaming/. The streamed set includes eight CC BY 4.0 models, and their
+  attribution has to be reachable from the product (NOTICE.md, "3D models under CC BY 4.0").
 
 A page that still references a Google Fonts host after patching is refused rather than written.
 """
@@ -89,6 +92,21 @@ GOOGLE_FONT_LINK = re.compile(
 BODY_FONT = re.compile(r"font-family:\s*'?Montserrat'?\s*;")
 BODY_FONT_STACK = "font-family: 'Montserrat', system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;"
 
+CREDITS_MARKER = "ci-companion-credits-link-v1"
+# A plain link, last in <body>, fixed to the top centre of the window and stacked above the player
+# by its z-index: the companion's HUD keeps that strip clear, with its status pill top left, the
+# transcript down the left and the input row along the bottom.
+# credits.html is relative to the page, like fonts/. The frontend's html-loader rewrites asset
+# attributes (<link href>, <img src>, ...) but not <a href>, so the URL reaches the browser as
+# written. It opens in a new tab, so the stream keeps running.
+CREDITS_LINK = (
+    '<a data-ci-companion="ci-companion-credits-link-v1" href="credits.html" target="_blank"'
+    ' rel="noopener" style="position: fixed; top: 6px; left: 50%; transform: translateX(-50%);'
+    ' z-index: 2147483647; padding: 2px 10px; border-radius: 10px; background: rgba(0, 0, 0, 0.55);'
+    " color: rgba(255, 255, 255, 0.92); font: 600 12px/1.5 'Montserrat', system-ui, -apple-system,"
+    " 'Segoe UI', Roboto, Arial, sans-serif; text-decoration: none;\">Credits</a>\n"
+)
+
 
 def check_page(html: str) -> None:
     """Raises ValueError for a page this script cannot patch safely."""
@@ -111,15 +129,25 @@ def patch_fonts(html: str) -> str:
     return patched
 
 
+def patch_credits(html: str) -> str:
+    """The credits patch alone: a link to credits.html, just before </body>."""
+    if CREDITS_MARKER in html:
+        return html
+    if html.count("</body>") != 1:
+        raise ValueError("expected exactly one </body>")
+    return html.replace("</body>", CREDITS_LINK + "</body>", 1)
+
+
 def patch_html(html: str) -> str:
     """Returns the fully patched page; raises ValueError for a page it cannot patch safely."""
-    if MARKER in html and FONT_MARKER in html and not any(h in html for h in GOOGLE_FONT_HOSTS):
+    if (MARKER in html and FONT_MARKER in html and CREDITS_MARKER in html
+            and not any(h in html for h in GOOGLE_FONT_HOSTS)):
         return html
     check_page(html)
     patched = html
     if MARKER not in patched:
         patched = patched.replace("</head>", SCRIPT + "\n</head>", 1)
-    return patch_fonts(patched)
+    return patch_credits(patch_fonts(patched))
 
 
 def patch_player(path: Path) -> bool:

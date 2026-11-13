@@ -13,7 +13,9 @@ depends on, and [NOTICE.md](NOTICE.md) for anything vendored here.
 file name from `MHLLM_GLB_DIR` (see [Docs/SCENE-AUTHORING.md](Docs/SCENE-AUTHORING.md)). The GLBs
 are not committed to this repository, but they are cooked into the packaged app and shown in the
 streamed scene. Any build that ships them must carry the attributions below, and every package
-does: this file, `NOTICE.md` and `LICENSE` are staged in `MetaHumanLocalLLM/` beside its paks.
+does: this file, `NOTICE.md` and `LICENSE` are staged in `MetaHumanLocalLLM/` beside its paks. The
+stream page links the same attributions ([Deployment/pixelstreaming/credits.html](Deployment/pixelstreaming/credits.html),
+served next to the player). Change that page with this table: CI fails if they differ.
 
 ### Sketchfab models used under CC BY 4.0
 

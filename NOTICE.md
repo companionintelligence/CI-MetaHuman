@@ -119,10 +119,10 @@ Both plugins also carry this text in their own `LICENSE` files.
 ### Epic Games Pixel Streaming Infrastructure (MIT)
 
 `Deployment/pixelstreaming/player.html` is Epic's stock Pixel Streaming player page with one
-added script, and with its Google Fonts links replaced by a self-hosted Montserrat.
-`Deployment/Dockerfile.signalling` builds Epic's Pixel Streaming Infrastructure from source, and
-`Deployment/patch_pixelstreaming_player.py` patches its player page the same two ways. Upstream:
-<https://github.com/EpicGames/PixelStreamingInfrastructure>.
+added script, with its Google Fonts links replaced by a self-hosted Montserrat, and with a
+"Credits" link to `credits.html`. `Deployment/Dockerfile.signalling` builds Epic's Pixel Streaming
+Infrastructure from source, and `Deployment/patch_pixelstreaming_player.py` patches its player page
+the same three ways. Upstream: <https://github.com/EpicGames/PixelStreamingInfrastructure>.
 
 ```
 Copyright Epic Games, Inc.
@@ -180,7 +180,9 @@ manner based on the medium", so it must be reachable from the product as well as
 repository. Every package carries this file, `CREDITS.md` and `LICENSE` as loose files in
 `MetaHumanLocalLLM/` beside its paks: `Source/MetaHumanLocalLLM/MetaHumanLocalLLM.Build.cs` stages
 them, and `Scripts/BuildNative.ps1`, `Deployment/Dockerfile` and `Deployment/Dockerfile.amd` refuse
-a package without them.
+a package without them. The stream page has a "Credits" link to a page with these attributions
+(`Deployment/pixelstreaming/credits.html`), which the signalling image serves next to the player.
+CI fails unless that page, this list and `CREDITS.md` name the same models.
 
 ## Epic Games Unreal Engine, MetaHuman and Fab content (not covered)
 

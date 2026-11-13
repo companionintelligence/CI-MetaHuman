@@ -266,7 +266,9 @@ units are CI-authored as well (`Deployment/blender/make_ibm729.py`).
 The credits travel with the build: every package, native or container, carries `CREDITS.md`,
 `NOTICE.md` and `LICENSE` in `MetaHumanLocalLLM/` beside its paks, staged by
 `Source/MetaHumanLocalLLM/MetaHumanLocalLLM.Build.cs`, and the build scripts refuse a package
-without them. Still open: the stream page does not link to them.
+without them. The stream page has a "Credits" link to `credits.html`, a page the signalling image
+serves with the eight attributions (`Deployment/pixelstreaming/credits.html`). CI fails if that page,
+CREDITS.md and NOTICE.md stop naming the same models.
 
 
 <!-- companion-hub-readme-deep-review -->

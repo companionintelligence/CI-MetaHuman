@@ -88,10 +88,18 @@ jobs:
             echo "::error file=Deployment/pixelstreaming/player.html::still loads Google Fonts"
             exit 1
           fi
+          # The credits: one link to credits.html, in the patched page and in the legacy one, and the
+          # signalling image copies the page that link opens.
+          test "$(grep -c 'data-ci-companion="ci-companion-credits-link-v1"' "$work/player.html")" -eq 1
+          grep -q 'href="credits.html"' "$work/player.html"
+          test "$(grep -c 'data-ci-companion="ci-companion-credits-link-v1"' Deployment/pixelstreaming/player.html)" -eq 1
+          test -s Deployment/pixelstreaming/credits.html
+          grep -q '^COPY pixelstreaming/credits.html ' Deployment/Dockerfile.signalling
 
           # It must refuse a page it cannot patch safely, for the right reason, and leave it untouched.
           printf '<html><head></head><head></head><title>Pixel Streaming</title></html>\n' > "$work/two-heads.html"
           printf '<html><head><title>Something else</title></head></html>\n' > "$work/not-a-player.html"
+          printf '<html><head><title>Pixel Streaming</title></head></html>\n' > "$work/no-body.html"
           refuse() { # refuse <page> <expected error text>
             cp "$work/$1.html" "$work/$1.orig"
             if python "$patch" "$work/$1.html" 2> "$work/$1.err"; then
@@ -104,7 +112,32 @@ jobs:
           }
           refuse two-heads 'expected exactly one </head>'
           refuse not-a-player 'not an Unreal Pixel Streaming player page'
+          refuse no-body 'expected exactly one </body>'
           echo "patch_pixelstreaming_player.py: OK"
+
+      # The stream's credits page is what a viewer can reach; CREDITS.md and NOTICE.md are the
+      # licensing record behind it. All three must name the same CC BY 4.0 Sketchfab models, so a
+      # model added to or dropped from the set cannot leave the page behind.
+      - name: Credits page matches the licensing record
+        run: |
+          set -euo pipefail
+          work="$(mktemp -d)"
+          models() { { grep -oE 'https://sketchfab\.com/3d-models/[A-Za-z0-9-]+' || true; } | sort -u; }
+          sed -n '/^### Sketchfab models used under CC BY 4.0/,/^### /p' CREDITS.md | models > "$work/CREDITS.md.txt"
+          sed -n '/^## 3D models under CC BY 4.0/,/^## /p' NOTICE.md | models > "$work/NOTICE.md.txt"
+          models < Deployment/pixelstreaming/credits.html > "$work/credits.html.txt"
+          test "$(wc -l < "$work/CREDITS.md.txt")" -gt 0 \
+            || { echo "::error file=CREDITS.md::no models found under 'Sketchfab models used under CC BY 4.0'"; exit 1; }
+          status=0
+          for other in NOTICE.md credits.html; do
+            if ! diff -u "$work/CREDITS.md.txt" "$work/$other.txt"; then
+              echo "::error::CREDITS.md and $other list different CC BY models (diff above)"; status=1
+            fi
+          done
+          grep -q 'href="https://creativecommons.org/licenses/by/4.0/"' Deployment/pixelstreaming/credits.html \
+            || { echo "::error file=Deployment/pixelstreaming/credits.html::no link to the CC BY 4.0 licence"; status=1; }
+          [ "$status" -eq 0 ] && echo "CREDITS.md, NOTICE.md and credits.html name the same $(wc -l < "$work/CREDITS.md.txt") CC BY models"
+          exit "$status"
 
   kokoro-align:
     name: kokoro-align lock and smoke test
