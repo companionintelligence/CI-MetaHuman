@@ -1,6 +1,7 @@
-# Scene authoring — the 1970s machine hall
+# Scene authoring: the stage set
 
-How the diorama is built, why it is built that way, and what to reach for next.
+How the set is built, why it is built that way, and what to reach for next. The set itself, LONGVIEW
+Lab, Bay 7 as it stood in 1963, and its camera are described in [STAGE-DESIGN.md](STAGE-DESIGN.md).
 
 ## The constraint everything follows from
 
@@ -13,17 +14,19 @@ Tags, never labels: actor labels are editor-only and do not survive a cook, so a
 lookup works in the editor and silently finds nothing in the shipped build.
 
 Subsystems in play: `UCompanionFaceSubsystem` (face), `UCompanionRuntimeSubsystem` (brain, voice,
-HUD), `UCompanionStageDirector` (opening shot), `UTapeReelSpinner` (reels).
+HUD), `UCompanionStageDirector` (the stage camera and the opening's beats), `UTapeReelSpinner` (reels).
 
 ## Who runs the authoring
 
-`Deployment/author_diorama.py` is the **only** definition of the set. Two things run it, and both
-must, or you ship an empty room:
+`Deployment/stage_layout.json` is the **only** definition of the set, and `Deployment/author_diorama.py`
+the only thing that builds it. Two things run the script, and both must, or you ship an empty room:
 
 | consumer | how | inputs |
 |---|---|---|
-| the Linux cook on core-2 | `Deployment/core2/run_author_m2.sh` -> `dev-5.8` container, `-nullrhi` | mounted at `/glb`, `/audio`; `/mh` **only** with `MHLLM_RESIDENT=metahuman` or `nia`, `/nia` **only** with `nia` |
+| the Linux cook on core-2 | `Deployment/core2/run_author_m2.sh` -> `dev-5.8` container, `-nullrhi`; `stage.sh` stages the script, `stage_layout.json` and `stage_layout.py` side by side | mounted at `/glb`, `/audio`; `/mh` **only** with `MHLLM_RESIDENT=metahuman` or `nia`, `/nia` **only** with `nia` |
 | the native Windows build | `Scripts/BuildNative.ps1` -> installed `UnrealEditor-Cmd.exe`, `-nullrhi` | `MHLLM_GLB_DIR` / `MHLLM_MH_DIR` (`-MetaHumanDir`, read only with `-Resident MetaHuman`) / `MHLLM_AUDIO_DIR` / `MHLLM_GEN_DIR`; Nia staged into `Content/CC_ControlRig_Nia` **only** with `-Resident Nia` |
+
+The script reads the layout from beside itself (`MHLLM_STAGE_LAYOUT` overrides the path).
 
 Both pass the resident choice to the script as `MHLLM_RESIDENT` — see [The resident](#the-resident).
 
@@ -38,9 +41,36 @@ both imports are wrapped in `try/except` — so every native build shipped with 
 screens and a silent hall, and the only evidence was `There was nothing to import` buried in the
 authoring log. Both files are now generated into the repo (below) and resolved through
 `MHLLM_GEN_DIR`, whose default is `GLB_DIR` so the container keeps reading them from `/glb`
-exactly as before. Both import sites now also log when they find nothing, and `BuildNative.ps1`
-fails the build if `CRT vector displays placed` or `room tone placed` is missing from
-`AUTHOR_RESULT.txt`.
+exactly as before. The import sites now also log when they find nothing, and `BuildNative.ps1`
+fails the build if the author's `self-check: ... all counts match` line or `room tone placed` is
+missing from `AUTHOR_RESULT.txt` (the CRT gate went with the CRTs: a 1963 room has none).
+
+## The layout: `Deployment/stage_layout.json`
+
+The set is data in the stage design's layout format, one array element per line so a diff reads like
+a change list. The script is its interpreter: change the set by changing the JSON.
+
+| section | what the author does with it |
+|---|---|
+| `meta` | `exposureEV100` pins the post-process volume and `whiteBalanceK` sets its white balance; `eyeForwardCm` places her eye anchor; the design's plan gates, UI zones and licensing record ride along unread |
+| `props` | each distinct `glb` is imported once into `/Game/Diorama/<slot>`, behind the NoAI guards, then placed at its `x, y, z` / `yaw` at `scale` (the file's own scale times this), or normalised to `targetCm` by measured bounds (older layouts). `materialColors` recolours imported materials by name; `tags` and `reels` (separately pivoted sub-meshes, Movable, tagged) as given |
+| `blockouts` | true-size engine primitives: `size` in cm in the blockout's own frame, `shape` box or cylinder (`axis` x, y or z), `color` (sRGB hex) with `rough`, `emissive` or `opacity` deriving a material instance of one of three masters (`/Game/Diorama/StageMats`; identical looks share one instance). `text` puts a sign on the box's -X face; `tags`, `mobility`, `attachTo` (attached after everything is placed, read back) and `lightingChannels` as given. An explicit `material` object (paint, emissive, glass, texture types) is also accepted |
+| `lights` | `point`, `spot`, `rect` or `directional`, aimed by yaw/pitch; `units` (`cd`), `radiusCm`, `linear` or `kelvin`, `shadows`, `sourceRadiusCm`, `coneDeg` (the full cone), `sizeCm`, `lightingChannels`, `tags` |
+| `resident` | her mark (`x, y, z`) and `actorYaw` (these meshes face 90 degrees off the actor's forward axis); `homeFacingYaw` becomes the `StageMark.Home` TargetPoint; `eyeZFallback` is the eyeline used only when no mesh could be measured |
+| `sounds` | imported, looped and placed as `AmbientSound`s; `volume` and `spatialize` when given |
+| `shots` | the shot labelled `StageCamera` becomes the authored fallback camera and the `PlayerStart`; a `targetPoint` tag becomes TargetPoints at its keys; every shot and the `beats`' `cue` fields also become the camera's config (below) |
+
+**Self-checks.** Every expected count comes from the layout: blockouts, lights, props (less any slot the
+NoAI guard refused), TapeReel actors, attachments, TargetPoints, and zero material failures. The
+script prints them as one `self-check:` line and stops before `SUCCESS` on any mismatch.
+
+**One file drives the camera too.** `Deployment/stage_layout.py` writes the layout's shots and beat
+cues into `[/Script/CICompanion.CompanionStageSettings]` in `Config/DefaultGame.ini`, which the C++
+stage director loads (a Sequencer asset is not an option: Lesson 6). The native authoring run rewrites
+that section of the project it authors; the container authors a content-only project, so the cook
+there reads the committed section, and `core2/stage.sh` refuses to stage when
+`python3 Deployment/stage_layout.py --check` says it is stale. After editing shots or beats, run
+`python Deployment/stage_layout.py` and commit both files.
 
 `Content/Maps/CompanionStage.umap` in the repo is a **23 KB stub** (sky + ground). It exists only
 so `Dockerfile.amd` has something to find; it is not the set. A build that does not author will
@@ -105,14 +135,20 @@ and logs `0/N profile curves resolved` (the profile falls back to `CC`; nothing 
 expression, blinking and gaze are all inert, by design rather than by fault. Its eyeline is measured
 from the mesh for the authored fallback camera, and the stage director frames it like any resident.
 
+**Where her eyes are.** The stage director measures them at BeginPlay, in order: the eye bones
+(`FACIAL_L/R_Eye` for a MetaHuman, `CC_Base_L/R_Eye` for Character Creator, `eye_l/r`), the `head` bone
+plus 9 cm (the mannequin has no eye bones), then 93 % of the height of the resident plus its attached
+actors. Her stature is that height / 0.93, and every resident-frame shot scales with it (STAGE-DESIGN.md
+section 5). The log line `Stage plan from ...` names the method it used.
+
 **Why the Face carries the tags.** The runtime treats the *tagged actor* as the whole character:
 `UCompanionFaceSubsystem` drives the morph targets on its skeletal mesh, and `UCompanionStageDirector`
-turns it to meet the camera and frames the shot on it. Seo's facial morph targets (849) are on the
+turns it during the opening and frames the shot on it. Seo's facial morph targets (849) are on the
 Face mesh, so the Face is tagged; Body and Outfit are **attached** to it so the opening turn rotates the
-whole figure rather than a head above a still body; and the director measures the eyeline over the
-resident *plus its attached actors*, because the face's own bounds are a head-sized box. Before this,
-Seo carried no tag at all: the face driver reached her only through its "most morph targets" fallback,
-and the stage director found no resident.
+whole figure rather than a head above a still body; and the director's last-resort eyeline is measured
+over the resident *plus its attached actors*, because the face's own bounds are a head-sized box.
+Before this, Seo carried no tag at all: the face driver reached her only through its "most morph
+targets" fallback, and the stage director found no resident.
 
 **Which rig the face assumes.** `MHLLM_FACE_PROFILE` if set, else the resident's `FaceProfile=` tag,
 else `CC` — so an old Nia map with no profile tag behaves exactly as before.
@@ -143,28 +179,30 @@ visible:
 - **No idle animation.** She stands in the export's bind pose. Nia ships a baked idle; Seo does not.
 - **Flat skin.** The constant-colour `M_SeoSkin` instances from the original port, not MetaHuman's
   skin shader (`HANDOFF-METAHUMAN-SKIN.md` §4 ranks the fixes).
-- **Eyeline literal.** The authored fallback `StageCamera` uses `EYE_Z = 165` because only Nia's and
-  the mannequin's heights are measured in the script. The runtime director, which owns the shot,
-  measures it.
+- **Eyeline fallback.** The authored fallback `StageCamera` uses the layout's `resident.eyeZFallback`
+  (158.1 cm, the design's 170 cm reference) because only Nia's and the mannequin's heights are measured
+  in the script. The runtime director, which owns the shot, measures her eyes.
 
 **Prop slots that only take CI-authored models.** `ibm-1401-cpu.glb`, `ibm-3178-terminal.glb` and
 `ibm-3350-disk.glb` used to hold maxdragon's CC BY 4.0 Sketchfab models, whose pages carry the `noai`
 tag; Sketchfab's Terms of Use bar NoAI content from use "as inputs to generative AI programs". The
 script now reads each of those files' glTF `asset.copyright` before importing it and accepts it only
 if it names Companion Intelligence, which is what `Deployment/blender/make_period_props.py` writes into
-its replacements. Anything else is never imported: the result shows `prop REFUSED …`, the slot and the
-hall rows that reuse it stay empty, and `NoAI prop slots: N of 3 refused` sums it up. Neither
+its replacements. Anything else is never imported: the result shows `prop REFUSED …`, the slot and any
+other prop that reuses it stay empty, and `NoAI prop slots: N of 3 refused` sums it up. Neither
 `BuildNative.ps1` nor `m2_clean.sh` fails on it, so a prop folder that still holds the old downloads
-gives a licence-clean set with gaps rather than no build. The README's *Licensing* section has the
-sources, and [`CREDITS.md`](../CREDITS.md) the CC BY attributions for the eight models that remain.
+gives a licence-clean set with gaps rather than no build. `ibm-2401-tape.glb` (also NoAI-tagged, with
+no CI replacement) is refused by name if a layout ever lists it. The README's *Licensing* section has
+the sources, and [`CREDITS.md`](../CREDITS.md) the CC BY attributions.
 
 ## Assets: scavenged vs authored
 
-Eight hero props are Sketchfab GLBs under CC BY 4.0, credited in [`CREDITS.md`](../CREDITS.md).
-The 1401 processing unit, the terminal, the 3350 and the tape units are authored in Blender by
-scripts in this repo. All of them are imported as **GLB, never FBX**. Blender's FBX exporter only
-writes textures wired to a Principled BSDF, so several machines exported with no textures at all
-and rendered as blank white blocks.
+The 1963 set places three GLBs from the licence-clean set: the CI-authored 1401 processing unit, and
+museudocomputador's RAMAC 305 (as the 1405) and plugboard, CC BY 4.0, credited in
+[`CREDITS.md`](../CREDITS.md). Everything else is a true-size blockout, and each blockout's note is the
+spec for the CI prop that will replace it (STAGE-DESIGN.md section 9). Props are imported as **GLB,
+never FBX**. Blender's FBX exporter only writes textures wired to a Principled BSDF, so several
+machines exported with no textures at all and rendered as blank white blocks.
 
 **Three slots are authored because their Sketchfab models carried a NoAI tag.** The models that
 used to fill `ibm-1401-cpu.glb`, `ibm-3178-terminal.glb` and `ibm-3350-disk.glb` are CC BY 4.0,
@@ -186,23 +224,22 @@ blender --background --python Deployment/blender/make_period_props.py -- --out <
   (IBM GC22-7064-10). The front follows Figure 1 of the 3350 Reference Manual (GA26-1638-2): a door,
   a smoked window and a top-mounted operator panel per drive.
 
-Each prop faces -Y like the model it replaces, so the yaws in `PROPS` and `HALL` still hold. Each
-is ONE mesh object, because `import_prop()` takes the first StaticMesh it finds. Lamps and
-phosphor get a bright base colour as well as emission, because the `M_PropGLTF` re-parent drops
-emission. The script fails if any exported bounding box drifts more than 0.5 mm from its published
-envelope, and two builds are byte-identical.
+Each prop faces -Y like the model it replaces. Each is ONE mesh object, because `import_prop()` takes
+the first StaticMesh it finds. Lamps and phosphor get a bright base colour as well as emission,
+because the `M_PropGLTF` re-parent drops emission. The script fails if any exported bounding box
+drifts more than 0.5 mm from its published envelope, and two builds are byte-identical.
 
-`place_prop()` still normalizes each of these props to its `PROPS`/`HALL` target. They therefore
-fill the same envelope as the models they replaced, not their true size. The 3350, for example,
-comes out 1.50 m wide and 1.45 m tall instead of 1.22 x 1.18 m, and the hero 3277 at two-thirds
-of its real size. To show them at true scale, set each target to the model's largest real
-dimension (153, 75 and 122 cm). Do that with a capture, because it changes the composition.
+The stage layout places the CPU at its true size (`scale` 1.0, origin on its location), and the RAMAC
+at the scale that makes its cabinet about 170 cm. A layout prop given `targetCm` instead is normalised
+from its measured bounds, the way the old hall filled each model to its slot's envelope.
 
 The tape units are **authored in Blender**, not scavenged, because no scavenged prop was an IBM
 729. `Deployment/blender/make_ibm729.py` rebuilds it: real proportions (0.76 x 0.74 x 1.80 m),
 hollow off-white shell, chrome frame, dark-backed open reel bay, IBM-blue lower panel, amber supply
-reel, white take-up reel, CI-mint status lamps. The authored 729 replaces the legacy IBM 2401
-placeholder at each tape-machine station in the hall.
+reel, white take-up reel, CI-mint status lamps. The 1963 set does **not** place it: its face is wrong
+for the period, and the six 729 blockouts (the CHM 74 x 86 x 175 cm face: cream fascia, smoked reel
+door, blue file reel and dark take-up reel, 2700 K lamp window) are the spec for its re-author. The
+re-authored GLB keeps separately pivoted, `TapeReel`-tagged reels.
 
 ```
 blender --background --python Deployment/blender/make_ibm729.py -- --out <glb dir>
@@ -230,7 +267,7 @@ stdlib-only Python, and all are committed so a fresh checkout can author the com
 |---|---|---|
 | `Deployment/audio/machine_room.wav` | `Scripts/MakeAmbience.py --mode score` | 44.1kHz, 32s. The bed, non-spatialized at the camera. |
 | `Deployment/generated/S_RoomTone.wav` | `Scripts/MakeAmbience.py --mode roomtone` | 48kHz (UE's mixer rate, so no resample), 20s. A positioned emitter out in the hall. |
-| `Deployment/generated/T_CRT_Vector.png` | `Scripts/MakeCRTTexture.py` | 512x384 emissive scan-line trace for the CRT screens. |
+| `Deployment/generated/T_CRT_Vector.png` | `Scripts/MakeCRTTexture.py` | 512x384 emissive scan-line trace for the old hall's CRT screens. The 1963 set has no CRT and does not import it; the layout's `texture_emissive` material type still can. |
 
 Generating rather than sourcing buys three things: no licence question about shipping them, the
 freedom to tune them to this specific room, and — for the loops — a **computed** join instead of
@@ -257,18 +294,23 @@ emissive; converting to linear here would double-apply the transform.
 
 ## Reels
 
-`UTapeReelSpinner` finds actors tagged `TapeReel` and rotates them on Pitch. The reel disc lies in
-the cabinet's local XZ plane, so its axle is local Y. The previous Roll animation turned around
-the unrelated actor X axis and made the discs wobble edge-on.
+`UTapeReelSpinner` finds actors tagged `TapeReel` and rotates them on Pitch. Adding to Pitch turns an
+actor about its YAWED Y axis whatever its roll, so a reel must have its axle there. The previous Roll
+animation turned around the unrelated actor X axis and made the discs wobble edge-on.
 
-Each reel is a separate GLB node with its pivot at the hub, but its node translation is not retained
-when Interchange imports it as a standalone `StaticMesh`. `author_diorama.py` therefore restores
-the authored hub offsets (16/17cm to either side, 25cm behind the front, 126cm above the floor)
-before rotating the machine banks across the aisle. Spawning at the cabinet origin left the reels
-floating outside the cabinets; a positive `Tape reels spinning` count did not prove that their
-placement or visible rotation was correct. The 729 asset now has a hollow shell, dark-backed open
-bay, and eight-spoke reels with separate flanges and a dark tape pack. This keeps the animated
-parts visible inside the machine silhouette instead of layering solid discs over the cabinet.
+In the 1963 set the twelve reels are blockout cylinders on the 729 faces. A cylinder's length runs
+along the engine mesh's local Z, so `author_diorama.py` turns every cylinder with roll -90 and, for an
+axis along the blockout's X, yaw +90: the axle then lies on the actor's yawed Y axis and the spinner
+turns each reel about its own hub. The reels are Movable (set before the mesh is assigned, or the cook
+freezes them), and each reel's three flange windows are attached to it so they turn with it; the
+chrome hub caps are not, because a cap that turned with its reel would put a rotating highlight on
+every unit and strobe the wall. 729 #1's reels also carry `StageReact.Tape` for the set-state work.
+
+A GLB with separately pivoted reels (the old hall's 729, and the re-authored one to come) is placed
+through the prop's `reels` list: Interchange does not keep a node's translation when it imports the
+node as a standalone `StaticMesh`, so the author restores each hub offset, rotated with the cabinet.
+Spawning at the cabinet origin once left the reels floating outside the cabinets, and a positive
+`Tape reels spinning` count did not prove that their placement or visible rotation was correct.
 
 Rates are deliberately **not uniform**. A hall turning in lockstep reads as a screensaver; real
 machines run independent jobs. Each reel's speed (90-240 deg/s) and direction are seeded from its
@@ -277,27 +319,22 @@ but visually uncorrelated between neighbours.
 
 ## Colour
 
-Two palettes are deliberately split by DEPTH rather than blended:
+A cool showroom with a warm human island (STAGE-DESIGN.md sections 8 and 9): one vermilion feature wall
+(`#B5441A`, the only saturated plane), warm off-white walls (`#E6E1D3`), white tile (`#ECE8DF`),
+Deep Charcoal machines with a Sky Blue accent (`#2E302C`, `#3D86B8`), a 4100 K luminous-ceiling field
+and 2700-3000 K practicals, so skin is the warmest mid-tone in the frame.
 
-- **Warm at eye level** — Olivetti amber, lands on faces and cabinet fronts
-- **CI-cool in the distance** — teal side walls, cool rim deep in the hall
+**No brand colour in the world.** The old hall painted its side walls CI teal and lit its depth with a
+sage rim, and claimed that split gave the references their depth; it did not, and it dated the room to
+no year at all. The 1963 set carries the GDD's own fictional facility name, LONGVIEW LAB, BAY 7, EST.
+1959, in period letters; CI appears in the lobby, the HUD and one teal brooch on the resident
+(GDD.md:984). The CI-Common wordmark and tokens (phthalo `#0a6358`, sage `#c5e8dc`, navy `#041620`,
+mint `#3ae7ba`) stay for those surfaces; `Deployment/generated/ci-logo-white-banner.png` is no longer
+placed in the room.
 
-That warm-near / cool-far split is what gives the reference photograph its depth, and it lets the
-brand register as *light* rather than only as paint. IBM orange keeps the hero back wall; it is
-the colour the reference is built around.
-
-Brand tokens come from `companionintelligence/CI-Common` (`assets/brand.config.json`,
-`docs/colors.md`): phthalo `#0a6358`, sage `#c5e8dc`, navy `#041620`, mint `#3ae7ba`.
-The approved white-banner wordmark is staged from `CI-Common/assets/logos/rendered/` as
-`Deployment/generated/ci-logo-white-banner.png`; Unreal imports it onto a navy plaque behind the
-resident. The retro Blender stage packs that same logo PNG and its embedded GLB images into the
-`.blend` file.
-
-**Convert sRGB to linear before use.** Pasting hex straight into a `LinearColor` gives a washed-out
-brand, and the symptom reads as "the teal looks wrong" rather than as a colour-space mistake.
-
-CI mint doubles as period CRT phosphor — `#3ae7ba` sits almost exactly where a 70s phosphor does,
-so the brand accent and the era cue are the same colour with no compromise.
+**Convert sRGB to linear before use.** The layout writes colours as sRGB hex and the author converts
+them for the material instances. Pasting hex straight into a `LinearColor` gives washed-out colour,
+and the symptom reads as "the colour looks wrong" rather than as a colour-space mistake.
 
 ## Traps already paid for
 
@@ -315,10 +352,13 @@ so the brand accent and the era cue are the same colour with no compromise.
 - `paint()` derived material names from colour, so two identically-coloured walls asked
   `create_asset` for the same package path twice. The second call trips a **fatal C++ assertion
   that Python's try/except cannot catch** — the commandlet dies with `appError` despite the error
-  handling written to prevent exactly that. Names are explicit now.
+  handling written to prevent exactly that. Explicit material names must now carry one definition
+  (the author stops on a second, different one), and derived instances are named from their values
+  and created once.
 - Portrait needs TWO changes in step: `-ResX/-ResY` **and** releasing the camera's aspect-ratio
   constraint. Setting only the resolution yields a 16:9 image letterboxed inside a 9:16 canvas.
-- Camera height is derived from measured mesh bounds, not hand-picked. A guessed z cut her head off.
+- Camera height is derived from her measured eyes (bones, then bounds), not hand-picked. A guessed z
+  cut her head off.
 - GI is **disabled** on this stream, so a coloured wall cannot bounce on its own. Colour bounce is
   placed as explicit point lights.
 - **The camera cannot be moved from outside the app, by any route.** Three separate mechanisms have
@@ -340,6 +380,11 @@ so the brand accent and the era cue are the same colour with no compromise.
   no Vulkan ICD, so `-Vulkan` finds no device and the editor dies right after `LogVulkanRHI`.
 
 ## Exposure — the room was never lit wrong, it was graded wrong
+
+> **The 1963 set has not been measured yet.** The pinned value (`meta.exposureEV100`, 9.4) was solved
+> for the rc1 hall's light rig and carried over. The new rig is specified in candela and must be
+> re-solved on a captured HOME frame the way this section describes. Everything below is the history
+> of how the pinning came about, and it still holds.
 
 `Config/DefaultEngine.ini` carries
 `r.DefaultFeature.AutoExposure.ExtendDefaultLuminanceRange=True`. That single line changes the
@@ -401,9 +446,9 @@ a shortcut:
    across builds, and it converges on frame **zero** — which is what finally makes a single
    offscreen render trustworthy.
 
-`EXPOSURE_EV100` and the light intensities are **one setting solved together**. Change either and
-re-measure: capture a frame and land the mean near 120/255 with nothing over 240. 9.7 came back at
-mean 112 and lost the highlights; 8.0 was the bug, at 221.
+`meta.exposureEV100` and the light intensities are **one setting solved together**. Change either and
+re-measure: capture a frame and land the mean near 120/255 with nothing over 240. On the rc1 hall,
+9.7 came back at mean 112 and lost the highlights; 8.0 was the bug, at 221.
 
 ### Verifying a lighting change in two minutes
 
@@ -434,6 +479,9 @@ stub. Check `git status` before committing.
 | the live stream | yes | yes | yes, but only after a fresh cook |
 
 ## Measured, not remembered
+
+These numbers are from the rc1 machine hall, which the 1963 set replaces; they are kept for the
+method, not as a description of the current room.
 
 Numbers from captured stream frames (720x1280 portrait), 2026-07-31. **These came off the
 deployment that was running that day, which is NOT this source tree** — a frame captured from the
@@ -470,20 +518,16 @@ Absolute luminance across two builds is therefore not a clean comparison — com
 render with `r.EyeAdaptation.ExposureOverride` fixed.
 
 ## Next
-- The imported secondary machine props remain comparatively low-detail. Replace them only where
-  the call framing shows them clearly; the custom tape machines now provide the recognizable
-  animated detail in the visible hall.
-- The room tone's `AmbientSound` has **no attenuation asset**, so a sound placed deliberately out
-  in the hall at (700, 20, 150) plays at the same level everywhere. It is mixed low enough not to
-  matter today, but the position currently buys nothing.
-- **The CRT screens render but are effectively invisible to the shipped shot.** Confirmed in a
-  captured frame from the packaged build (debug camera, 89-degree FOV): the emissive trace is
-  there — dark phosphor panel, readout blocks along the top, mint trace pixels mid-screen — but
-  the screen occupies about 11x36 px at 1280x720, and at 26 degrees off-axis it is outside the
-  21-degree portrait framing altogether. They were placed to be caught on the opening flythrough,
-  which (see above) has never actually played. Placing at least one screen INSIDE the call cone,
-  facing the camera, is a one-line change and the only way the texture earns its place.
-- The authoring log now reports `CRT vector displays placed: N of 3` rather than an
-  unconditional success line, and `BuildNative.ps1` gates on `[1-9]`. The old line printed even
-  when `/Engine/BasicShapes/Plane` failed to load and three empty actors were spawned — the same
-  shape of lie as `Tape reels spinning: 0`. Worth auditing the remaining `placed` lines for it.
+- **Author the set in Unreal and capture it.** The 1963 layout has been authored only against a
+  recording stand-in for the `unreal` module (every count checks out); run `BuildNative.ps1` or
+  `run_author_m2.sh`, then capture a 60 fps loop of ARRIVAL and HOME from the real stream
+  (STAGE-DESIGN.md section 11). Re-solve the exposure on that capture.
+- **Replace the blockouts with CI props**, from their notes: the 729 re-author (`make_ibm729.py`),
+  the 1402, 1403 and stand, 1406, the 1407 desk and typewriter, the shell chair. Delete the RAMAC's
+  loose platter once in Blender. Licence a slab-serif font for the LONGVIEW letters.
+- The room tone's `AmbientSound` has **no attenuation asset**, so a sound placed deliberately among
+  the machines plays at the same level everywhere. It is mixed low enough not to matter today, but
+  the position currently buys nothing. The score bed still hums at 50 Hz against the room tone's 60.
+- Every summary line reports a count that a failure would change (`blockouts placed: N of M`,
+  `TargetPoints placed: N of M`, `self-check: ...`); keep it that way. A line that prints the same
+  thing whether or not anything was placed is the shape of lie `Tape reels spinning: 0` was.

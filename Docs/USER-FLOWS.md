@@ -38,14 +38,14 @@ sequenceDiagram
     V->>PG: open :8090
     PG->>PG: force HoveringMouse=true before player.js parses
     PG->>PS: negotiate, ~10s
-    Note over SD: MHLLM_OPENING_DELAY holds 3s<br/>before the first-load tour
+    Note over SD: the lobby still is held 3s<br/>(MHLLM_OPENING_DELAY)
     alt MHLLM_OPENING_SHOT is unset or 1
-        SD->>SD: Six-key cubic tour — 11s through the hall
-        SD->>SD: Turn — settle into the call framing
+        SD->>SD: Cut inside, ARRIVAL walk-in ~5.6s; "Oh, hello." on the way
+        SD->>SD: She turns back to the lens; Settle on HOME
         SD->>E: SpeakLiteral, the fixed brand line
         SD->>SD: Live
     else MHLLM_OPENING_SHOT=0
-        SD->>SD: park on the solved framing immediately, Live
+        SD->>SD: HOME from the first frame; greeting, line, Live
     end
     V->>PG: types with no click at all
     PG->>RT: KEY_DOWN, KEY_PRESSED, KEY_UP on Slate user 0
@@ -60,13 +60,14 @@ sequenceDiagram
 
 | Beat | What happens |
 |---|---|
-| `Flythrough` | camera follows a six-key cubic path from the glass entry, through the cabinet rows, to the resident; `MHLLM_FLY_SECONDS` defaults to 11.0 |
-| `Turn` | settles into the solved call framing |
+| `Flythrough` | the lobby still (VITRINE) is held, then a flagged cut into ARRIVAL: a walk-in at her eye height, timed for the measured resident (~5.6 s for 170 cm; `MHLLM_FLY_SECONDS` caps it). "Oh, hello." plays on the way, and she turns back 30 degrees after the look-up. Shots and beats come from `Deployment/stage_layout.json` through `DefaultGame.ini` (Docs/STAGE-DESIGN.md); with no stage section, the old six-key path flies instead |
+| `Settle` | the move has landed on HOME; the frame holds until the turn-yield line |
 | `Speak` | calls `SpeakLiteral(MHLLM_OPENING_LINE)` |
 | `Live` | camera parks; ordinary conversation from here |
 
-*(`EStageBeat::Settle` is declared but never assigned — `Flythrough` transitions straight to
-`Turn`.)*
+*(The data-driven opening goes `Flythrough`, `Settle`, `Live`; the built-in path `Flythrough`,
+`Turn`, `Speak`, `Live`. `UCompanionStageDirector::BeatAt` gives the beat at any time, and the specs
+assert the order.)*
 
 Three deliberate choices:
 
@@ -78,9 +79,9 @@ Three deliberate choices:
   handler directly. That drove the visemes perfectly and skipped `TextToSpeech->Speak` entirely, so
   the opening mouthed the brand line while the audio track carried digital silence.
   *"Same handler" was true of the face and false of the voice.*
-- **The camera tours on first load.** `MHLLM_OPENING_SHOT` defaults on so a new level opens with
-  the storefront-to-resident move. Set it to `0` for a static call frame; a typo also fails closed
-  to static. `MHLLM_OPENING_REPLAY=N` remains an optional attract loop for late stream viewers.
+- **The camera moves on first load.** `MHLLM_OPENING_SHOT` defaults on so a new level opens with
+  the storefront-to-resident move. Set it to `0` for the reduced-motion path (HOME from the first
+  frame); a typo also fails closed to static. `MHLLM_OPENING_REPLAY=N` remains an optional attract loop for late stream viewers.
 - Typing a turn calls `Stage->SkipToLive()` — a visitor who starts talking wins over the cinematic.
 
 ### 2.2 What a visitor can actually do

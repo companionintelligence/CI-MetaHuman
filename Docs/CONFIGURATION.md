@@ -150,10 +150,12 @@ would be silently ignored on every machine that had already held one conversatio
 
 | Variable | Compose default | Effect |
 |---|---|---|
-| `MHLLM_OPENING_SHOT` | `1` | Plays the datacenter tour on level load, then lands on the resident. Set `0`/`false` for a static call frame; empty/unset uses the tour default |
+| `MHLLM_OPENING_SHOT` | `1` | Plays the opening on level load: the lobby still, a cut inside, the ARRIVAL walk-in, the HOME framing (Docs/STAGE-DESIGN.md). Set `0`/`false` for the reduced-motion path: HOME from the first frame, the greeting and the line after the hold; empty/unset uses the default |
 | `MHLLM_OPENING_LINE` | `Welcome to Companion Intelligence, I'm Eliza. How can I help you?` | Spoken **verbatim**, never generated |
-| `MHLLM_OPENING_DELAY` | `3.0` | Held before the move. Pixel Streaming clients take ~10 s to negotiate |
-| `MHLLM_FLY_SECONDS` | `11.0` | Flythrough duration |
+| `MHLLM_OPENING_DELAY` | `3.0` | How long the lobby still is held before the move (overrides `HoldSeconds` from the stage layout). Pixel Streaming clients take ~10 s to negotiate |
+| `MHLLM_FLY_SECONDS` | `11.0` | A cap on the opening move's derived duration (the stage layout's 8 s otherwise). It never shortens the move below its comfort floor: a cap under it is logged and ignored, so the compose default of 11 changes nothing. With no stage section in `DefaultGame.ini` it is the built-in flythrough's duration, as before |
+| `MHLLM_STAGE_DOF` | `1` | Depth of field on the stage CineCamera (manual focus on her eyes at the shot's aperture). `0` disables it if the stream host cannot afford it |
+| `MHLLM_STAGE_SHIFT_SIGN` | `1` | `-1` flips the sign of the sensor shift that holds her eyes at their screen position, if a captured frame shows them on the wrong side (unverified on the stream) |
 | `MHLLM_OPENING_REPLAY` | `0` | Attract-loop period in seconds; `0` = once only |
 | `MHLLM_FREE_LOOK` | `0` | **Opt-in.** `1` hands input to the `DefaultPawn` — and then any stream viewer can drag the shot off the subject. Note it also has to move the *view target*: un-ignoring input while the view stays welded to a static camera actor is why this switch once read as inert |
 
@@ -169,6 +171,7 @@ would be silently ignored on every machine that had already held one conversatio
 | `MHLLM_AUDIO_DIR` | `/audio` | `Deployment\audio` |
 | `MHLLM_GEN_DIR` | `MHLLM_GLB_DIR` | `Deployment\generated` |
 | `MHLLM_AUTHOR_RESULT` | `/out/AUTHOR_RESULT.txt` | `Saved\AUTHOR_RESULT.txt`. Either way every line also goes to `Content/AUTHOR_RESULT.txt`, beside the map, for the image builds' `CHECK_MAP` and `-SkipAuthoring` |
+| `MHLLM_STAGE_LAYOUT` | `stage_layout.json` beside the script | `Deployment\stage_layout.json`. The set, its shots and its beats; `Deployment/stage_layout.py` writes the shots and beats into `Config/DefaultGame.ini` for the stage director |
 | `MHLLM_NIA_CONTENT` | — | `..\CharacterCreatorNia\Content\CC_ControlRig_Nia` or `-NiaContent`; read only with `-Resident Nia` |
 
 ---

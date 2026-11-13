@@ -20,13 +20,13 @@ Two reasons, both stated in `Scripts/BuildNative.ps1`:
 > So the map stays generated, and this function makes the native build generate it the same way the
 > container does — **one source of truth, two consumers**.
 
-`Deployment/author_diorama.py` is that source of truth. Both pipelines run **the same script**; the
+`Deployment/stage_layout.json` is that source of truth, and `Deployment/author_diorama.py` builds it. Both pipelines run **the same script**; the
 only thing that differs is where its inputs live, and that is indirected through environment
 variables so neither consumer can quietly diverge.
 
 ```mermaid
 flowchart TD
-    SRC["Deployment/author_diorama.py<br/>~960 lines: THE SET"]
+    SRC["Deployment/stage_layout.json: THE SET<br/>built by Deployment/author_diorama.py"]
 
     subgraph linux["Linux container cook — core-2"]
         L1["stage.sh — tar, scp, expand, VERIFY"]
@@ -263,7 +263,7 @@ revision, which is the exact failure this script exists to stop"*.
 | symbol | `SCompanionHUD.cpp` ∋ `EButtonClickMethod::MouseDown` | Send fires on press |
 | symbol | `CompanionRuntimeSubsystem.cpp` ∋ `RearmChatFocus` | the focus timer is present |
 | grep | `docker-compose.face.yml` ∋ `MHLLM_OPENING_LINE` | the compose carries the opening line |
-| grep | `author_diorama.py` ∋ `CAM_DIST = 106.0` | the solved framing survived staging |
+| grep | `author_diorama.py` ∋ `STAGE_LAYOUT`, `stage_layout.json` ∋ `ci-stage-layout/1` | the data-driven author and its layout both landed |
 
 ```
 [ "$FAIL" -eq 0 ] || { echo "STAGE_FAILED — refusing to cook a stale tree"; exit 1; }
@@ -280,7 +280,7 @@ empty:
 |---|---|
 | starts with `SUCCESS` | `new_level()` **refuses to overwrite**, returns `False`, the run authors into an untitled transient level, the save fails — and the script printed SUCCESS anyway because that line was unconditional |
 | `resident: MANNEQUIN placed` (default), `resident: METAHUMAN placed` (`-Resident MetaHuman`) or `resident: NIA placed` (`-Resident Nia`) | a cooked build with sky, ground and nobody in it. The MetaHuman line is printed only when all three Seo parts imported, the face is tagged and the body and outfit are attached to it; the mannequin line only by the default path, never by the fall-back after a failed Seo import |
-| `CRT vector displays placed: [1-9]` | *"Match the COUNT, not just the words"* — three empty actors and a cheerful success line |
+| `self-check: ... all counts match` | *"Match the COUNT, not just the words"*: every blockout, light, prop, TapeReel actor, attachment and TargetPoint the layout lists, counted against the layout. It replaced the CRT count when the 1963 set dropped the CRTs |
 | `room tone placed` | a silent machine hall |
 | `exposure PINNED at EV100` | 3.5 stops of overexposure that **failed silently for weeks**, because nothing in any log distinguishes a lit room from a blown one |
 | map exists and is **> 200 KB** | *"that is the empty stub, not the set"* |
