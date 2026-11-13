@@ -336,6 +336,7 @@
     "source": "stage-redesign final design (make_final.py, ALPHA = 0 fallback), imported by import_final_layout.py; this file is now the source of truth",
     "exposureEV100": 9.4,
     "exposureNote": "carried over from the rc1 rig, whose pinned value was measured; the design's lights are in candela and must be re-solved on a captured HOME frame (mean ~120/255, nothing over 240)",
+    "whiteBalanceK": 4300.0,
     "eyeForwardCm": 9.0,
     "designGatesNotMet": [
       "HOME wall-only share right of the captions: 22.1 % at 170 cm (17.7 % at 150, 30.3 % at 193) against a 15 % target; standing eye line (design 5.3)"

@@ -408,6 +408,11 @@ try:
     s.set_editor_property("auto_exposure_max_brightness", EXPOSURE_EV100)
     s.set_editor_property("override_auto_exposure_bias", True)
     s.set_editor_property("auto_exposure_bias", 0.0)
+    # White balance (meta.whiteBalanceK): the stage design balances for its 4100 K ceiling field so
+    # the room reads neutral while the 2700-3000 K practicals and her skin stay warm.
+    if META.get("whiteBalanceK"):
+        s.set_editor_property("override_white_temp", True)
+        s.set_editor_property("white_temp", float(META["whiteBalanceK"]))
     ppv.set_editor_property("settings", s)
     w(META.get("lightsLog", "lights ok ({placed} of {total} placed, {shadowed} cast shadows, {exterior} tagged "
                             "ExteriorLight), exposure PINNED at EV100 {ev:.2f}").format(
