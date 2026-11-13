@@ -72,7 +72,6 @@ The deployment target is an **AMD/ROCm** host. It does **not** require an NVIDIA
   visemes, plus involuntary blinking.
 - **Says she is an AI**, in a line that stays in the frame and on the player page for as long as
   the stream runs, and in the face stack's opening line.
-- **Can remember you**, opt-in via `MHLLM_MEMORY=1`.
 - **Runs against anything.** `IChatBackend` covers native Ollama `/api/chat` and any
   OpenAI-compatible `/v1/chat/completions` (LM Studio, Lemonade, vLLM, a gateway) by config alone.
 
@@ -156,7 +155,6 @@ precedence rules, which have bitten before.
 OLLAMA_BASE_URL=http://127.0.0.1:11434   OLLAMA_MODEL=llama3.2
 KOKORO_SERVER_URL=http://127.0.0.1:13305 WHISPER_SERVER_URL=http://127.0.0.1:13305
 WHISPER_MODEL=Whisper-Base               # REQUIRED by the OpenAI shape; blank omits the field
-MHLLM_MEMORY=1                           # opt-in: persists transcripts to disk
 ```
 
 ## Deploy

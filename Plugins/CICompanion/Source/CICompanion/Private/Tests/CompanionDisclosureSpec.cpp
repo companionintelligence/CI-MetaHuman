@@ -8,8 +8,12 @@
 #include "Settings/MetaHumanLLMSettings.h"
 #include "UI/SCompanionAiNotice.h"
 
-// A launch condition of the streamed companion's privacy policy, held in code: she says she is an
-// AI, in the frame and where people type, from the first frame a viewer gets (EU AI Act Art. 50(1)).
+// Two launch conditions of the streamed companion's privacy policy, held in code.
+//
+// She says she is an AI, in the frame and where people type, from the first frame a viewer gets
+// (EU AI Act Art. 50(1)). And conversation memory stays off unless an operator turns it on: with it
+// on she remembers people across sessions, which New York GBL Art. 47 and California SB 243 tie to a
+// crisis protocol this product does not have yet, and the policy says memory is off.
 BEGIN_DEFINE_SPEC(FCompanionAiNoticeSpec, "MetaHumanLocalLLM.Frontend.AiNotice", EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 END_DEFINE_SPEC(FCompanionAiNoticeSpec)
 
@@ -114,4 +118,17 @@ void FCompanionDisclosureSpec::Define()
 		});
 	});
 
+	Describe("conversation memory", [this]()
+	{
+		It("is off unless the operator turns it on", [this]()
+		{
+			if (!CICompanionEnv::Get(TEXT("MHLLM_MEMORY"), FString()).IsEmpty())
+			{
+				AddInfo(TEXT("MHLLM_MEMORY is set in this process, and it wins by design; skipping."));
+				return;
+			}
+			// The class default as compiled and as DefaultGame.ini leaves it.
+			TestFalse("off by default", GetDefault<UMetaHumanLLMSettings>()->bPersistConversation);
+		});
+	});
 }

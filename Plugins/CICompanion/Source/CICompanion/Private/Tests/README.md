@@ -71,7 +71,8 @@ Run: `Scripts/RunBackendTests.ps1`
 - `CompanionDisclosureSpec.cpp` — the AI notice (`SCompanionAiNotice`): it says she is an AI,
   never takes a click, uses the player page's words, and the chat box's idle status names her an AI
   too. Its `MetaHumanLocalLLM.Backend.Disclosure` half pins that the runtime builds the notice even
-  where no HUD can be (no viewport) and keeps it across the reset for the next viewer.
+  where no HUD can be (no viewport) and keeps it across the reset for the next viewer, and that
+  conversation memory is off unless `MHLLM_MEMORY` turns it on.
 
 Run: `Scripts/RunFrontendTests.ps1`
 
