@@ -17,7 +17,7 @@ set -o pipefail
 
 RELEASE=5.8
 IMAGE="ci/metahuman-local-llm:${RELEASE}-face"
-# Which resident to author: mannequin (default), metahuman or nia. Exported so run_author_m2.sh sees
+# Which resident to author: mannequin (default), eliza, metahuman or nia. Exported so run_author_m2.sh sees
 # it; see that script for what each means and why Seo and Nia are opt-in. Lower-cased HERE as well
 # as there, so the gates below compare the same spelling the authoring run was given.
 MHLLM_RESIDENT="$(printf '%s' "${MHLLM_RESIDENT:-mannequin}" | tr '[:upper:]' '[:lower:]')"
@@ -49,6 +49,7 @@ grep -E "resident|Nia:|tag" /home/ci/stage-out/AUTHOR_RESULT.txt
 # line is printed only by the default path, never by the fall-back after a failed Seo import.
 case "$MHLLM_RESIDENT" in
   nia)       GATE="resident: NIA placed" ;;
+  eliza)     GATE="resident: ELIZA placed" ;;
   metahuman) GATE="resident: METAHUMAN placed" ;;
   *)         GATE="resident: MANNEQUIN placed" ;;
 esac
@@ -72,6 +73,9 @@ else
   if [ "$MHLLM_RESIDENT" = metahuman ]; then
     test -d /home/ci/cook-clean/Content/Seo || { echo "NO_METAHUMAN_CONTENT — aborting"; exit 1; }
     echo "METAHUMAN_CONTENT_PRESENT"
+  elif [ "$MHLLM_RESIDENT" = eliza ]; then
+    test -f /home/ci/cook-clean/Content/Eliza/eliza_manifest.json || { echo "NO_ELIZA_CONTENT — aborting"; exit 1; }
+    echo "ELIZA_CONTENT_PRESENT ($(tr -d ' \n' < /home/ci/cook-clean/Content/Eliza/eliza_manifest.json | sed -n 's/.*"variant":"\([a-z]*\)".*/\1/p'))"
   else
     # The mannequin is engine plugin content, so there is nothing under Content/ to require -- only
     # things to refuse. A mannequin build authors nothing under /Game/Seo, so Seo here is stale too.
@@ -84,6 +88,9 @@ else
   # means a stale tree, and a stale tree is how she would ride into an image nobody asked her into.
   if [ -d /home/ci/cook-clean/Content/CC_ControlRig_Nia ]; then
     echo "UNEXPECTED_NIA_CONTENT in the cook tree for a ${MHLLM_RESIDENT} build — aborting"; exit 1
+  fi
+  if [ -d /home/ci/cook-clean/Content/Eliza ] && [ "$MHLLM_RESIDENT" != eliza ]; then
+    echo "UNEXPECTED_ELIZA_CONTENT in the cook tree for a ${MHLLM_RESIDENT} build — aborting"; exit 1
   fi
 fi
 

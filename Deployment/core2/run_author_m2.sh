@@ -8,11 +8,15 @@
 # from core-2, though, so the 5.8 cook has to pull its base regardless. Using 5.8 for both steps
 # avoids fetching a second, roughly 85 GB engine base and removes a version split.
 #
-# WHICH RESIDENT: MHLLM_RESIDENT=mannequin (the default), metahuman or nia.
+# WHICH RESIDENT: MHLLM_RESIDENT=mannequin (the default), eliza, metahuman or nia.
 #   mannequin  Epic's UE mannequin from the engine's MoverTests plugin. Nothing is mounted for it:
 #              neither the Seo export nor Nia's content reaches the container, the cook tree or the
 #              image. The only resident whose licence clears an AI companion; a placeholder with no
 #              facial rig.
+#   eliza      the staged Eliza content (/home/ci/eliza-content/Eliza, holding eliza_manifest.json)
+#              mounted read-only at /eliza and copied into Content/Eliza before authoring. Private,
+#              never committed; author_diorama.py reads the variant (mpfb or metahuman) from the
+#              manifest and MHLLM_ELIZA_VARIANT, when set, must match it.
 #   metahuman  the MetaHuman "Seo" FBX export mounted read-only at /mh (/home/ci/mh-seo).
 #   nia        additionally mounts /home/ci/nia-content and copies it into the project, which is
 #              what every run did before this switch existed (/mh too, for her fall-back to Seo).
@@ -21,19 +25,24 @@
 # The value is passed through to author_diorama.py, which refuses anything else.
 RESIDENT="$(printf '%s' "${MHLLM_RESIDENT:-mannequin}" | tr '[:upper:]' '[:lower:]')"
 case "$RESIDENT" in
-  mannequin|metahuman|nia) ;;
-  *) echo "MHLLM_RESIDENT must be 'mannequin', 'metahuman' or 'nia' (got '$RESIDENT')"; exit 2 ;;
+  mannequin|eliza|metahuman|nia) ;;
+  *) echo "MHLLM_RESIDENT must be 'mannequin', 'eliza', 'metahuman' or 'nia' (got '$RESIDENT')"; exit 2 ;;
 esac
 RESIDENT_MOUNTS=()
-if [ "$RESIDENT" != mannequin ]; then
+if [ "$RESIDENT" = metahuman ] || [ "$RESIDENT" = nia ]; then
   RESIDENT_MOUNTS+=(-v /home/ci/mh-seo:/mh:ro)
+fi
+if [ "$RESIDENT" = eliza ]; then
+  test -f /home/ci/eliza-content/Eliza/eliza_manifest.json \
+    || { echo "MHLLM_RESIDENT=eliza, but /home/ci/eliza-content/Eliza/eliza_manifest.json is missing"; exit 2; }
+  RESIDENT_MOUNTS+=(-v /home/ci/eliza-content:/eliza:ro)
 fi
 if [ "$RESIDENT" = nia ]; then
   RESIDENT_MOUNTS+=(-v /home/ci/nia-content:/nia:ro)
 fi
 
 echo "===== AUTHOR M2 $(date -u) resident=${RESIDENT} ====="
-docker run --rm --user root -e MHLLM_RESIDENT="$RESIDENT" \
+docker run --rm --user root -e MHLLM_RESIDENT="$RESIDENT" -e MHLLM_ELIZA_VARIANT="${MHLLM_ELIZA_VARIANT:-}" \
   -v /home/ci/authorproj:/proj -v /home/ci/stage-out:/out -v /home/ci/props-glb:/glb:ro "${RESIDENT_MOUNTS[@]}" -v /home/ci/cook-clean/Deployment/audio:/audio:ro -v /home/ci/cook-clean/Deployment/generated:/brand:ro \
   --entrypoint bash ghcr.io/epicgames/unreal-engine:dev-5.8 -c '
     rm -rf /out/Content /out/AUTHOR_RESULT.txt /out/author_m2.log
@@ -41,9 +50,11 @@ docker run --rm --user root -e MHLLM_RESIDENT="$RESIDENT" \
     rm -rf /proj/Content && mkdir -p /proj/Content
     # Only present when MHLLM_RESIDENT=nia mounted it.
     if [ -d /nia ]; then cp -r /nia/. /proj/Content/ 2>/dev/null; fi
+    # Only present when MHLLM_RESIDENT=eliza mounted it.
+    if [ -d /eliza/Eliza ]; then cp -r /eliza/Eliza /proj/Content/Eliza; fi
     chown -R ue4:ue4 /proj && chmod 777 /out
     cp /out/author_diorama.py /proj/author_diorama.py && chown ue4:ue4 /proj/author_diorama.py
-    MHLLM_BRAND_DIR=/brand su ue4 -c "MHLLM_RESIDENT=$MHLLM_RESIDENT MHLLM_BRAND_DIR=/brand /home/ue4/UnrealEngine/Engine/Binaries/Linux/UnrealEditor-Cmd /proj/Author.uproject -run=pythonscript -script=/proj/author_diorama.py -unattended -nullrhi -stdout -utf8output -NoLogTimes" > /out/author_m2.log 2>&1
+    MHLLM_BRAND_DIR=/brand su ue4 -c "MHLLM_RESIDENT=$MHLLM_RESIDENT MHLLM_ELIZA_VARIANT=$MHLLM_ELIZA_VARIANT MHLLM_BRAND_DIR=/brand /home/ue4/UnrealEngine/Engine/Binaries/Linux/UnrealEditor-Cmd /proj/Author.uproject -run=pythonscript -script=/proj/author_diorama.py -unattended -nullrhi -stdout -utf8output -NoLogTimes" > /out/author_m2.log 2>&1
     echo "EDITOR_EXIT=$?" >> /out/author_m2.log
     echo "---CONTENT---" >> /out/author_m2.log
     find /proj/Content -name "*.uasset" -o -name "*.umap" | head -40 >> /out/author_m2.log 2>&1

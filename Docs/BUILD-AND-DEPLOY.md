@@ -279,7 +279,7 @@ empty:
 | Assertion | The failure it catches |
 |---|---|
 | starts with `SUCCESS` | `new_level()` **refuses to overwrite**, returns `False`, the run authors into an untitled transient level, the save fails — and the script printed SUCCESS anyway because that line was unconditional |
-| `resident: MANNEQUIN placed` (default), `resident: METAHUMAN placed` (`-Resident MetaHuman`) or `resident: NIA placed` (`-Resident Nia`) | a cooked build with sky, ground and nobody in it. The MetaHuman line is printed only when all three Seo parts imported, the face is tagged and the body and outfit are attached to it; the mannequin line only by the default path, never by the fall-back after a failed Seo import |
+| `resident: MANNEQUIN placed` (default), `resident: ELIZA placed` (`-Resident Eliza`, after her staged `eliza_manifest.json` checked out), `resident: METAHUMAN placed` (`-Resident MetaHuman`) or `resident: NIA placed` (`-Resident Nia`) | a cooked build with sky, ground and nobody in it. The MetaHuman line is printed only when all three Seo parts imported, the face is tagged and the body and outfit are attached to it; the mannequin line only by the default path, never by the fall-back after a failed Seo import |
 | `CRT vector displays placed: [1-9]` | *"Match the COUNT, not just the words"* — three empty actors and a cheerful success line |
 | `room tone placed` | a silent machine hall |
 | `exposure PINNED at EV100` | 3.5 stops of overexposure that **failed silently for weeks**, because nothing in any log distinguishes a lit room from a blown one |

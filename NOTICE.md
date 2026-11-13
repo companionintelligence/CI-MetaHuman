@@ -203,13 +203,31 @@ the published history would need a history rewrite and an LFS purge, which is th
 Do not commit MetaHuman, Fab or other Epic source assets to this repository; keep them in
 private storage.
 
-## The resident avatar: Epic's mannequin by default; "Nia" and "Seo" are opt-in only
+## The resident avatar: Epic's mannequin by default; Eliza on request; "Nia" and "Seo" opt-in only
 
 The companion's on-screen character is chosen when the map is authored: `MHLLM_RESIDENT` for
 `Deployment/author_diorama.py` and `Deployment/core2/run_author_m2.sh`, `-Resident` for
 `Scripts/BuildNative.ps1`. The default is the only choice whose licence clears an AI companion.
 Facts below were read on 2026-11-12; the root `README.md` ("Licensing") quotes the sources.
 
+- **On request: Eliza, made by Companion Intelligence** (`-Resident Eliza`, `MHLLM_RESIDENT=eliza`).
+  Her content is private and staged, never committed; `Content/Eliza/eliza_manifest.json` names the
+  variant, and every gate (BuildNative.ps1, CHECK_MAP, m2_clean.sh) refuses her content in a build
+  that did not ask for her. Read live on 2026-11-13:
+  - *MPFB variant.* Built with MPFB 2.0.18 (GPL-3.0-or-later; an authoring tool, not distributed)
+    from CC0 1.0 packs only. MPFB LICENSE.md §C: the assets "have been released under CC0 1.0
+    Universal"; §D: "the MakeHuman team makes no claim whatsoever over output" (exports, renderings,
+    saved models). CC0 1.0 §2 waives every right "for any purpose whatsoever, including without
+    limitation commercial, advertising or promotional purposes". Items, authors, file hashes and
+    every modification are in her private `provenance.md`; the credit is in [CREDITS.md](CREDITS.md).
+  - *MetaHuman variant (not built yet; "Still open" item 1).* To be made in MetaHuman Creator in
+    UE 5.8 from its bundled presets and grooms: Licensed Technology (EULA §1), shipped in object code
+    (§4), no AI clause since update 22; the
+    MetaHuman licence FAQ: "You can use MetaHuman characters and animation in workflows that
+    incorporate artificial intelligence technology." Free below US$1M lifetime gross per product;
+    above that, Unreal's standard terms (5% royalty and a Release Form).
+  - No scan or photograph of a real person went into either face, and she resembles no one.
+  - **Never use Eliza's mesh, rig, curves or renders to build datasets or to train or test AI.**
 - **Default: Epic's UE mannequin.** `SKM_Manny` and its `MM_Idle` loop, from the engine's
   MoverTests plugin. They are Epic-provided content installed with Unreal Engine, so they are
   Licensed Technology under the Unreal Engine EULA (section 1), and a cooked build or runtime image
@@ -268,10 +286,14 @@ before the replacement cannot bring them back.
 
 **Still open:**
 
-1. **A resident with a face** that the project may use with AI: a MetaHuman created in-house with
-   MetaHuman Creator (Licensed Technology, so the EULA governs it), or written terms from
-   Reallusion or Groomchenko that cover use as the avatar of an AI companion (for Nia, commercial
-   use too), recorded here.
+1. **Eliza's MetaHuman variant** needs two owner steps; nothing else in her build does. (a) Accept
+   Unreal Engine EULA update 22 (October 30, 2026) at <https://www.unrealengine.com/eulaprompt/unreal>
+   or in the Epic Games Launcher: under §8(a) Epic may withhold its services, MetaHuman auto-rig and
+   texture sources among them, until it is accepted, and only the licensee can accept terms. (b) When
+   local authoring reports "Eliza ready for auto-rig", approve the one cloud run (Auto-Rig, Joints
+   and Blend Shapes, and Download Texture Sources) with the Epic sign-in already on the machine, or
+   run those two buttons yourself. Her MPFB variant needs neither. Making Eliza the default resident
+   is a separate decision.
 2. **Images made with Nia.** `Assets/store-screenshots/01-scene.png`, `02-conversation.png` and
    `Docs/verification-2026-08-17/measurement-regions.png` show her, and the two screenshots also
    show a replaced NoAI prop ([CREDITS.md](CREDITS.md)). Recapture them from a mannequin build, or

@@ -105,6 +105,16 @@ resident whose licence does not clear this use (next section).
 
 ## The resident avatar
 
+Eliza, the resident, was made by Companion Intelligence. Her current version was built with MPFB 2
+(MakeHuman Community) from CC0 1.0 assets: the MakeHuman system assets (the MakeHuman team),
+Faceunits 01 and Visemes 02 (Mika Suominen), and the fisherman sweater, wool slacks, flats and
+curled-under bob by Margaret Toigo, recoloured and fitted to her. Her idle is Epic's MM_Idle,
+retarget-adapted. CC0 needs no credit; it is given as a courtesy. A MetaHuman version is planned under
+the same name: it is to be created in MetaHuman Creator in Unreal Engine 5.8 from Epic-provided
+presets and grooms (Unreal Engine EULA), wearing clothing adapted from the same CC0 items, and this
+credit will name it once it exists. She is authored with `-Resident Eliza` (`MHLLM_RESIDENT=eliza`);
+her content is private and not in this repository.
+
 By default the companion appears as **Epic's UE mannequin** (`SKM_Manny` with its `MM_Idle`
 loop, from the engine's MoverTests plugin): Unreal Engine content, licensed with the engine under
 the Unreal Engine EULA. It is a faceless placeholder.

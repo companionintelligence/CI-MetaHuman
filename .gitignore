@@ -60,3 +60,9 @@ conversation_e2e_results.json
 
 # Audit capture output: reproducible, ~40 MB of PNG/GIF. The report .md is what matters.
 Docs/audit-*/media/
+
+# The resident Eliza (Deployment/author_diorama.py, MHLLM_RESIDENT=eliza). Her content is STAGED here by
+# Scripts/BuildNative.ps1 -Resident Eliza (or copied in by the core-2 authoring run) from private storage,
+# never committed: /Content/Eliza/ is the built variant, /Content/EditableCharacters/ the MetaHuman source.
+/Content/Eliza/
+/Content/EditableCharacters/

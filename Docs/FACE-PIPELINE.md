@@ -158,6 +158,35 @@ instead: `AA` is `jawOpen` 0.75 alone, `OU` is `mouthPucker` 0.85 + `jawOpen` 0.
 `FaceVocabularySpec` validates the whole ARKit profile against the canonical ARKit-52 allow-list —
 the `mouthSmileLeft` vs `mouthSmile_L` trap is exactly the kind of typo that reads as a rig bug.
 
+### 3.3.1 Eliza: the same ARKit profile on morph targets (MPFB variant)
+
+Eliza's MPFB variant carries MPFB's Faceunits 01 export: the 52 ARKit units as morph targets on her
+face, eyes, teeth and tongue, plus 14 of the 15 Meta `viseme_*` shapes (`viseme_sil` is the neutral
+pose and has no deltas, so the importer drops it; the profile does not use visemes). Her map tags her
+`FaceProfile=ARKit`, so nothing in the runtime changes: `Face profile 'ARKit': all 37 curves resolved
+on 'SKM_Eliza'`, then `Face driver bound to 'Eliza': 37/37 profile curves resolved.` Two tags tune
+the viseme layer for a full-range ARKit face: `FaceGain=1.0` and `FacePoseCap=1.0`. The 3.0 / 2.0
+defaults were tuned for Nia's subtle CC morphs and would open Eliza's jaw twice as far as her shapes
+were sculpted for. `MHLLM_FACE_GAIN` / `MHLLM_FACE_POSE_CAP` still win when set. MPFB's `mouthClose`
+unit is authored to sit on an open jaw; on hers its deltas are scaled to 0.4, because this profile
+also drives it with the jaw shut (Sil, NN, PP) and the full unit bulges the lips there.
+
+### 3.3.2 Eliza's MetaHuman variant: `ARKitMH` over Live Link
+
+A MetaHuman face is moved by RigLogic joints from `CTRL_expressions_*` curves; its morph targets are
+only correctives, so `SetMorphTarget` would leave the face still. Her map tags `FaceSink=LiveLink`
+and `LiveLinkSubject=Eliza`, and the face driver publishes each composed frame as a Live Link subject
+(`FCompanionLiveLinkFaceSource`: animation role, no bones, the profile's curves as properties, every
+curve every frame, source mode Latest). Her Face component runs `ABP_MH_LiveLink`, which remaps the
+subject's ARKit curves through `PA_MetaHuman_ARKit_Mapping` into the controls RigLogic evaluates.
+That mapping has 51 of the 52 ARKit poses, every one but `mouthClose`, so `ARKitMH` is ARKit without
+it: Sil empty, PP = `mouthPressLeft/Right` 0.7 + `mouthRollLower` 0.3 + `mouthRollUpper` 0.25, NN =
+`jawOpen` 0.15 + `mouthPressLeft/Right` 0.2 (38 curves). Resolution is checked against the mapping's
+pose names (`38/38 ... (LiveLink 'Eliza' -> PA_MetaHuman_ARKit_Mapping)`), and `FACESURVIVE LiveLink`
+logs whether a pushed `jawOpen` reached `CTRL_expressions_jawOpen` one frame later. At BeginPlay the
+subsystem also sets the face's anim class, `LLink_Face_Subj` / `LLink_Face_Head` by reflection, and
+the garments' leader pose (`LeaderPose=Body`).
+
 ### 3.4 Emotion palettes
 
 Both profiles ship all seven `EEmotionType` poses, all weighted **≤ 0.45** and deliberately
