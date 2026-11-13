@@ -171,6 +171,12 @@ were sculpted for. `MHLLM_FACE_GAIN` / `MHLLM_FACE_POSE_CAP` still win when set.
 unit is authored to sit on an open jaw; on hers its deltas are scaled to 0.4, because this profile
 also drives it with the jaw shut (Sil, NN, PP) and the full unit bulges the lips there.
 
+Checked in game on 2026-11-13 ([`verification-2026-11-13-eliza`](verification-2026-11-13-eliza/README.md)):
+both log lines above, the 15-viseme self-test (AA opens with the teeth showing, PP closes the lips, OU
+rounds them), a spoken line through `SpeakLiteral` measured with `lipcheck.py` (4.60 reversals/s
+speaking against 0.47 quiet, cheek control 0.15), a full close of both lids, and no crossed or
+wall-eyed gaze. The line was timed by the text estimate (no voice service on the capture machine).
+
 ### 3.3.2 Eliza's MetaHuman variant: `ARKitMH` over Live Link
 
 A MetaHuman face is moved by RigLogic joints from `CTRL_expressions_*` curves; its morph targets are
