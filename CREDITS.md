@@ -42,7 +42,8 @@ embedded author and licence metadata. Several were rescaled, recentred or merged
 `commodore-pet.glb`, for example, carries one textured material where the original has seven.
 `author_diorama.py` then scales each model uniformly to a target size, re-parents its materials
 onto a project material that keeps base colour, metallic and roughness but drops emission and
-specular, and places and lights it in the scene.
+specular, and places and lights it in the scene. For the stage it also removes the RAMAC 305's
+loose disk platter before import (`clipLocal` in `Deployment/stage_layout.json`).
 
 **How the files were matched to these pages.** Each local GLB has exactly the triangle count
 that the Sketchfab API reports for its model. Texture counts match, and material counts are the
