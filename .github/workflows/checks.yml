@@ -450,6 +450,9 @@ jobs:
       # Run the CHECK_MAP script from Deployment/Dockerfile (and prove Dockerfile.amd carries the
       # identical script) against fixtures, under the image's /bin/sh. Its stub hash must be the
       # committed stub's Git LFS oid; this checkout skips LFS, so the map on disk IS that pointer.
+      # The authored cases also need the Content/AUTHOR_RESULT.txt author_diorama.py writes beside
+      # the map, and the provenance cases are what the gate exists for: a map authored before the
+      # resident switch or the NoAI prop gate, and NoAI residents' content nobody asked for.
       - name: Stub-map gate (CHECK_MAP)
         run: |
           set -euo pipefail
@@ -477,11 +480,31 @@ jobs:
             fi
           }
           map=Content/Maps/CompanionStage.umap
+          authored() { head -c 300000 /dev/urandom > "$map"; }
+          # result <resident line> [map sha256]: what a successful authoring run leaves beside the map
+          result() {
+            printf '%s\n' start 'NoAI prop slots: 0 of 3 refused' "$1" \
+              "map sha256: ${2:-$(sha256sum "$map" | cut -d ' ' -f 1)}" SUCCESS > Content/AUTHOR_RESULT.txt
+          }
+          manny='resident: MANNEQUIN placed (SKM_Manny)'
           expect 1 missing 'true'
           expect 1 lfs-pointer "cp '$GITHUB_WORKSPACE/$map' $map"
           expect 1 small "head -c 150000 /dev/urandom > $map"
-          expect 0 authored "head -c 300000 /dev/urandom > $map"
+          expect 0 authored "authored && result '$manny'"
+          expect 0 authored-on-windows "authored && result '$manny' && sed -i 's/\$/\\r/' Content/AUTHOR_RESULT.txt"
+          expect 1 authored-no-result 'authored'
+          expect 1 result-of-another-map "authored && result '$manny' $(printf '%064d' 0)"
+          expect 1 failed-run "authored && result '$manny' && sed -i '/^SUCCESS\$/d' Content/AUTHOR_RESULT.txt"
+          expect 1 before-noai-prop-gate "authored && result '$manny' && sed -i '/^NoAI prop slots/d' Content/AUTHOR_RESULT.txt"
+          expect 1 nia-map-unasked "authored && result 'resident: NIA placed'"
+          expect 1 nia-content-unasked "authored && result '$manny' && mkdir -p Content/CC_ControlRig_Nia"
+          expect 1 seo-content-unasked "authored && result '$manny' && mkdir -p Content/Seo"
+          expect 0 nia-asked-for "authored && result 'resident: NIA placed' && mkdir -p Content/CC_ControlRig_Nia && export RESIDENT=Nia"
+          expect 0 metahuman-asked-for "authored && result 'resident: METAHUMAN placed' && mkdir -p Content/Seo && export RESIDENT=metahuman"
+          expect 1 metahuman-without-seo "authored && result 'resident: METAHUMAN placed' && export RESIDENT=metahuman"
+          expect 1 unknown-resident "authored && result '$manny' && export RESIDENT=someone"
           expect 0 allow-stub "head -c 150000 /dev/urandom > $map && export ALLOW_STUB_MAP=1"
+          expect 1 allow-stub-authored-no-result 'authored && export ALLOW_STUB_MAP=1'
           expect 0 synthesized "touch /tmp/CompanionStage.synthesized"
           rm -f /tmp/CompanionStage.synthesized
           exit "$status"

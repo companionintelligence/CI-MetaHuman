@@ -168,7 +168,7 @@ would be silently ignored on every machine that had already held one conversatio
 | `MHLLM_MH_DIR` | `/mh` | the Seo FBX export: `-MetaHumanDir`, else `C:\devel\_mh-convert\out\seo`; read only with `-Resident MetaHuman` (or Nia's fall-back). Was `Deployment\metahuman`, which holds the conversion scripts and no FBX |
 | `MHLLM_AUDIO_DIR` | `/audio` | `Deployment\audio` |
 | `MHLLM_GEN_DIR` | `MHLLM_GLB_DIR` | `Deployment\generated` |
-| `MHLLM_AUTHOR_RESULT` | `/out/AUTHOR_RESULT.txt` | `Saved\AUTHOR_RESULT.txt` |
+| `MHLLM_AUTHOR_RESULT` | `/out/AUTHOR_RESULT.txt` | `Saved\AUTHOR_RESULT.txt`. Either way every line also goes to `Content/AUTHOR_RESULT.txt`, beside the map, for the image builds' `CHECK_MAP` and `-SkipAuthoring` |
 | `MHLLM_NIA_CONTENT` | — | `..\CharacterCreatorNia\Content\CC_ControlRig_Nia` or `-NiaContent`; read only with `-Resident Nia` |
 
 ---

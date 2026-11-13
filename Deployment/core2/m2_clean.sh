@@ -88,9 +88,14 @@ else
 fi
 
 cd /home/ci/cook-clean
+# Dockerfile.amd's CHECK_MAP repeats these resident checks for any build context, and cooks an
+# authored map only beside the Content/AUTHOR_RESULT.txt the authoring run wrote into it (copied in
+# step 3 with the rest of Content/). RESIDENT tells it which resident that result must have placed;
+# without it the gate expects the mannequin and refuses a metahuman or nia build.
 DOCKER_BUILDKIT=1 docker build -f Deployment/Dockerfile.amd --build-arg RELEASE="${RELEASE}" \
-  -t "${IMAGE}" . && echo BUILD_OK || { echo BUILD_FAIL; exit 1; }
-docker build --progress=plain -f Deployment/Dockerfile.amd --build-arg RELEASE="${RELEASE}" -t "${IMAGE}" . 2>&1 | grep -iE "SUPPLIED|synthesizing" | head -2
+  --build-arg RESIDENT="${MHLLM_RESIDENT}" -t "${IMAGE}" . && echo BUILD_OK || { echo BUILD_FAIL; exit 1; }
+docker build --progress=plain -f Deployment/Dockerfile.amd --build-arg RELEASE="${RELEASE}" \
+  --build-arg RESIDENT="${MHLLM_RESIDENT}" -t "${IMAGE}" . 2>&1 | grep -iE "SUPPLIED|synthesizing" | head -2
 
 cp /home/ci/docker-compose.face.yml /home/ci/ci-metahermit/Deployment/docker-compose.face.yml
 cd /home/ci/ci-metahermit/Deployment

@@ -38,15 +38,24 @@
     but it will not produce a working cook while the content is at 1018.
 
 .PARAMETER SkipAuthoring
-    Cook whatever Content/Maps/CompanionStage.umap happens to be on disk instead of authoring a
-    fresh one. Fast, and almost always wrong: the committed .umap is a 23 KB STUB (sky + ground,
-    no resident, no set), so a build made this way opens onto an empty stage and logs
-    "No resident found; face driver inactive".
+    Cook the Content/Maps/CompanionStage.umap already on disk instead of authoring a fresh one.
+    Fast, and almost always wrong: the committed .umap is a 23 KB STUB (sky + ground, no resident,
+    no set), so a build made this way opens onto an empty stage and logs "No resident found; face
+    driver inactive".
+
+    An AUTHORED map (200 KB or more) is cooked only on the word of the run that authored it, the
+    same rule as CHECK_MAP in both Dockerfiles: Content/AUTHOR_RESULT.txt has to report SUCCESS,
+    place the -Resident asked for, show the NoAI prop gate ran, and record this map's sha256. A map
+    authored before those existed may hold Nia or the three NoAI-tagged Sketchfab props, and
+    nothing else here could tell. Nia's and Seo's content (Content/CC_ControlRig_Nia, Content/Seo)
+    is refused unless -Resident names her.
 
 .PARAMETER KeepAuthoredMap
-    Leave the freshly authored .umap in Content/Maps instead of restoring the committed stub
-    after the cook. Use it to open the real set in the editor; do NOT commit the result (see
-    Author-Stage below for why an authored map is engine-version-specific).
+    Leave the freshly authored .umap in Content/Maps, with the Content/AUTHOR_RESULT.txt that
+    vouches for it, instead of restoring the committed stub after the cook. Use it to open the real
+    set in the editor, or to build an image from this tree (Docs/BUILD-AND-DEPLOY.md section 2.2);
+    do NOT commit the map (see Author-Stage below for why an authored map is
+    engine-version-specific). AUTHOR_RESULT.txt is gitignored.
 
 .PARAMETER GlbDir
     Directory holding the prop GLBs. Defaults to $env:MHLLM_GLB_DIR, then to
@@ -113,6 +122,63 @@ if (-not (Test-Path $UProject)) { throw "Project not found: $UProject" }
 if ($Archive -eq '') { $Archive = Join-Path $ProjectRoot "dist/$Platform" }
 $StageMap = Join-Path $ProjectRoot 'Content\Maps\CompanionStage.umap'
 $script:RefusedPropsNote = $null   # set by Invoke-StageAuthoring when NoAI prop slots were left empty
+
+# ---------------------------------------------------------------------------------------------
+# Provenance: what an authored map has to arrive with.
+#
+# author_diorama.py writes every line of its result into Content\AUTHOR_RESULT.txt as well, ending
+# with "map sha256: <the map it saved>" and SUCCESS, so the authored Content\ carries its own word
+# for what is in it wherever it is copied. Nothing else can say it: a map authored before the
+# resident switch (Nia) or before the NoAI prop gate (the three Sketchfab models) passes every size
+# and stub check. CHECK_MAP in Deployment/Dockerfile and Dockerfile.amd applies these same checks
+# to an image build, and m2_clean.sh the resident-content ones to core-2's cook tree: keep them in step.
+$ProvenanceFile = Join-Path $ProjectRoot 'Content\AUTHOR_RESULT.txt'
+$ResidentGateLine = @{
+    Mannequin = 'resident: MANNEQUIN placed'
+    MetaHuman = 'resident: METAHUMAN placed'
+    Nia       = 'resident: NIA placed'
+}
+
+function Assert-StageProvenance {
+    # Throws unless Content\AUTHOR_RESULT.txt vouches for the map on disk as the -Resident asked for.
+    $where = "$ProvenanceFile (map: $StageMap)"
+    if (-not (Test-Path $ProvenanceFile)) {
+        throw ("No Content\AUTHOR_RESULT.txt beside the authored map, so nothing vouches for what it contains. " +
+               'author_diorama.py writes it with the map; a map authored before it did, or copied without it, ' +
+               'may hold Nia or the NoAI-tagged props. Author the set (leave out -SkipAuthoring).')
+    }
+    $lines = @(Get-Content $ProvenanceFile)
+    $want = $ResidentGateLine[$Resident]
+    if (-not ($lines -match '^SUCCESS$')) { throw "The authoring run behind this map did not report SUCCESS: $where" }
+    if (-not ($lines | Where-Object { $_.StartsWith($want, [StringComparison]::Ordinal) })) {
+        $placed = @($lines -match '^resident: ') | Select-Object -Last 1
+        throw "No '$want' line for -Resident $Resident; the map holds another resident, or none ($placed): $where"
+    }
+    if (-not ($lines -match '^NoAI prop slots: ')) {
+        throw ('The map predates author_diorama.py refusing NoAI-tagged props, so ibm-1401-cpu, ibm-3178-terminal ' +
+               "and ibm-3350-disk may be the Sketchfab models CREDITS.md says were replaced. Re-author: $where")
+    }
+    $recorded = @($lines | ForEach-Object { if ($_ -match '^map sha256: ([0-9a-f]{64})$') { $Matches[1] } }) |
+        Select-Object -Last 1
+    $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $StageMap).Hash.ToLowerInvariant()
+    if ($recorded -ne $actual) {
+        throw "AUTHOR_RESULT.txt belongs to another map: it records map sha256 '$recorded', the map is $actual. $where"
+    }
+    Write-Host ("Content\AUTHOR_RESULT.txt vouches for the map: $want; " +
+                (@($lines -match '^NoAI prop slots: ') | Select-Object -Last 1)) -ForegroundColor Cyan
+}
+
+function Assert-NoUnrequestedResident {
+    # Seo and Nia are Fab content tagged NoAI (NOTICE.md): staged and cooked only when asked for by name.
+    if ($Resident -ne 'Nia' -and (Test-Path (Join-Path $ProjectRoot 'Content\CC_ControlRig_Nia'))) {
+        throw ("Content\CC_ControlRig_Nia (Reallusion's Nia, Fab content tagged NoAI) is staged, and this is a " +
+               "-Resident $Resident build cooking a map it did not author. Delete that folder, or pass -Resident Nia.")
+    }
+    if ($Resident -eq 'Mannequin' -and (Test-Path (Join-Path $ProjectRoot 'Content\Seo'))) {
+        throw ('Content\Seo (the MetaHuman Seo, Fab content tagged NoAI) is in a mannequin build cooking a map it ' +
+               'did not author; a mannequin build authors nothing under /Game/Seo. Delete it, or pass -Resident MetaHuman.')
+    }
+}
 
 if ($Platform -eq 'Mac') {
     Write-Host 'Mac cannot be built from Windows. Apple provides no cross-compiler.' -ForegroundColor Yellow
@@ -242,6 +308,9 @@ function Invoke-StageAuthoring {
         if (Test-Path $p) { Remove-Item $p -Recurse -Force }
     }
     if (Test-Path $StageMap) { Remove-Item $StageMap -Force }
+    # The previous run's word for the previous map. author_diorama.py truncates it on start, but an
+    # editor that dies before then would leave the old SUCCESS beside whatever comes next.
+    if (Test-Path $ProvenanceFile) { Remove-Item $ProvenanceFile -Force }
 
     $result = Join-Path $ProjectRoot 'Saved\AUTHOR_RESULT.txt'
     New-Item -ItemType Directory -Force (Split-Path -Parent $result) | Out-Null
@@ -329,6 +398,9 @@ function Invoke-StageAuthoring {
     $size = (Get-Item $StageMap).Length
     if ($size -lt 200KB) { throw "Authored map is only $size bytes — that is the empty stub, not the set." }
     Write-Host "Authored CompanionStage.umap ($([math]::Round($size/1MB,2)) MB)" -ForegroundColor Green
+    # The copy that travels with Content\ has to be whole and name this map, or a later image build
+    # or -SkipAuthoring cook from this tree would refuse it; find that out now, not then.
+    Assert-StageProvenance
 }
 
 # The 5.8 editor ADDS plugins to the .uproject on its own and marks them REQUIRED, which hard
@@ -416,8 +488,18 @@ if (-not $SkipAuthoring -and (Test-Path $StageMap)) {
 }
 try {
     if ($SkipAuthoring) {
-        Write-Host 'Skipping stage authoring: cooking whatever .umap is on disk.' -ForegroundColor Yellow
-        Write-Host 'If that is the committed stub, the build will open onto an EMPTY STAGE.' -ForegroundColor Yellow
+        Write-Host 'Skipping stage authoring: cooking the .umap already on disk.' -ForegroundColor Yellow
+        # Authoring is what guarantees which resident and props a map holds; without it, the map has
+        # to come with the word of the run that did author it (-SkipAuthoring in the help above).
+        Assert-NoUnrequestedResident
+        if (-not (Test-Path $StageMap)) { throw "-SkipAuthoring, but there is no $StageMap to cook." }
+        $size = (Get-Item $StageMap).Length
+        if ($size -lt 200KB) {
+            Write-Host "It is $size bytes, not the authored set: the build will open onto an EMPTY STAGE." -ForegroundColor Yellow
+        }
+        else {
+            Assert-StageProvenance
+        }
     }
     else {
         Invoke-StageAuthoring
@@ -436,10 +518,13 @@ finally {
     if ($StageMapBackup -and (Test-Path $StageMapBackup)) {
         if ($KeepAuthoredMap) {
             Remove-Item $StageMapBackup -Force
-            Write-Host 'Kept the authored CompanionStage.umap (-KeepAuthoredMap). Do not commit it.' -ForegroundColor Yellow
+            Write-Host ('Kept the authored CompanionStage.umap and the Content\AUTHOR_RESULT.txt that vouches for it ' +
+                        '(-KeepAuthoredMap). Do not commit the map.') -ForegroundColor Yellow
         }
         else {
             Move-Item $StageMapBackup $StageMap -Force
+            # Its result describes the authored map, not the stub now back in its place.
+            if (Test-Path $ProvenanceFile) { Remove-Item $ProvenanceFile -Force }
             Write-Host 'Restored the committed CompanionStage.umap stub (the cook already has the real one).' -ForegroundColor Cyan
         }
     }

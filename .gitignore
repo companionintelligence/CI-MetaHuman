@@ -41,6 +41,9 @@ Deployment/.env.edge
 /Content/Diorama/
 /Content/Seo/
 /Content/Audio/
+# The authoring run's result, written beside the map it vouches for (the image builds' CHECK_MAP and
+# BuildNative.ps1 -SkipAuthoring read it there).
+/Content/AUTHOR_RESULT.txt
 Content/Maps/CompanionStage.umap.orig
 MetaHumanLocalLLM.uproject.orig
 

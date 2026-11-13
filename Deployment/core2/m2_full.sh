@@ -33,7 +33,10 @@ cp -r /home/ci/stage-out/Content/. /home/ci/cook-m2/Content/
 grep -E "^GameDefaultMap" /home/ci/cook-m2/Config/DefaultEngine.ini
 
 cd /home/ci/cook-m2
+# RESIDENT: the resident Dockerfile.amd's CHECK_MAP requires the authored map's AUTHOR_RESULT.txt
+# (copied in above with Content/) to have placed, and the only one whose content it lets in.
 DOCKER_BUILDKIT=1 docker build -f Deployment/Dockerfile.amd --build-arg RELEASE="${RELEASE}" \
+  --build-arg RESIDENT="${MHLLM_RESIDENT}" \
   -t "ci/metahuman-local-llm:${UE_RELEASE}" . && echo "BUILD_OK" || { echo "BUILD_FAIL"; exit 1; }
 cd /home/ci/ci-metahermit/Deployment
 docker compose -f docker-compose.yml -f docker-compose.amd.yml -f docker-compose.ollama.yml up -d project

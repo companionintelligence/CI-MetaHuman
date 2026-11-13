@@ -56,7 +56,8 @@
 #
 # Stage 1 packages on Epic's dev image; stage 2 is an Ubuntu+Mesa (RADV/VAAPI) runtime so the app
 # renders with Vulkan and hardware-encodes over /dev/dri. Prereq: ghcr.io/epicgames access, and the
-# AUTHORED set in Content/ -- the build refuses to cook the committed 23 KB stub map (CHECK_MAP).
+# AUTHORED set in Content/ with its AUTHOR_RESULT.txt -- the build refuses to cook the committed
+# 23 KB stub map, or an authored map nothing vouches for (CHECK_MAP).
 #
 # BASE IMAGES ARE PINNED BY DIGEST (tag kept beside each for the reader). RELEASE selects one of
 # the digest-pinned engine stages below instead of the floating dev-<release> tag; BuildKit pulls
@@ -98,20 +99,57 @@ RUN cd /home/ue4/project-src \
         test -f Content/Maps/CompanionStage.umap; \
     fi
 
-# ---- Refuse to cook the stub map -----------------------------------------------------------
+# ---- Refuse to cook the stub map, or a map nothing vouches for -----------------------------
 # The same gate as Dockerfile, byte-for-byte (CI runs this script against fixtures and fails if
-# the two copies differ). On core-2, m2_clean.sh copies the authored Content/ in before building,
-# so this passes; what it stops is a build from a clean checkout, whose CompanionStage.umap is
-# the 23 KB stub committed to git. A pre-5.6 build whose context has NO map still gets the
-# minimal synthesized stage above -- that branch leaves /tmp/CompanionStage.synthesized, and the
-# gate lets it through with a warning. See Docs/BUILD-AND-DEPLOY.md section 2.2.
+# the two copies differ); Dockerfile's comment explains both halves. On core-2, m2_clean.sh
+# copies the authored Content/ in before building, AUTHOR_RESULT.txt included, and passes the
+# resident it authored as --build-arg RESIDENT, so this passes; what it stops is a build from a
+# clean checkout, whose CompanionStage.umap is the 23 KB stub committed to git, and a build from
+# a stale tree. A pre-5.6 build whose context has NO map still gets the minimal synthesized stage
+# above -- that branch leaves /tmp/CompanionStage.synthesized, and the gate lets it through with
+# a warning. See Docs/BUILD-AND-DEPLOY.md section 2.2.
 ARG ALLOW_STUB_MAP=0
+ARG RESIDENT=mannequin
 WORKDIR /home/ue4/project-src
 RUN <<'CHECK_MAP'
 set -eu
 map=Content/Maps/CompanionStage.umap
+result=Content/AUTHOR_RESULT.txt
 stub_sha256=688fb6b8f0f6528404e9088ba389fd876c344044c947a28395ab0aac64b6fc10
 min_bytes=204800
+resident="$(printf '%s' "${RESIDENT:-mannequin}" | tr '[:upper:]' '[:lower:]')"
+refuse() {
+    echo "CHECK_MAP: REFUSING TO COOK: $1" >&2
+    shift
+    for line in "$@"; do echo "CHECK_MAP: $line" >&2; done
+    exit 1
+}
+lines() { tr -d '\r' < "$result"; }
+case "$resident" in
+    mannequin) placed="resident: MANNEQUIN placed" ;;
+    metahuman) placed="resident: METAHUMAN placed" ;;
+    nia)       placed="resident: NIA placed" ;;
+    *) refuse "RESIDENT=$resident is not one of mannequin (the default), metahuman or nia." ;;
+esac
+# Seo and Nia are Fab content tagged NoAI (NOTICE.md): cooked only when asked for by name, the same
+# rule m2_clean.sh applies to its cook tree. The mannequin is engine content, so nothing under
+# Content/ belongs to it; either folder in a mannequin build's context is a stale tree.
+if [ -d Content/CC_ControlRig_Nia ] && [ "$resident" != nia ]; then
+    refuse "Content/CC_ControlRig_Nia is in the build context of a $resident build." \
+        "It is Reallusion's \"Nia\", Fab content tagged NoAI (NOTICE.md), and a stale tree is how she would" \
+        "ride into an image nobody asked her into. Remove it, or ask for her: --build-arg RESIDENT=nia."
+fi
+if [ -d Content/Seo ] && [ "$resident" = mannequin ]; then
+    refuse "Content/Seo is in the build context of a mannequin build." \
+        "It is the MetaHuman \"Seo\", Fab content tagged NoAI (NOTICE.md), and a mannequin build authors" \
+        "nothing under /Game/Seo. Remove it, or ask for her: --build-arg RESIDENT=metahuman."
+fi
+if [ "$resident" = nia ] && [ ! -d Content/CC_ControlRig_Nia ]; then
+    refuse "RESIDENT=nia, but the build context has no Content/CC_ControlRig_Nia."
+fi
+if [ "$resident" = metahuman ] && [ ! -d Content/Seo ]; then
+    refuse "RESIDENT=metahuman, but the build context has no Content/Seo."
+fi
 if [ -f /tmp/CompanionStage.synthesized ]; then
     echo "CHECK_MAP: WARNING: $map is the minimal fallback stage this build synthesized for a"
     echo "CHECK_MAP: pre-5.6 engine (no set, no resident). Cooking it because the context supplied no map."
@@ -128,7 +166,29 @@ elif [ "$(wc -c < "$map")" -lt "$min_bytes" ]; then
     problem="is only $(wc -c < "$map") bytes, which is a stub rather than the authored set"
 fi
 if [ -z "$problem" ]; then
-    echo "CHECK_MAP: OK, $map is $(wc -c < "$map") bytes"
+    # An authored map, so it is cooked only on the word of the run that authored it. Its bytes cannot
+    # say who stands in it or which props it placed: a map authored before the resident switch (Nia)
+    # or before the NoAI prop gate (three Sketchfab models) passes every check above.
+    if [ ! -f "$result" ]; then
+        refuse "$map has no $result beside it, so nothing vouches for what it contains." \
+            "author_diorama.py writes that file into Content/ with the map; a map authored before it did," \
+            "or copied without it, may hold Nia or the NoAI-tagged props. Copy the authored Content/ whole," \
+            "or re-author: Docs/BUILD-AND-DEPLOY.md section 2.2."
+    fi
+    lines | grep -qx 'SUCCESS' || refuse "$result does not report SUCCESS: that authoring run failed."
+    lines | grep -q "^$placed" || refuse "$result has no \"$placed\" line (RESIDENT=$resident)." \
+        "The map holds another resident, or none: $(lines | grep '^resident: ' | tail -n 1)"
+    lines | grep -q '^NoAI prop slots: ' || refuse "$result has no \"NoAI prop slots\" line." \
+        "It predates author_diorama.py refusing NoAI-tagged props, so ibm-1401-cpu, ibm-3178-terminal and" \
+        "ibm-3350-disk may be the Sketchfab models CREDITS.md says were replaced. Re-author."
+    recorded="$(lines | sed -n 's/^map sha256: \([0-9a-f]\{64\}\)$/\1/p' | tail -n 1)"
+    actual="$(sha256sum "$map" | cut -d ' ' -f 1)"
+    if [ "$recorded" != "$actual" ]; then
+        refuse "$result belongs to another map: it records map sha256 ${recorded:-(none)}, and $map is $actual." \
+            "Copy the authored Content/ whole, map and result together, or re-author."
+    fi
+    echo "CHECK_MAP: OK, $map is $(wc -c < "$map") bytes, and $result vouches for it:"
+    echo "CHECK_MAP: $placed; $(lines | grep '^NoAI prop slots: ' | tail -n 1)"
     exit 0
 fi
 if [ "${ALLOW_STUB_MAP:-0}" = "1" ]; then

@@ -3,8 +3,9 @@
 # layout as the web DatacenterDiorama (web meters -> UE cm: x_ue=-100*z_w, y_ue=100*x_w,
 # z_ue=100*y_w; yaw_ue=-deg(rotY_w)), era lighting per the GDD ("diegetic warm, chrome
 # cool"), desks under the desk-height artifacts, blockout resident, PlayerStart framing.
-# Writes /out/AUTHOR_RESULT.txt with progress + SUCCESS/FAIL.
-import unreal, traceback, math, os
+# Writes /out/AUTHOR_RESULT.txt with progress + SUCCESS/FAIL, and the same lines to
+# Content/AUTHOR_RESULT.txt beside the map (see THE RESULT TRAVELS WITH THE CONTENT below).
+import unreal, traceback, math, os, hashlib
 
 # INPUT LOCATIONS. The container mounts these at fixed absolute paths (see
 # Deployment/core2/run_author_m2.sh), and every default below is that container path, so the
@@ -58,10 +59,35 @@ RESULT    = os.environ.get("MHLLM_AUTHOR_RESULT", "/out/AUTHOR_RESULT.txt")
 # for is the silent-wrong-artifact failure every gate in this pipeline exists to stop.
 RESIDENT  = os.environ.get("MHLLM_RESIDENT", "").strip().lower() or "mannequin"
 RESIDENTS = ("mannequin", "metahuman", "nia")
-def w(s):
+
+# THE RESULT TRAVELS WITH THE CONTENT. Both Dockerfiles, and BuildNative.ps1 -SkipAuthoring, cook a
+# map this run is not there to vouch for, and the bytes of a .umap do not say who stands in it or
+# which props it placed: a map authored before the resident switch (Nia) or before the NoAI prop gate
+# below (the three Sketchfab models) passes every size and stub check. So every line of the result
+# also goes to Content/AUTHOR_RESULT.txt, beside the map, and the run ends it with "map sha256" (the
+# hash of the map it saved) and SUCCESS. Whoever copies the authored Content/ into a build context
+# copies its provenance with it, and the gates (CHECK_MAP in Deployment/Dockerfile and
+# Dockerfile.amd, BuildNative.ps1) refuse an authored map whose result is missing, failed, placed a
+# different resident, predates the NoAI gate, or names another map. A run that fails leaves a copy
+# that says FAIL, never the previous run's SUCCESS.
+def _content_dir():
+    # Ask the ENGINE where Content/ is, not this file's location: on core-2, run_author_m2.sh runs a
+    # COPY of this script from /proj/, two directories above nothing (see the map check at the end).
     try:
-        with open(RESULT, "a") as f: f.write(str(s) + "\n")
-    except Exception: pass
+        return unreal.SystemLibrary.get_project_content_directory()
+    except Exception:
+        return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Content")
+CONTENT_DIR = _content_dir()
+PROVENANCE  = os.path.join(CONTENT_DIR, "AUTHOR_RESULT.txt")
+RESULT_FILES = [RESULT]
+if os.path.normcase(os.path.abspath(PROVENANCE)) != os.path.normcase(os.path.abspath(RESULT)):
+    RESULT_FILES.append(PROVENANCE)
+
+def w(s):
+    for path in RESULT_FILES:
+        try:
+            with open(path, "a") as f: f.write(str(s) + "\n")
+        except Exception: pass
     unreal.log("M2: " + str(s))
 
 # name, fbx, pos (x,y,z cm), yaw deg, real-world target for the mesh's LARGEST dim (cm).
@@ -123,7 +149,10 @@ def glb_copyright(path):
         return None
 
 try:
-    open(RESULT, "w").close()
+    # Truncate both, so no line of an earlier run survives into this one. If the copy beside the map
+    # cannot be written, fail here: an authored map without it is refused by every gate downstream.
+    for path in RESULT_FILES:
+        open(path, "w").close()
     w("start")
     if RESIDENT not in RESIDENTS:
         raise RuntimeError("MHLLM_RESIDENT=%r is not one of %s" % (RESIDENT, "/".join(RESIDENTS)))
@@ -1394,20 +1423,19 @@ try:
     # and every downstream gate (m2_clean.sh's `grep -q SUCCESS`) believed it.
     if not ok:
         raise RuntimeError("save_current_level returned False; no .umap was written")
-    # Ask the ENGINE where Content/ is rather than deriving it from this file's location. The old
-    # derivation (two directories up from __file__) is right for Deployment/author_diorama.py in a
-    # checkout, and wrong on core-2, where run_author_m2.sh copies the script to /proj/ and runs it
-    # from there: it resolved to /Content/Maps/CompanionStage.umap, which never exists, so every
+    # CONTENT_DIR comes from the ENGINE rather than from this file's location. The old derivation
+    # (two directories up from __file__) is right for Deployment/author_diorama.py in a checkout,
+    # and wrong on core-2, where run_author_m2.sh copies the script to /proj/ and runs it from
+    # there: it resolved to /Content/Maps/CompanionStage.umap, which never exists, so every
     # container run that reached this check would have reported FAIL after writing a good map.
-    try:
-        content_dir = unreal.SystemLibrary.get_project_content_directory()
-    except Exception:
-        content_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Content")
-    map_file = os.path.join(content_dir, "Maps", "CompanionStage.umap")
+    map_file = os.path.join(CONTENT_DIR, "Maps", "CompanionStage.umap")
     if not os.path.isfile(map_file) or os.path.getsize(map_file) < 200_000:
         size = os.path.getsize(map_file) if os.path.isfile(map_file) else 0
         raise RuntimeError("saved map artifact missing or incomplete (%d bytes): %s" % (size, map_file))
     w("map artifact verified: %d bytes" % os.path.getsize(map_file))
+    # Binds this result to the map it describes (see THE RESULT TRAVELS WITH THE CONTENT, above).
+    with open(map_file, "rb") as f:
+        w("map sha256: %s" % hashlib.sha256(f.read()).hexdigest())
     expected729 = sum(1 for entry in HALL if entry[0] == "ibm2401")
     expected_reels = expected729 * 2
     if placed729 != expected729 or placed_reels != expected_reels:

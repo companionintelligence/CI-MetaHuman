@@ -118,6 +118,13 @@ Three things about that copy step that the commands themselves do not show:
 
 ## Build & run
 
+The `project` image cooks the **authored** set, which no Dockerfile can produce on its own: author
+it first and put the authored `Content/`, with the `AUTHOR_RESULT.txt` the authoring run writes
+beside the map, in the build context. Otherwise the build stops at its `CHECK_MAP` step, which also
+refuses a map authored before the current resident and prop rules, and Nia's or Seo's content
+unless asked for (`--build-arg RESIDENT=nia` or `metahuman`). See
+[`Docs/BUILD-AND-DEPLOY.md`](../Docs/BUILD-AND-DEPLOY.md) §2.2.
+
 ```bash
 # NVIDIA host:
 docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up -d

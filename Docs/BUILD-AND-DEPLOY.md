@@ -78,8 +78,8 @@ Canonical path is `stage.sh` → `m2_clean.sh`. `m2_full.sh` is the older `cook-
 | Step | Script | Cost | What it does |
 |---|---|---|---|
 | 0 | `core2/stage.sh` | ~30 s | tar the committed source, `scp` to core-2 under **one canonical name**, expand into `/home/ci/cook-clean`, then **verify the expanded tree** (§4) |
-| 1 | `core2/run_author_m2.sh` | ~3 min | author the map in `ghcr.io/epicgames/unreal-engine:dev-5.8` (the script's header says why it moved off 5.5) with `-nullrhi`; write `stage-out/Content` + `AUTHOR_RESULT.txt` |
-| 2 | `core2/m2_clean.sh` | ~20 min | gate on `SUCCESS` and on the requested resident's line, copy content as **root**, fail fast on a missing map, missing resident content (`Content/Seo` with `MHLLM_RESIDENT=metahuman`, `CC_ControlRig_Nia` with `nia`; the default mannequin is engine content) or resident content nobody asked for, `docker build -f Dockerfile.amd` (whose own `CHECK_MAP` gate, §2.2, then refuses a stub), deploy, grep the logs, curl `:8090` |
+| 1 | `core2/run_author_m2.sh` | ~3 min | author the map in `ghcr.io/epicgames/unreal-engine:dev-5.8` (the script's header says why it moved off 5.5) with `-nullrhi`; write `stage-out/Content` (a copy of the result, `Content/AUTHOR_RESULT.txt`, sits beside the map) + `AUTHOR_RESULT.txt` |
+| 2 | `core2/m2_clean.sh` | ~20 min | gate on `SUCCESS` and on the requested resident's line, copy content as **root**, fail fast on a missing map, missing resident content (`Content/Seo` with `MHLLM_RESIDENT=metahuman`, `CC_ControlRig_Nia` with `nia`; the default mannequin is engine content) or resident content nobody asked for, `docker build -f Dockerfile.amd --build-arg RESIDENT=<the resident it authored>` (whose own `CHECK_MAP` gate, §2.2, then refuses a stub, or an authored map nothing vouches for), deploy, grep the logs, curl `:8090` |
 | — | `core2/gpu_preview.sh` | ~3–5 min | render the **uncooked** authored map on the real GPU. Skips the cook entirely — the fast lighting/material loop |
 
 Notes that are not obvious from the scripts:
@@ -170,6 +170,31 @@ instead of shipping an empty stage twenty minutes later. A passing build logs
 - The script is byte-for-byte the same in both Dockerfiles; CI fails if they differ, runs it
   against fixtures, and checks its stub hash against the committed stub's LFS oid.
 
+**And it refuses an authored map that nothing vouches for.** The opposite failure is as quiet. A
+map authored before the resident switch places Reallusion's Nia, and one authored before the NoAI
+prop gate carries the three Sketchfab props `CREDITS.md` says were replaced; both are hundreds of
+KB, and both pass every check above. The bytes of a `.umap` cannot say who stands in it. So
+`author_diorama.py` writes every line of its result into `Content/AUTHOR_RESULT.txt` as well, beside
+the map, ending with `map sha256: <the map it saved>` and `SUCCESS`, and `CHECK_MAP` cooks an
+authored map only when that file passes:
+
+| `Content/AUTHOR_RESULT.txt` | Build log says | Typical cause |
+|---|---|---|
+| absent | `has no Content/AUTHOR_RESULT.txt beside it` | a map authored before this check existed, or a map copied without the rest of `Content/` |
+| no `SUCCESS` line | `does not report SUCCESS` | the authoring run failed |
+| no `resident: MANNEQUIN placed` line (`METAHUMAN` with `--build-arg RESIDENT=metahuman`, `NIA` with `RESIDENT=nia`) | `has no "resident: … placed" line` | the map holds another resident, such as Nia in a map authored before the switch |
+| no `NoAI prop slots:` line | `has no "NoAI prop slots" line` | authored before `author_diorama.py` refused the NoAI-tagged props |
+| `map sha256` is not the map's | `belongs to another map` | a result and a map from different runs |
+
+Whatever the map, it also refuses `Content/CC_ControlRig_Nia` unless `--build-arg RESIDENT=nia`,
+and `Content/Seo` in a mannequin build: both are Fab content tagged NoAI ([`NOTICE.md`](../NOTICE.md)),
+and this is the rule `m2_clean.sh` applies to core-2's cook tree, now applied to every build
+context. `RESIDENT` defaults to `mannequin`, the only resident whose licence clears this use;
+`m2_clean.sh` and `m2_full.sh` pass the resident they authored. `ALLOW_STUB_MAP=1` lifts none of
+this: it lets an unauthored map through, never an authored one nothing vouches for.
+`Scripts/BuildNative.ps1 -SkipAuthoring` applies the same checks before it cooks a map it did not
+author (§3).
+
 **The prerequisite, on any build host:**
 
 1. **Author** with the engine the image will cook with (5.8 by default; a `.umap` is
@@ -177,15 +202,20 @@ instead of shipping an empty stage twenty minutes later. A passing build logs
    `author_diorama.py` headlessly in `dev-5.8` with its inputs mounted -- the prop GLBs,
    `Deployment/audio` and `Deployment/generated`, plus the Seo FBX export only with
    `MHLLM_RESIDENT=metahuman` and the Nia character (`nia-content`) only with `nia`; the default
-   mannequin is engine content and needs no mount -- and writes `stage-out/Content` plus
-   `AUTHOR_RESULT.txt`. The GLBs (and the opt-in residents' content) are not in this repository,
-   which is why no Dockerfile can author on its own. On Windows, `Scripts/BuildNative.ps1 -KeepAuthoredMap` authors in place through the same
-   script and leaves the result in `Content/` (do not commit it).
+   mannequin is engine content and needs no mount -- and writes `stage-out/Content`, with its
+   `AUTHOR_RESULT.txt` beside the map, plus `stage-out/AUTHOR_RESULT.txt`. The GLBs (and the
+   opt-in residents' content) are not in this repository, which is why no Dockerfile can author on
+   its own. On Windows, `Scripts/BuildNative.ps1 -KeepAuthoredMap` authors in place through the
+   same script and leaves the result in `Content/`, `AUTHOR_RESULT.txt` included (do not commit the
+   map; the result file is gitignored).
 2. **Gate** on `AUTHOR_RESULT.txt` (§4.2), as `m2_clean.sh` and `BuildNative.ps1` do.
-3. **Copy** the authored `Content/` into the build context, as root where the authoring container
-   wrote it as root (`m2_clean.sh` step 3 is the reference; §2's first note says why).
-4. **Build** the image. `.github/workflows/unreal-self-hosted.yml` has a disabled job that does
-   steps 3 and 4 on a self-hosted runner from an `authored_content_dir` input.
+3. **Copy** the authored `Content/` into the build context **whole**, `AUTHOR_RESULT.txt` with it,
+   as root where the authoring container wrote it as root (`m2_clean.sh` step 3 is the reference;
+   §2's first note says why). Remove `Content/CC_ControlRig_Nia` and `Content/Seo` left over from
+   an earlier opt-in build.
+4. **Build** the image, with `--build-arg RESIDENT=metahuman` or `nia` only for an opt-in resident.
+   `.github/workflows/unreal-self-hosted.yml` has a disabled job that does steps 3 and 4 on a
+   self-hosted runner from an `authored_content_dir` input.
 
 ---
 
@@ -199,8 +229,9 @@ instead of shipping an empty stage twenty minutes later. A passing build logs
 | Strip 5.8-only plugins **in place**, restore in `finally` | Cooking a *renamed* copy writes output to `Saved/Cooked/Windows/<name>.build/` while staging still looks under `<name>/` — *"Cook and stage disagreed on the project name and only the second one noticed"* |
 | Delete `Intermediate/ShaderAutogen` | Written by whichever **engine** last opened the project. A 5.8-generated `AutogenShaderHeaders.ush` reused by the 5.5 shader compiler fails with errors naming engine internals and nothing about this project |
 | Back up the committed stub map | Restored in `finally`; `-KeepAuthoredMap` opts out. *"Do not commit it."* |
-| `Invoke-StageAuthoring` | Checks the resident's inputs before launching anything: the engine's `SKM_Manny` for the default `-Resident Mannequin`, the three Seo FBX files for `-Resident MetaHuman`, or — with `-Resident Nia` only — copies Nia's content (**copied, not junctioned** — authoring re-saves what it loads, and a junction would rewrite the source project's own assets). Then purges stale imports and runs the same `author_diorama.py` with `MHLLM_RESIDENT` set |
+| `Invoke-StageAuthoring` | Checks the resident's inputs before launching anything: the engine's `SKM_Manny` for the default `-Resident Mannequin`, the three Seo FBX files for `-Resident MetaHuman`, or — with `-Resident Nia` only — copies Nia's content (**copied, not junctioned** — authoring re-saves what it loads, and a junction would rewrite the source project's own assets). Then purges stale imports (and the last run's `Content/AUTHOR_RESULT.txt`) and runs the same `author_diorama.py` with `MHLLM_RESIDENT` set |
 | **The authoring gate** | §4.2 |
+| `-SkipAuthoring` instead | Cooks the map already on disk, but an authored one (200 KB or more) only if its `Content/AUTHOR_RESULT.txt` passes §2.2's provenance table for `-Resident`, and never with `Content/CC_ControlRig_Nia` or `Content/Seo` staged unless `-Resident` names her. A smaller map cooks with the old warning: an empty stage |
 | `RunUAT.bat BuildCookRun … -ubtargs=-NoHotReloadFromIDE` | Live Coding's mutex is keyed on the **executable**, and every project's editor target is the same `UnrealEditor.exe` — so an editor open on an *unrelated* project blocks packaging this one |
 | Check the package's licence files | `MetaHumanLocalLLM.Build.cs` stages `LICENSE`, `NOTICE.md` and `CREDITS.md` as loose files in `<archive>/MetaHumanLocalLLM/`, because the cooked set includes eight CC BY 4.0 models whose attribution must travel with the build. The script fails unless this run's NonUFS manifest lists all three; `Dockerfile` and `Dockerfile.amd` refuse an image without them in the same way |
 
@@ -253,13 +284,16 @@ empty:
 | `room tone placed` | a silent machine hall |
 | `exposure PINNED at EV100` | 3.5 stops of overexposure that **failed silently for weeks**, because nothing in any log distinguishes a lit room from a blown one |
 | map exists and is **> 200 KB** | *"that is the empty stub, not the set"* |
+| `Content/AUTHOR_RESULT.txt` has the resident line, a `NoAI prop slots:` line and this map's `map sha256` | the copy that travels with `Content/` is incomplete or names another map, so a later image build (`CHECK_MAP`) or `-SkipAuthoring` cook from this tree would refuse it; found out now rather than then |
 
 `m2_clean.sh` adds its own fail-fast checks before the cook: `AUTHOR_NOT_STARTED` (an unknown
 `MHLLM_RESIDENT`, which would otherwise leave the previous run's result file to be gated on),
 `NO_RESIDENT`, `NO_MAP`, and `NO_METAHUMAN_CONTENT` (with `MHLLM_RESIDENT=metahuman`) or
 `NO_NIA_CONTENT` (with `nia`). A mannequin or MetaHuman build also refuses a cook tree that still
 contains `CC_ControlRig_Nia` (`UNEXPECTED_NIA_CONTENT`), and a mannequin build one that contains
-`Content/Seo` (`UNEXPECTED_SEO_CONTENT`).
+`Content/Seo` (`UNEXPECTED_SEO_CONTENT`). Both Dockerfiles' `CHECK_MAP` and
+`BuildNative.ps1 -SkipAuthoring` repeat those two refusals for any tree, and check the
+`Content/AUTHOR_RESULT.txt` beside an authored map (§2.2), because neither authors what it cooks.
 
 Not a failure anywhere: a prop slot refused as NoAI (`prop REFUSED …`, summed up as `NoAI prop slots:
 N of 3 refused`). `BuildNative.ps1` repeats it after the cook and `m2_clean.sh` prints it, because

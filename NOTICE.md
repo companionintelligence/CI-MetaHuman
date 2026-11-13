@@ -241,7 +241,11 @@ Facts below were read on 2026-11-12; the root `README.md` ("Licensing") quotes t
     `Content/CC_ControlRig_Nia`, and only `MHLLM_RESIDENT=nia` makes `run_author_m2.sh` mount
     `/home/ci/nia-content`. `author_diorama.py` does not even load `SK_Nia` for another resident,
     and `Deployment/core2/m2_clean.sh` refuses a mannequin or MetaHuman cook tree that still
-    contains her (`UNEXPECTED_NIA_CONTENT`).
+    contains her (`UNEXPECTED_NIA_CONTENT`). The builds that cook a map without authoring it, the
+    two Dockerfiles (`CHECK_MAP`) and `BuildNative.ps1 -SkipAuthoring`, refuse her content unless
+    asked for (`--build-arg RESIDENT=nia`, `-Resident Nia`), and refuse an authored map unless the
+    `Content/AUTHOR_RESULT.txt` its authoring run wrote beside it shows the resident asked for, so
+    a map authored while she was the default cannot carry her into an image.
 - **Opt-in: the MetaHuman "Seo"** (`-Resident MetaHuman`, `MHLLM_RESIDENT=metahuman`).
   `mhc_seo.mhpkg` is the Fab listing "Seo - Editable MetaHuman Character" by Groomchenko
   (<https://www.fab.com/listings/3693be83-9054-4fd3-9b2e-0b6d5b45fe22>): Standard License, and
@@ -249,15 +253,18 @@ Facts below were read on 2026-11-12; the root `README.md` ("Licensing") quotes t
   seller's: the Unreal Engine EULA (section 1) says assets downloaded from an Epic-operated
   marketplace, Fab included, are not Licensed Technology. Seo therefore stands exactly where Nia
   does. Her FBX export is not in this repository; it is read from `MHLLM_MH_DIR` /
-  `-MetaHumanDir` only for this resident (and as Nia's fall-back), and a mannequin build creates
-  nothing under `/Game/Seo`.
+  `-MetaHumanDir` only for this resident (and as Nia's fall-back), a mannequin build creates
+  nothing under `/Game/Seo`, and an image build or `-SkipAuthoring` cook for the mannequin refuses
+  `Content/Seo`.
 
 This product is an AI companion whose generated replies drive the resident's face. Whether that
 counts as developing, or giving inputs to, a generative AI program is unclear, and an unclear
 licence is treated as a licence problem. Neither Fab character is staged, loaded or cooked unless
 asked for by name, and building or distributing with either is a decision for counsel, not for the
 build script. The three NoAI-tagged Sketchfab props were replaced on the same ground
-([CREDITS.md](CREDITS.md)).
+([CREDITS.md](CREDITS.md)), and an authored map is cooked without re-authoring only if its
+`Content/AUTHOR_RESULT.txt` shows that `author_diorama.py`'s NoAI prop gate ran, so a map authored
+before the replacement cannot bring them back.
 
 **Still open:**
 

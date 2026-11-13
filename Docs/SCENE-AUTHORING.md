@@ -93,7 +93,12 @@ would have made her the resident of every later build. A leftover copy is not co
 resident's build either: `DefaultGame.ini`'s `MapsToCook` lists only `/Game/Maps/CompanionStage`, so
 the cook takes that map and what it references, and those maps reference nothing of hers.
 `m2_clean.sh` additionally refuses to cook a mannequin or MetaHuman build whose tree contains her, and
-a mannequin build whose tree contains `Content/Seo`.
+a mannequin build whose tree contains `Content/Seo`. The builds that cook a map without authoring it
+(`CHECK_MAP` in both Dockerfiles, `BuildNative.ps1 -SkipAuthoring`) refuse the same, and cook an
+authored map only beside the `Content/AUTHOR_RESULT.txt` its authoring run wrote: every line of the
+result goes there too, ending with the saved map's `map sha256` and `SUCCESS`, so a map authored
+before the switch, or before the NoAI prop gate, cannot pass for a current one
+([`BUILD-AND-DEPLOY.md`](BUILD-AND-DEPLOY.md) §2.2).
 
 **What the mannequin does not have.** A face. It carries no morph targets, so the face driver binds
 and logs `0/N profile curves resolved` (the profile falls back to `CC`; nothing matches). Lip-sync,

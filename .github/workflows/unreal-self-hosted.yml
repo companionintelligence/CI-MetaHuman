@@ -106,8 +106,10 @@ jobs:
           persist-credentials: false
 
       # The prerequisite Deployment/Dockerfile cannot satisfy itself: it cooks whatever Content/
-      # the context carries and refuses the committed stub map (CHECK_MAP). See
-      # Docs/BUILD-AND-DEPLOY.md section 2.2 for producing this tree.
+      # the context carries, refuses the committed stub map, and cooks an authored map only beside
+      # the AUTHOR_RESULT.txt its authoring run wrote into Content/ (CHECK_MAP). The build below
+      # asks for the default mannequin resident. See Docs/BUILD-AND-DEPLOY.md section 2.2 for
+      # producing this tree.
       - name: Stage the authored set into Content/
         env:
           AUTHORED_CONTENT_DIR: ${{ inputs.authored_content_dir }}
@@ -118,6 +120,8 @@ jobs:
             exit 1
           fi
           test -f "$AUTHORED_CONTENT_DIR/Maps/CompanionStage.umap"
+          test -f "$AUTHORED_CONTENT_DIR/AUTHOR_RESULT.txt" \
+            || { echo "::error::authored_content_dir has no AUTHOR_RESULT.txt beside its map; CHECK_MAP would refuse it."; exit 1; }
           cp -a "$AUTHORED_CONTENT_DIR/." Content/
           echo "map: $(stat -c %s Content/Maps/CompanionStage.umap) bytes"
 
