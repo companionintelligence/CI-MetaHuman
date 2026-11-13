@@ -1,5 +1,5 @@
 #!/bin/bash
-# M2 diorama authoring in the content-only project: import 11 props + author the set.
+# M2 diorama authoring in the content-only project: author the set from stage_layout.json.
 # Copies the WHOLE Content/ tree out (Maps + imported Diorama assets).
 #
 # Author and cook with dev-5.8. This helper used to author with dev-5.5, and that split was safe:
@@ -43,6 +43,8 @@ docker run --rm --user root -e MHLLM_RESIDENT="$RESIDENT" \
     if [ -d /nia ]; then cp -r /nia/. /proj/Content/ 2>/dev/null; fi
     chown -R ue4:ue4 /proj && chmod 777 /out
     cp /out/author_diorama.py /proj/author_diorama.py && chown ue4:ue4 /proj/author_diorama.py
+    # The layout the script authors from; it is read from beside the script.
+    cp /out/stage_layout.json /proj/stage_layout.json && chown ue4:ue4 /proj/stage_layout.json
     MHLLM_BRAND_DIR=/brand su ue4 -c "MHLLM_RESIDENT=$MHLLM_RESIDENT MHLLM_BRAND_DIR=/brand /home/ue4/UnrealEngine/Engine/Binaries/Linux/UnrealEditor-Cmd /proj/Author.uproject -run=pythonscript -script=/proj/author_diorama.py -unattended -nullrhi -stdout -utf8output -NoLogTimes" > /out/author_m2.log 2>&1
     echo "EDITOR_EXIT=$?" >> /out/author_m2.log
     echo "---CONTENT---" >> /out/author_m2.log

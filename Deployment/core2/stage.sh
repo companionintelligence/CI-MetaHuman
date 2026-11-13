@@ -21,6 +21,8 @@ tar czf /tmp/proj-src.tgz \
 # The canonical name. Do NOT invent a second one: m2_clean.sh reads exactly this.
 scp -q /tmp/proj-src.tgz "$HOST:/home/ci/proj-src.tgz"
 scp -q Deployment/author_diorama.py "$HOST:/home/ci/stage-out/author_diorama.py"
+# The set itself: author_diorama.py reads it from beside itself, and run_author_m2.sh copies both.
+scp -q Deployment/stage_layout.json "$HOST:/home/ci/stage-out/stage_layout.json"
 scp -q Deployment/core2/run_author_m2.sh "$HOST:/home/ci/run_author_m2.sh"
 scp -q Deployment/docker-compose.face.yml "$HOST:/home/ci/docker-compose.face.yml"
 scp -q Deployment/core2/cap_burst.mjs "$HOST:/home/ci/shots/cap_burst.mjs" 2>/dev/null || true
@@ -68,6 +70,8 @@ check_symbol "Plugins/CICompanion/Source/CICompanion/Private/Avatar/CompanionRun
 check_symbol "Plugins/CICompanion/Source/CICompanion/Private/Avatar/CompanionRuntimeSubsystem.cpp" "GetTextToSpeech" "runtime: one voice, adopted from the companion"
 check_grep "docker-compose.face.yml" "MHLLM_OPENING_LINE" "compose: opening line"
 check_grep "docker-compose.face.yml" "KOKORO_ALIGNER_URL" "compose: aligner url"
-check_grep "stage-out/author_diorama.py" "CAM_DIST = 106.0" "author: solved framing"
+# The set is data now (Deployment/stage_layout.json); prove the layout landed beside the script.
+check_grep "stage-out/author_diorama.py" "STAGE_LAYOUT" "author: reads the stage layout"
+check_grep "stage-out/stage_layout.json" "ci-stage-layout/1" "author: stage layout staged"
 [ "$FAIL" -eq 0 ] || { echo "STAGE_FAILED — refusing to cook a stale tree"; exit 1; }
 echo "STAGE_OK"
