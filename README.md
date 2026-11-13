@@ -166,8 +166,9 @@ See [`Deployment/README.md`](Deployment/README.md) and
 
 [`Docs/ROADMAP.md`](Docs/ROADMAP.md) is the authority. The largest remaining items are
 **observability** (turn latency and failure rate are visible only by reading container logs over
-SSH), **head motion and gesture**, **tool calling**, and **auth** — the OIDC gate has never worked
-and `:8090` is open on the tailnet.
+SSH), **head motion and gesture**, **tool calling**, and **auth** — the OIDC gate now denies by
+default and `:8090`, `:8888`, `:8889` and `:8095` listen on loopback only, but nobody has signed in
+through the gate yet, so nothing may rely on it until a live sign-in has been tested.
 
 **The default resident has no face.** Epic's mannequin is a licence-clean placeholder with no facial
 rig, so a default build has no lip-sync, expression or gaze; the face driver binds and logs 0 resolved

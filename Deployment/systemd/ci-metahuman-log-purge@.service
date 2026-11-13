@@ -1,0 +1,24 @@
+[Unit]
+# Deletes the preview's connection logs before they are a week old, so that none outlives the 14
+# days the privacy policy gives them ("Logs with connection data and, if you signed in, your email
+# address: up to 14 days, then deleted"). Recreating a container deletes its Docker log, which
+# docker-compose.yml keeps with the container (the "local" driver), and the signalling server's
+# server-YYYY-MM-DD.log files, which live inside it. The UE app is left running; the viewer of the
+# moment loses the stream for a few seconds while the signalling server restarts.
+#
+# A template: the instance name is the stack's Deployment directory, escaped. Started by the timer
+# of the same name; ../README.md ("Connection logs") has the install, for rootful and rootless
+# Docker, and the checks.
+Description=Delete CI-MetaHuman preview connection logs in %f (privacy policy: at most 14 days)
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=%f
+# The daemon's socket for either install: %t is /run in a system unit (rootful Docker) and
+# $XDG_RUNTIME_DIR in a user unit (rootless Docker).
+Environment=DOCKER_HOST=unix://%t/docker.sock
+# docker-compose.yml alone is enough: no override file touches these three services, and .env in
+# this directory still supplies their settings (and COMPOSE_PROJECT_NAME, if the stack was started
+# with -p). --no-build: a timer never starts an image build; a missing image fails the run instead.
+ExecStart=/usr/bin/docker compose -f docker-compose.yml up -d --force-recreate --no-deps --no-build turnserver signalling oidc-proxy

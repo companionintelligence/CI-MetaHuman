@@ -1,0 +1,12 @@
+[Unit]
+# Weekly keeps every log line at most 7 days old, so even one missed run stays inside the 14 days
+# the privacy policy gives connection logs. Persistent= runs a purge missed while the host was off
+# as soon as it is back. See ci-metahuman-log-purge@.service.
+Description=Weekly CI-MetaHuman preview log purge (%f)
+
+[Timer]
+OnCalendar=Mon *-*-* 04:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

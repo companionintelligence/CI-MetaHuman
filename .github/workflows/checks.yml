@@ -304,7 +304,9 @@ jobs:
       # as a clean checkout (no .env, which must still render) and with .env.example, which must
       # render with NO warnings -- i.e. .env.example names every variable the files interpolate
       # without a default. Rendering validates the schema, the merge and the interpolation; it
-      # starts nothing, so no image or GPU is needed.
+      # starts nothing, so no image or GPU is needed. Each rendering with .env.example must also keep
+      # what the privacy policy promises (check_compose_privacy.py): capped connection logs that a
+      # recreate deletes, signalling ports on loopback, memory off, an opening line that says AI.
       - name: Render every documented combination
         run: |
           set -euo pipefail
@@ -330,6 +332,8 @@ jobs:
             elif [ -n "$warnings" ]; then
               echo "::error::with .env.example, '$combo' renders with warnings:"; echo "$warnings"; status=1
             fi
+            docker compose --env-file .env.example "${files[@]}" config --format json \
+              | python3 check_compose_privacy.py "$combo" || status=1
           done
           exit "$status"
 

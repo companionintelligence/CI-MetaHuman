@@ -265,6 +265,30 @@ comments explain each case.
   Tailscale Serve HTTPS port `:10000` to tailnet clients; it forwards to oauth2-proxy's loopback
   listener on `:8095`. TURN needs `3478` (TCP/UDP) and the UDP relay range `49152-65535` reachable
   within the tailnet.
+- **Connection logs.** coturn, the signalling server and the OIDC gate log viewers' network
+  addresses (the gate also the signed-in email address), and the privacy policy keeps such logs 14
+  days at most. `docker-compose.yml` gives those three services Docker's `local` log driver, so a
+  container's log goes when the container is recreated, together with the signalling server's own
+  `server-YYYY-MM-DD.log` files, which live inside it. The driver applies to containers created
+  after the change, so recreate them once (`docker compose up -d --force-recreate`). Then
+  `systemd/ci-metahuman-log-purge@.timer` recreates the three every Monday at 04:00, which keeps
+  every line under a week old. Install it once on the host that runs them, from this directory:
+
+  ```bash
+  # rootful Docker
+  sudo cp systemd/ci-metahuman-log-purge@.* /etc/systemd/system/ && sudo systemctl daemon-reload
+  sudo systemctl enable --now "ci-metahuman-log-purge@$(systemd-escape --path "$PWD").timer"
+  # rootless Docker: user units, and lingering so that they run while nobody is logged in
+  mkdir -p ~/.config/systemd/user && cp systemd/ci-metahuman-log-purge@.* ~/.config/systemd/user/
+  systemctl --user daemon-reload && loginctl enable-linger "$USER"
+  systemctl --user enable --now "ci-metahuman-log-purge@$(systemd-escape --path "$PWD").timer"
+  ```
+
+  Check that `docker inspect -f '{{.HostConfig.LogConfig.Type}}'` prints `local` for the three
+  containers, that `systemctl list-timers` (with `--user` for rootless) shows the next run, and,
+  after a run, that `docker ps` shows the three created at that time. Logs kept outside these
+  containers are the host's: if `journalctl -u tailscaled` holds per-request viewer details, set
+  journald's `MaxRetentionSec=13day`.
 - **The AI notice.** The resident introduces herself with a human name, so the stream says what she
   is (EU AI Act Art. 50(1)): a line in the frame from its first frame (`SCompanionAiNotice`), the
   same words on the player page with a Privacy link (`patch_pixelstreaming_player.py`, built into
