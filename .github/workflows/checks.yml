@@ -487,8 +487,11 @@ jobs:
             fi
           }
           map=Content/Maps/CompanionStage.umap
+          # authored and result are called through eval "$setup", which shellcheck cannot follow
+          # shellcheck disable=SC2329
           authored() { head -c 300000 /dev/urandom > "$map"; }
           # result <resident line> [map sha256]: what a successful authoring run leaves beside the map
+          # shellcheck disable=SC2329
           result() {
             printf '%s\n' start 'NoAI prop slots: 0 of 3 refused' "$1" \
               "map sha256: ${2:-$(sha256sum "$map" | cut -d ' ' -f 1)}" SUCCESS > Content/AUTHOR_RESULT.txt

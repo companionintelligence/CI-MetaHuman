@@ -2332,7 +2332,6 @@ def build_plan(plan, L, recs, sel, shots, analyses, frames_by_shot, mark, facing
         plan.line(pts, float(g.get("widthPx") or 2.0), gm, dz=0.04, closed=bool(g.get("closed")), joints=False)
         if g.get("label"):
             lx, ly = pts[-1] if not g.get("labelAt") else g["labelAt"]
-            labels_pre = (g["label"], lx, ly)
             plan.text(g["label"], lx + cm(8), ly, 12, gm, align="LEFT", plate=True, dz=0.45, avoid=True)
     # overlap outlines
     for ov in sel:
@@ -2723,7 +2722,6 @@ def main():
         sc.view_settings.exposure = exposure
         apply_emissive(exposure, args.emissive)
         log("exposure %.3f (EV100 ~%.2f)" % (exposure, EV100_OFFSET - exposure))
-        pfrac = (9.0 / 16.0) / (W / H) if W > H else 1.0
 
         if "opening" in only and shots:
             sp = shots[0]
