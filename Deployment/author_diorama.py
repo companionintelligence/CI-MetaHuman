@@ -709,7 +709,9 @@ try:
     for name, glb, pos, yaw, target_cm in PROPS:
         if place_prop(name, pos, yaw, target_cm):
             placed += 1
-    w("placed %d/12 hero props" % placed)
+    # Against the list, not a literal: this said "/12" long after the twelfth slot (the IBM 2401) left
+    # PROPS for the 729 below, so a complete run read "placed 11/12" -- a count that looks one short.
+    w("placed %d/%d hero props" % (placed, len(PROPS)))
 
     # ---------- re-home the glTF prop materials into /Game ----------
     # THE reason the props render pale. Interchange parents every imported material instance to
@@ -1412,8 +1414,10 @@ try:
     except Exception as e:
         w("fov warn " + str(e))
     spawn(unreal.PlayerStart, CAM_POS, yaw=cam_yaw, pitch=cam_pitch)
-    w("StageCamera ok (landscape 16:9, yaw=%.1f pitch=%.1f fov=65) — known issue: free-look input inert" %
-      (cam_yaw, cam_pitch))
+    # The FOV is read back off the component: this line used to print a literal "fov=65" beside the 48
+    # set just above.
+    w("StageCamera ok (landscape 16:9, yaw=%.1f pitch=%.1f fov=%.0f) — known issue: free-look input inert" %
+      (cam_yaw, cam_pitch, cam.camera_component.get_editor_property("field_of_view")))
 
     ok = les.save_current_level()
     w("save_current_level=%s" % ok)
