@@ -15,8 +15,9 @@ conversation frame now meets every gate at all three heights, the plain-wall sha
 connects, a kiosk starts at load, and any key, click or Esc follows design 3.2 (section 4). Part of
 the room already answers her state (the INQUIRY lamp, a 3420's reels, the clock on host time;
 section 10). Still designed but not built: the CI lobby page and its "Step inside" gesture, the DOM
-captions, the rest of the set's responses, her head look-at (section 10). Nothing here has been
-watched on the real stream: the sign-off step is a 60 fps capture (section 11).
+captions, the rest of the set's responses, her head look-at (section 10). The opening has been
+watched over a local Pixel Streaming connection (section 11); the stream does not reach 60 fps yet,
+and the sign-off step is still a 60 fps capture.
 
 ## 1. The idea
 
@@ -156,7 +157,8 @@ Every shot is a CineCamera: a focal length on a 36 x 20.25 mm (16:9) filmback, o
 portrait. The camera stays level (pitch 0, roll 0) and composes her eyes with sensor shift. A
 resident-frame key is (r, theta, dz): r from her eye anchor E, theta from her home facing toward her
 left, dz above her eyes; r and dz scale with stature. The director picks `<SHOT>_PORTRAIT` when the
-viewport is portrait.
+viewport is portrait, and re-solves the plan when the viewport turns at runtime (a stream viewer's
+"Match viewport resolution" resizes the game long after BeginPlay).
 
 | Shot | Lens | Camera | Eyes on screen | Use |
 |---|---|---|---|---|
@@ -392,8 +394,8 @@ stands upright with a light front panel, the mouse is whole and wooden, and the 
 string's street end is lit. Recaptured with the props at full detail: the 1401 console beside her
 shoulder in HOME and CLOSE shows square lamps in rows and round knobs, the 3277's knob is round and
 its indicator a bar, and the 1401 nameplate is a clean plate (before, the Nanite fallback drew
-triangles, pinwheels, a pentagon, a wedge and a smear). The specs pass in the editor (47
-`MetaHumanLocalLLM.Frontend.CompanionStage` specs, 370 of 370 plugin specs). The perforated panels'
+triangles, pinwheels, a pentagon, a wedge and a smear). The specs pass in the editor (49
+`MetaHumanLocalLLM.Frontend.CompanionStage` specs, 373 of 373 plugin specs). The perforated panels'
 3 cm grid was checked for aliasing: at full contrast the panels a few metres out aliased into a moire
 in a still capture, so the holes are a mid grey and `M_StageTile` fades a grid finer than about five
 pixels to its average; in a recapture the near panels keep their perforation and the far ones read
@@ -402,12 +404,29 @@ flat, with no moire.
 Checked and kept out: in Unreal `commodore-pet.glb` renders as it does in the previz, its one texture
 a stack of PET badges, so the true-size stand-in stays until the file is re-textured.
 
-Not verified: the session trigger, the input routing and the CLOSE punch-in on a live stream (they
-are unit-tested, not watched), the perforated panels on the moving camera, the cost of depth of field
-and reflections on the stream host, VP8 artefacts, the portrait switch at runtime, and the real 3420,
-3803, 729, 1402, 1403, 1406, 1407 and 029 meshes. **Before sign-off, capture a 60 fps loop of ARRIVAL
-and HOME from the real stream, watch it full screen, and check VITRINE and HOME against the previz's
-VITRINE and HOME frames.**
+Watched over a local Pixel Streaming 2 connection (VP8, 1920 x 1080, the game uncooked on an RTX 4080
+Laptop GPU, the mannequin at 181 cm; frames are the decoded video). The stream holds the lobby still
+until a viewer's data channel opens (two minutes in one run), cuts inside 3.0 s later, plays the move
+once and lands on HOME; when the last viewer leaves the room restages the lobby, and the next viewer
+gets the whole opening on a fresh transcript. `/console` typed by a viewer is ignored. HOME and
+VITRINE are level: verticals within 0.05 deg (median), and the tape string's top edge, at lens height,
+runs level at 0.33 of the frame, where the design puts her eyes; her head sits where the validated
+HOME capture puts it. Three faults showed only there, and are fixed: the HUD's brand font faces were
+garbage collected a minute after load, which crashed the game at her greeting; GameModeBase's
+DefaultPawn stood at the PlayerStart on the HOME camera, a grey ball in the lobby still and in the lens
+at the end of the move; and a viewer's "Match viewport resolution" turned the game portrait without
+the director taking the portrait shots. Depth of field costs less than the frame-to-frame noise of
+`stat unit` (GPU 2.8-3.0 ms with it, 3.0-3.4 ms without, at the 72.9 % render resolution, 1400 x 788,
+the project's desktop screen percentage gives a 1080p frame). The stream does not reach 60 fps: on a
+loopback connection the VP8 software encoder spends 17-25 Mbit/s at quantizer 0 and delivers 26-51 fps
+in the lobby still, 10-35 during the move and 6-23 on HOME; capping the encoder's quality at 80 from
+the player gave 47-54 fps on HOME. In landscape the floor never enters the move's frame; the
+perforated panels read flat in the lobby still and keep their grid without moire in the portrait move.
+
+Not verified: the CLOSE punch-in (it needs a voice), the cost of reflections, a cooked Shipping build,
+and the real 3420, 3803, 729, 1402, 1403, 1406, 1407 and 029 meshes. **Before sign-off, capture a 60
+fps loop of ARRIVAL and HOME from the real stream, watch it full screen, and check VITRINE and HOME
+against the previz's VITRINE and HOME frames.**
 
 Open owner decisions: the crane (+54 cm, default off); when to enable the cutaways and FRIEZE; the
 GDD amendments in the design record; rendering the lobby still at build time; the character and
