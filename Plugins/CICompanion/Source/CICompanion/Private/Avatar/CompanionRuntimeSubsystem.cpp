@@ -528,7 +528,25 @@ bool UCompanionRuntimeSubsystem::SubmitUserText(const FString& Text)
 	}
 
 	Companion->SubmitUserText(Text);
+	bAwaitingReply = true;
 	return true;
+}
+
+ECompanionPresence UCompanionRuntimeSubsystem::GetPresence() const
+{
+	if (bAudioReady && PendingAudioSeconds > 0.0f && FPlatformTime::Seconds() - AudioStartRealTime < PendingAudioSeconds)
+	{
+		return ECompanionPresence::Speaking;
+	}
+	if (bAwaitingReply)
+	{
+		return ECompanionPresence::Thinking;
+	}
+	if (Hud.IsValid() && !Hud->GetInputText().TrimStartAndEnd().IsEmpty())
+	{
+		return ECompanionPresence::Listening;
+	}
+	return ECompanionPresence::Idle;
 }
 
 void UCompanionRuntimeSubsystem::Deinitialize()
@@ -574,6 +592,7 @@ void UCompanionRuntimeSubsystem::Deinitialize()
 
 void UCompanionRuntimeSubsystem::HandleCompanionError(const FString& Message)
 {
+	bAwaitingReply = false;
 	UE_LOG(LogCompanionRuntime, Warning, TEXT("Conversation error surfaced to the HUD: %s"), *Message);
 
 	if (Hud.IsValid())
@@ -633,6 +652,7 @@ void UCompanionRuntimeSubsystem::CancelUtterance()
 
 void UCompanionRuntimeSubsystem::ResetForNextViewer()
 {
+	bAwaitingReply = false;
 	// The mouth, the alignment in flight and the grace timer: the reply being spoken is for nobody.
 	CancelUtterance();
 
@@ -1005,6 +1025,7 @@ void UCompanionRuntimeSubsystem::DriveMouthFromBestSource()
 
 void UCompanionRuntimeSubsystem::HandleCompanionSpoke(const FString& Text)
 {
+	bAwaitingReply = false;
 	UE_LOG(LogCompanionRuntime, Log, TEXT("Companion replied (%d chars): %s"), Text.Len(), *Text.Left(160));
 
 	if (Hud.IsValid())

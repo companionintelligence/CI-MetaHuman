@@ -1,6 +1,7 @@
 #include "Misc/AutomationTest.h"
 #include "Avatar/CompanionStageDirector.h"
 #include "Avatar/CompanionStagePath.h"
+#include "Avatar/CompanionSetState.h"
 #include "Avatar/TapeReelSpinner.h"
 #include "Settings/CompanionStageSettings.h"
 #include "UObject/Package.h"
@@ -654,6 +655,51 @@ void FCompanionStageSpec::Define()
 				TestTrue("the hub stays a hub: the axle is unit length", FMath::IsNearlyEqual(Axle.Size(), 1.0, 1e-4));
 			});
 		}
+	});
+
+	// Design 10.7: the set shows her state, so a faceless resident still reads as present.
+	Describe("the set as a state display", [this]()
+	{
+		It("lights the INQUIRY lamp only while the visitor types", [this]()
+		{
+			TestEqual("listening: lit (1.5 -> 150 cd/m2)", CompanionSet::InquiryLampScale(ECompanionPresence::Listening), 100.0f);
+			for (const ECompanionPresence P : { ECompanionPresence::Idle, ECompanionPresence::Thinking, ECompanionPresence::Speaking })
+			{
+				TestEqual("otherwise off", CompanionSet::InquiryLampScale(P), 1.0f);
+			}
+		});
+
+		It("runs 729 #1 by her state: search while thinking, read while speaking", [this]()
+		{
+			const ECompanionPresence T = ECompanionPresence::Thinking;
+			TestTrue("forward first", CompanionSet::TapeDegreesPerSecond(T, 0.4f, 150.0f) > 0.0f);
+			TestEqual("then a stop", CompanionSet::TapeDegreesPerSecond(T, 0.95f, 150.0f), 0.0f);
+			TestTrue("then back", CompanionSet::TapeDegreesPerSecond(T, 1.3f, 150.0f) < 0.0f);
+			TestTrue("every 1.6 s", CompanionSet::TapeDegreesPerSecond(T, 2.0f, 150.0f) > 0.0f);
+			float Net = 0.0f;
+			for (int32 i = 0; i < 160; ++i)
+			{
+				Net += CompanionSet::TapeDegreesPerSecond(T, i / 100.0f, 150.0f) / 100.0f;
+			}
+			TestTrue(FString::Printf(TEXT("searching gains ground each cycle (%.0f deg)"), Net), Net > 0.0f);
+			TestEqual("reads at 0.5 rev/s while she speaks", CompanionSet::TapeDegreesPerSecond(ECompanionPresence::Speaking, 3.0f, 150.0f), 180.0f);
+			TestEqual("waits while the visitor types", CompanionSet::TapeDegreesPerSecond(ECompanionPresence::Listening, 3.0f, 150.0f), 0.0f);
+			TestEqual("creeps when idle", CompanionSet::TapeDegreesPerSecond(ECompanionPresence::Idle, 3.0f, 160.0f), 40.0f);
+		});
+
+		It("keeps the wall clock on host time", [this]()
+		{
+			float H = 0.0f, M = 0.0f;
+			CompanionSet::ClockAngles(15, 0, 0.0f, H, M);
+			TestEqual("3:00 hour hand", H, 90.0f, 1e-3f);
+			TestEqual("3:00 minute hand", M, 0.0f, 1e-3f);
+			CompanionSet::ClockAngles(0, 30, 0.0f, H, M);
+			TestEqual("12:30 hour hand halfway to 1", H, 15.0f, 1e-3f);
+			TestEqual("12:30 minute hand at 6", M, 180.0f, 1e-3f);
+			CompanionSet::ClockAngles(23, 59, 30.0f, H, M);
+			TestEqual("11:59:30 minute hand", M, 357.0f, 1e-3f);
+			TestTrue("11:59:30 hour hand just short of 12", H > 359.0f && H < 360.0f);
+		});
 	});
 
 	Describe("the path", [this]()

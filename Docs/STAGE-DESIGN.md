@@ -11,10 +11,11 @@ above the floor, and the light colours and the exposure are solved on captured f
 The opening plays once per SESSION: a stream holds the lobby still until a viewer connects, a kiosk
 starts at load, and any key, click or Esc follows design 3.2 (section 4). Every comfort budget
 passes at all three tested resident heights in previz and in the automation specs. One design gate
-does not pass: the share of plain wall in the conversation frame (section 7). Still designed but
-not built: the CI lobby page and its "Step inside" gesture, the DOM captions, the room reacting to
-her state, her head look-at (section 10). Nothing here has been watched on the real stream: the
-sign-off step is a 60 fps capture (section 11).
+does not pass: the share of plain wall in the conversation frame (section 7). Part of the room
+already answers her state (the INQUIRY lamp, 729 #1's reels, the clock on host time; section 10).
+Still designed but not built: the CI lobby page and its "Step inside" gesture, the DOM captions, the
+rest of the set's responses, her head look-at (section 10). Nothing here has been watched on the
+real stream: the sign-off step is a 60 fps capture (section 11).
 
 ## 1. The idea
 
@@ -262,8 +263,12 @@ The cleared path is a MetaHuman authored in-house in MetaHuman Creator.
   the queue message for a second visitor. Until it exists the session starts when the viewer's data
   channel opens, and the room restages on the last disconnect (section 4).
 - **The DOM UI**: captions first, 16 px text, 44 px targets, the UI zones per shot.
-- **The set as a state display**: INQUIRY lamp while the visitor types, panel chase and tape search
-  while she thinks, the typewriter printing her replies, the 1403 feed, the clock on host time.
+- **The rest of the set as a state display**: the 1401 panel chase while she thinks, the typewriter
+  printing her replies, the 1403 feed. Built (`UCompanionSetStateDisplay`, `UTapeReelSpinner`, from
+  `UCompanionRuntimeSubsystem::GetPresence`: Idle, Listening, Thinking, Speaking): the INQUIRY lamp
+  lights while the visitor has text in the box; 729 #1's reels (`StageReact.Tape`) run the
+  tape-search pattern while she thinks, read at 0.5 rev/s while she speaks and wait while the
+  visitor types; the wall clock's hands (`WallClock.Hour`, `WallClock.Minute`) keep host time.
 - **FAREWELL**, idle and "Still there?", and the idle **FRIEZE**; the archive **cutaways**.
 - **A C++ head look-at**, after which ALPHA returns to 18 deg (body to frame left, head back to the
   lens); until then the layout carries the design's ALPHA = 0 fallback.

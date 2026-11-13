@@ -1225,10 +1225,10 @@
     {"name": "card_cabinet_pull_3", "kind": "prop_bk", "x": 799.5, "y": -820, "z": 75.0, "yaw": 0.0, "size": [0.8, 8, 2], "color": "#B9BCBE", "partOf": "card_cabinet", "census": "furniture", "rough": 0.6},
     {"name": "card_cabinet_pull_4", "kind": "prop_bk", "x": 799.5, "y": -820, "z": 95.0, "yaw": 0.0, "size": [0.8, 8, 2], "color": "#B9BCBE", "partOf": "card_cabinet", "census": "furniture", "rough": 0.6},
     {"name": "card_cabinet_pull_5", "kind": "prop_bk", "x": 799.5, "y": -820, "z": 115.0, "yaw": 0.0, "size": [0.8, 8, 2], "color": "#B9BCBE", "partOf": "card_cabinet", "census": "furniture", "rough": 0.6},
-    {"name": "wall_clock", "kind": "wall", "x": 1147.0, "y": 11.3, "z": 229.0, "yaw": 0.0, "size": [5, 38, 38], "color": "#F4F2EA", "shape": "cylinder", "axis": "x", "note": "rough 0.4; unbadged dial; hands rotated from C++ by tag WallClock", "label": "wall clock (host time)", "census": "signage", "rough": 0.4, "tags": ["WallClock"]},
+    {"name": "wall_clock", "kind": "wall", "x": 1147.0, "y": 11.3, "z": 229.0, "yaw": 0.0, "size": [5, 38, 38], "color": "#F4F2EA", "shape": "cylinder", "axis": "x", "note": "rough 0.4; unbadged dial; hands (WallClock.Hour, WallClock.Minute, Movable) turned to host time by UCompanionSetStateDisplay", "label": "wall clock (host time)", "census": "signage", "rough": 0.4, "tags": ["WallClock"]},
     {"name": "wall_clock_rim", "kind": "wall", "x": 1149.0, "y": 11.3, "z": 229.0, "yaw": 0.0, "size": [2, 42, 42], "color": "#2B2B2B", "shape": "cylinder", "axis": "x", "partOf": "wall_clock", "census": "signage", "rough": 0.6},
-    {"name": "wall_clock_hand_h", "kind": "wall", "x": 1144.0, "y": 15.3, "z": 228.0, "yaw": 0.0, "size": [0.6, 10, 2], "color": "#151515", "partOf": "wall_clock", "census": "signage", "rough": 0.6},
-    {"name": "wall_clock_hand_m", "kind": "wall", "x": 1143.6, "y": 11.3, "z": 235.5, "yaw": 0.0, "size": [0.6, 2, 15], "color": "#151515", "partOf": "wall_clock", "census": "signage", "rough": 0.6}
+    {"name": "wall_clock_hand_h", "kind": "wall", "x": 1144.0, "y": 15.3, "z": 228.0, "yaw": 0.0, "size": [0.6, 10, 2], "color": "#151515", "partOf": "wall_clock", "census": "signage", "rough": 0.6, "tags": ["WallClock.Hour"], "mobility": "movable"},
+    {"name": "wall_clock_hand_m", "kind": "wall", "x": 1143.6, "y": 11.3, "z": 235.5, "yaw": 0.0, "size": [0.6, 2, 15], "color": "#151515", "partOf": "wall_clock", "census": "signage", "rough": 0.6, "tags": ["WallClock.Minute"], "mobility": "movable"}
   ],
   "resident": {
     "x": 650.0,

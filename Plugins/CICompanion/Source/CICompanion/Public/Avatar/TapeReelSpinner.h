@@ -56,8 +56,13 @@ private:
 		float DegreesPerSecond = 0.0f;
 		FQuat BaseQuat = FQuat::Identity;
 		double AngleDegrees = 0.0;
+		// Tagged StageReact.Tape (729 #1): it answers her presence (CompanionSet::TapeDegreesPerSecond).
+		bool bReactive = false;
 	};
 	TArray<FReel> Reels;
 	double LoggedAtSeconds = 0.0;
 	double RunSeconds = 0.0;
+	// Her presence, and when it last changed (the tape-search pattern starts from there).
+	uint8 LastPresence = 0;
+	double PresenceSince = 0.0;
 };

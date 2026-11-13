@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Subsystems/WorldSubsystem.h"
 #include "Voice/VisemePlanner.h"
+#include "Avatar/CompanionSetState.h"
 #include "CompanionRuntimeSubsystem.generated.h"
 
 class AMetaHumanCompanionCharacter;
@@ -92,6 +93,11 @@ public:
 	// left". Public so a native host or a test can start a new session the same way.
 	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM")
 	void ResetForNextViewer();
+
+	// What the visitor sees her doing, for the set to show it (design 10.7): Speaking while her
+	// voice plays, Thinking while a turn is with the model, Listening while the visitor has text in
+	// the box, else Idle. UCompanionSetStateDisplay and UTapeReelSpinner read it every tick.
+	ECompanionPresence GetPresence() const;
 
 private:
 	// The OnAllConnectionsClosedNative binding, removed in Deinitialize: the delegates object is a
@@ -272,6 +278,8 @@ private:
 	// a lie if this path pretended audio had arrived.
 	bool bAudioFailed = false;
 	bool bMouthDriven = false;
+	// A turn is with the model and no reply has come back yet (GetPresence's Thinking).
+	bool bAwaitingReply = false;
 	FTimerHandle AlignmentGraceHandle;
 
 	UPROPERTY(Transient)

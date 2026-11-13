@@ -1,11 +1,14 @@
 #include "Avatar/TapeReelSpinner.h"
 
+#include "Avatar/CompanionRuntimeSubsystem.h"
+#include "Avatar/CompanionSetState.h"
 #include "CICompanionLog.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/Actor.h"
 
 const FName UTapeReelSpinner::ReelTag(TEXT("TapeReel"));
+static const FName TapeReactTag(TEXT("StageReact.Tape"));
 
 bool UTapeReelSpinner::ShouldCreateSubsystem(UObject* Outer) const
 {
@@ -52,6 +55,7 @@ void UTapeReelSpinner::OnWorldBeginPlay(UWorld& InWorld)
 		Reel.Actor = Actor;
 		Reel.DegreesPerSecond = bReverse ? -Speed : Speed;
 		Reel.BaseQuat = Actor->GetActorQuat();
+		Reel.bReactive = Actor->ActorHasTag(TapeReactTag);
 		Reels.Add(Reel);
 	}
 
@@ -63,6 +67,21 @@ void UTapeReelSpinner::Tick(float DeltaTime)
 	Super::Tick(DeltaTime);
 
 	RunSeconds += DeltaTime;
+	// 729 #1 answers the conversation (design 10.7): it searches while she thinks and reads while
+	// she speaks. Every other reel keeps its own job.
+	ECompanionPresence Presence = ECompanionPresence::Idle;
+	if (const UWorld* World = GetWorld())
+	{
+		if (const UCompanionRuntimeSubsystem* Runtime = World->GetSubsystem<UCompanionRuntimeSubsystem>())
+		{
+			Presence = Runtime->GetPresence();
+		}
+	}
+	if ((uint8)Presence != LastPresence)
+	{
+		LastPresence = (uint8)Presence;
+		PresenceSince = RunSeconds;
+	}
 	for (int32 i = Reels.Num() - 1; i >= 0; --i)
 	{
 		FReel& Reel = Reels[i];
@@ -75,7 +94,10 @@ void UTapeReelSpinner::Tick(float DeltaTime)
 		// Accumulated HERE, never read back from the actor (see the header: the read-back rotator is
 		// normalised and stalls at 90 degrees of pitch). Wrapped so a kiosk left running for days
 		// keeps its precision.
-		Reel.AngleDegrees = FMath::Fmod(Reel.AngleDegrees + Reel.DegreesPerSecond * DeltaTime, 360.0);
+		const float Rate = Reel.bReactive
+			? CompanionSet::TapeDegreesPerSecond(Presence, float(RunSeconds - PresenceSince), Reel.DegreesPerSecond)
+			: Reel.DegreesPerSecond;
+		Reel.AngleDegrees = FMath::Fmod(Reel.AngleDegrees + Rate * DeltaTime, 360.0);
 		Actor->SetActorRotation(SpunRotation(Reel.BaseQuat, Reel.AngleDegrees));
 	}
 
