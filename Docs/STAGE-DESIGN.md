@@ -316,8 +316,13 @@ same edits the previz makes, so the map places what the previz shows: the RAMAC 
 platter (`clipLocal`); the Kenbak-1, which the file has lying face down with its power cord draped off
 it, loses the cord (`clipLocal`), is stood up (`rotateLocal`, +90 deg about glTF X) and has its 79
 meshes merged into one; the mouse's 16 meshes are merged into one. (Interchange imports each glTF mesh
-as its own StaticMesh, and a prop places one.) The 3277 screens glow through an emissive overlay on
-each GLB's phosphor (`IBM3277_*_phosphor`), because the author's prop material drops GLB emission.
+as its own StaticMesh, and a prop places one.) Every slot is imported without Nanite: Interchange builds
+Nanite by default, and with Nanite off in this project a Nanite mesh draws its decimated fallback, which
+turned the 1401 console's lamps into scattered triangles and its knobs into pinwheels beside her shoulder
+(the CPU's 1,964 triangles fell to 904, the Kenbak-1's 13,008 to 491). The author turns Nanite off on each
+import and fails unless every slot's LOD0 carries every triangle of its GLB. The 3277 screens glow
+through an emissive overlay on each GLB's phosphor (`IBM3277_*_phosphor`), because the author's prop
+material drops GLB emission.
 The Kenbak-1 and the mouse are marked `opaque`: their glTF BLEND materials (the Kenbak's front-panel
 lettering, the mouse's wooden body) kept a translucent blend mode after the import's re-parent and
 rendered dark and see-through in Unreal. The Kenbak's lettering plane is also recoloured to the
@@ -376,14 +381,18 @@ room's 15-30 % band (37 % in CUTAWAY_HUB, 34 % in CUTAWAY_LINEUP: the raised flo
 ceiling are both near-white).
 
 In Unreal 5.8: `author_diorama.py` builds the layout's 1,572 blockouts, 43 lights, 14 props from
-eight GLB slots (three edited before import, every slot one static mesh), 30 TapeReel actors, 90
-attachments and 8 TargetPoints, every count checked against the layout (SUCCESS). The map was
-captured from the previz cameras (game view, the street-side lights culled for the interior shots):
+eight GLB slots (three edited before import, every slot one static mesh at full detail: Nanite off, its
+LOD0 carrying every triangle of its GLB), 30 TapeReel actors, 90 attachments and 8 TargetPoints, every
+count checked against the layout (SUCCESS). The map was captured from the previz cameras (game view,
+the street-side lights culled for the interior shots):
 VITRINE, ARRIVAL, HOME, CLOSE, CUTAWAY_HUB and CUTAWAY_LINEUP compose as the previz does, and at
-EV100 4.6 the troffers read above the floor on the pixels the previz ray-cast (1.28 x in VITRINE,
+EV100 4.6 the troffers read above the floor on the pixels the previz ray-cast (1.27 x in VITRINE,
 1.11 x in CUTAWAY_HUB; floor blue/red 0.97-0.98). The 3277 phosphor overlays glow, the Kenbak-1
 stands upright with a light front panel, the mouse is whole and wooden, and the run sheet on the
-string's street end is lit. The specs pass in the editor (47
+string's street end is lit. Recaptured with the props at full detail: the 1401 console beside her
+shoulder in HOME and CLOSE shows square lamps in rows and round knobs, the 3277's knob is round and
+its indicator a bar, and the 1401 nameplate is a clean plate (before, the Nanite fallback drew
+triangles, pinwheels, a pentagon, a wedge and a smear). The specs pass in the editor (47
 `MetaHumanLocalLLM.Frontend.CompanionStage` specs, 370 of 370 plugin specs). The perforated panels'
 3 cm grid was checked for aliasing: at full contrast the panels a few metres out aliased into a moire
 in a still capture, so the holes are a mid grey and `M_StageTile` fades a grid finer than about five

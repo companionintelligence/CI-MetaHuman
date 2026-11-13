@@ -421,6 +421,60 @@ def clip_glb(src, dst, clip):
     """edit_glb with a clip box only (the RAMAC's edit): the node tree kept, the clipped triangles removed."""
     return edit_glb(src, dst, clip=clip)
 
+def glb_triangles(path):
+    """(total, kept) triangle counts of a binary glTF file's scene, None when it cannot be read. Each glTF
+    mesh counts once, as Interchange makes one StaticMesh of each. kept leaves out the triangles Unreal's
+    static mesh build drops whatever its settings: two corners at the same position (StaticMeshBuilder's
+    BuildVertexBuffer skips them even with bRemoveDegenerates off, Interchange's default). A slot imported
+    from this file must carry `kept` triangles in its LOD0 (import_prop() checks it). Standard library only."""
+    import struct
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+        magic, version, _length = struct.unpack_from("<4sII", data, 0)
+        n, kind = struct.unpack_from("<I4s", data, 12)
+        if magic != b"glTF" or version != 2 or kind != b"JSON":
+            return None
+        doc = json.loads(data[20:20 + n].decode("utf-8"))
+        m, kind = struct.unpack_from("<I4s", data, 20 + n) if len(data) >= 28 + n else (0, b"")
+        binc = data[28 + n: 28 + n + m] if kind == b"BIN\x00" else b""
+        acc, views, nodes = doc.get("accessors") or [], doc.get("bufferViews") or [], doc.get("nodes") or []
+
+        def read(ai, per):
+            a = acc[ai]
+            v = views[a["bufferView"]]
+            size = {5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4}[a["componentType"]]
+            fmt = {5120: "b", 5121: "B", 5122: "h", 5123: "H", 5125: "I", 5126: "f"}[a["componentType"]]
+            stride = v.get("byteStride") or size * per
+            base = v.get("byteOffset", 0) + a.get("byteOffset", 0)
+            return [struct.unpack_from("<%d%s" % (per, fmt), binc, base + k * stride) for k in range(a["count"])]
+
+        scene = (doc.get("scenes") or [{}])[doc.get("scene", 0)]
+        meshes, todo = set(), list(scene.get("nodes") or [])
+        while todo:
+            i = todo.pop()
+            if "mesh" in nodes[i]:
+                meshes.add(nodes[i]["mesh"])
+            todo += nodes[i].get("children") or []
+        total = kept = 0
+        for mesh in sorted(meshes):
+            for prim in doc["meshes"][mesh]["primitives"]:
+                pos = read(prim["attributes"]["POSITION"], 3)
+                idx = [i[0] for i in read(prim["indices"], 1)] if "indices" in prim else list(range(len(pos)))
+                mode = prim.get("mode", 4)
+                if mode == 4:
+                    tris = [idx[t:t + 3] for t in range(0, len(idx) - 2, 3)]
+                elif mode in (5, 6):    # a strip or a fan: one triangle per index after the first two
+                    tris = [(idx[t], idx[t + 1], idx[t + 2]) if mode == 5 else (idx[0], idx[t + 1], idx[t + 2])
+                            for t in range(len(idx) - 2)]
+                else:                   # points and lines carry no triangles
+                    tris = []
+                total += len(tris)
+                kept += sum(1 for a, b, c in tris if pos[a] != pos[b] and pos[a] != pos[c] and pos[b] != pos[c])
+        return total, kept
+    except Exception:
+        return None
+
 def load_layout(path):
     """The stage layout, checked for the sections this script reads. Fails loudly: a missing or
     malformed layout must stop the build, never author an empty room."""
@@ -502,7 +556,35 @@ try:
     # own StaticMesh and a prop places one of them (the SRI mouse is 16 meshes, the Kenbak 79). A slot
     # that places named sub-meshes (mesh, reels) is never merged. The copy goes to the temp directory,
     # never next to the licensed originals.
+    #
+    # EVERY PROP AT FULL DETAIL. UE 5.8's Interchange builds Nanite on every imported static mesh
+    # (InterchangeGenericMeshPipeline bBuildNanite true, NaniteTriangleThreshold 0), and this project
+    # ships with Nanite off (Config/DefaultEngine.ini r.Nanite.ProjectEnabled=False; Dockerfile.amd also
+    # writes r.Nanite=0). A Nanite mesh then renders its coarse fallback instead, and the fallback
+    # decimates small parts hardest: the 1401 panel's 1.4 cm lamps came out as scattered triangles and its
+    # knobs as pinwheels, beside her shoulder in HOME and CLOSE. So Nanite is turned off on each imported
+    # StaticMesh, which rebuilds its LOD0 from the file's own triangles, and the slot is checked: the LOD0
+    # of its static meshes must carry every triangle of the GLB it was imported from (glb_triangles), or
+    # the self-check fails. The 14 placements then draw about 121,000 triangles instead of 14,000. The
+    # import data still records the pipeline's bBuildNanite, so an editor reimport can turn Nanite back on.
     CLIP_DIR = os.path.join(os.environ.get("TEMP") or os.environ.get("TMPDIR") or "/tmp", "ci_stage_glb_edits").replace("\\", "/")
+    try:
+        SM_EDIT = unreal.get_editor_subsystem(unreal.StaticMeshEditorSubsystem)
+    except Exception:
+        SM_EDIT = None
+    def without_nanite(sm):
+        """Turns Nanite off on an imported StaticMesh, rebuilds and saves it. True when it was on."""
+        ns = SM_EDIT.get_nanite_settings(sm) if SM_EDIT else sm.get_editor_property("nanite_settings")
+        if not ns.get_editor_property("enabled"):
+            return False
+        ns.set_editor_property("enabled", False)
+        if SM_EDIT:
+            SM_EDIT.set_nanite_settings(sm, ns, True)          # PostEditChange: the render data is rebuilt
+        else:
+            sm.set_editor_property("nanite_settings", ns)      # notifies PostEditChangeProperty: the same rebuild
+        unreal.EditorAssetLibrary.save_loaded_asset(sm)
+        return True
+
     def import_prop(name, glb, mesh_name=None, clip=None, rotate=None, merge=False):
         task = unreal.AssetImportTask()
         task.filename = GLB_DIR + "/" + glb
@@ -522,16 +604,24 @@ try:
         unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([task])
         ar = unreal.AssetRegistryHelpers.get_asset_registry()
         assets = ar.get_assets_by_path("/Game/Diorama/" + name, recursive=True)
-        mesh, tex, meshes = None, 0, 0
+        mesh, tex, meshes = None, 0, []
         for a in assets:
             k = str(a.asset_class_path.asset_name)
             asset_name = str(a.asset_name)
-            meshes += 1 if k == "StaticMesh" else 0
-            if k == "StaticMesh" and mesh is None and (mesh_name is None or asset_name == mesh_name):
-                mesh = unreal.load_asset(str(a.package_name))
+            if k == "StaticMesh":
+                sm = unreal.load_asset(str(a.package_name))
+                meshes.append(sm)
+                if mesh is None and (mesh_name is None or asset_name == mesh_name):
+                    mesh = sm
             elif k == "Texture2D":
                 tex += 1
-        return mesh, tex, meshes
+        # Full detail (above): LOD0 as imported, Nanite off, LOD0 rebuilt, against the file imported.
+        before = sum(m.get_num_triangles(0) for m in meshes)
+        nanite_off = sum(1 for m in meshes if without_nanite(m))
+        counted = glb_triangles(task.filename)
+        detail = {"before": before, "after": sum(m.get_num_triangles(0) for m in meshes), "naniteOff": nanite_off,
+                  "glb": counted[0] if counted else None, "glbKept": counted[1] if counted else None}
+        return mesh, tex, len(meshes), detail
 
     def slot_of(p):
         return p.get("slot") or p["name"]
@@ -543,6 +633,7 @@ try:
     imported = {}
     slot_meshes = {}                 # slot -> {mesh name: StaticMesh} for props that place sub-meshes (reels)
     refused = []
+    full_detail = {}                 # slot -> True when its LOD0 carries every triangle of its GLB
     for slot, p in SLOTS.items():
         glb = p["glb"]
         if glb in NEVER_SHIP:
@@ -563,7 +654,7 @@ try:
                 continue
         merge = bool(p.get("rotateLocal")) or (not p.get("mesh") and not p.get("reels")
                                                 and (glb_mesh_nodes(GLB_DIR + "/" + glb) or 0) > 1)
-        sm, tex, n_meshes = import_prop(slot, glb, p.get("mesh"), p.get("clipLocal"), p.get("rotateLocal"), merge)
+        sm, tex, n_meshes, d = import_prop(slot, glb, p.get("mesh"), p.get("clipLocal"), p.get("rotateLocal"), merge)
         imported[slot] = sm
         if p.get("reels"):
             # This GLB carries separately-pivoted sub-meshes (the tape reels). The registry's first
@@ -583,6 +674,14 @@ try:
             if n_meshes > 1 and not p.get("mesh"):
                 # A prop places ONE StaticMesh, so every other part of the file would be missing from the map.
                 w("prop INCOMPLETE %s: %s imported as %d static meshes; one is placed" % (slot, glb, n_meshes))
+        full_detail[slot] = bool(n_meshes) and d["glbKept"] is not None and d["after"] == d["glbKept"]
+        w("%s: mesh detail %s: LOD0 has %d triangles, the GLB %s%s; Nanite turned off on %d of %d static mesh%s%s"
+          % (slot, "OK" if full_detail[slot] else "MISMATCH", d["after"],
+             "unreadable" if d["glb"] is None else "%d" % d["glbKept"],
+             "" if d["glb"] is None or d["glb"] == d["glbKept"] else
+             " (%d less %d with coincident corners)" % (d["glb"], d["glb"] - d["glbKept"]),
+             d["naniteOff"], n_meshes, "" if n_meshes == 1 else "es",
+             " (LOD0 with Nanite on: %d triangles)" % d["before"] if d["naniteOff"] else ""))
     w("NoAI prop slots: %d of %d refused%s" % (len(refused), len(CI_AUTHORED_ONLY),
       (" (" + ", ".join(refused) + " left empty)") if refused else ""))
 
@@ -1854,6 +1953,7 @@ try:
     checks = [("blockouts", blockouts_placed, len(BLOCKOUTS)),
               ("lights", lights_placed, len(LIGHTS)),
               ("props", props_placed, expected_props),
+              ("full-detail prop meshes", sum(1 for v in full_detail.values() if v), len(SLOTS) - len(refused)),
               ("TapeReel actors", placed_reels_all, tagged_reels),
               ("attachments", attached, attach_expected),
               ("TargetPoints", targets_placed, targets_expected),

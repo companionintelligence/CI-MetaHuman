@@ -280,7 +280,7 @@ empty:
 |---|---|
 | starts with `SUCCESS` | `new_level()` **refuses to overwrite**, returns `False`, the run authors into an untitled transient level, the save fails — and the script printed SUCCESS anyway because that line was unconditional |
 | `resident: MANNEQUIN placed` (default), `resident: METAHUMAN placed` (`-Resident MetaHuman`) or `resident: NIA placed` (`-Resident Nia`) | a cooked build with sky, ground and nobody in it. The MetaHuman line is printed only when all three Seo parts imported, the face is tagged and the body and outfit are attached to it; the mannequin line only by the default path, never by the fall-back after a failed Seo import |
-| `self-check: ... all counts match` | *"Match the COUNT, not just the words"*: every blockout, light, prop, TapeReel actor, attachment and TargetPoint the layout lists, counted against the layout. It replaced the CRT count when the 1963 set dropped the CRTs |
+| `self-check: ... all counts match` | *"Match the COUNT, not just the words"*: every blockout, light, prop, TapeReel actor, attachment and TargetPoint the layout lists, counted against the layout. It replaced the CRT count when the 1963 set dropped the CRTs. It also counts the prop slots imported at full detail: Interchange builds Nanite by default, and with Nanite off in this project a Nanite mesh renders a decimated fallback (the 1401 console's lamps as scattered triangles, its knobs as pinwheels) that every count above misses |
 | `room tone placed` | a silent machine hall |
 | `exposure PINNED at EV100` | 3.5 stops of overexposure that **failed silently for weeks**, because nothing in any log distinguishes a lit room from a blown one |
 | map exists and is **> 200 KB** | *"that is the empty stub, not the set"* |
