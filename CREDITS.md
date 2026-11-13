@@ -9,8 +9,10 @@ depends on, and [NOTICE.md](NOTICE.md) for anything vendored here.
 <!-- hand-authored: do not regenerate this section -->
 ## 3D assets in the machine-room set
 
-`Deployment/author_diorama.py` builds the 1970s machine room from twelve prop GLBs, loaded by
-file name from `MHLLM_GLB_DIR` (see [Docs/SCENE-AUTHORING.md](Docs/SCENE-AUTHORING.md)). The GLBs
+`Deployment/author_diorama.py` builds the 1963 machine room from three prop GLBs
+(`ibm-1401-cpu.glb`, `ibm-ramac-305.glb` and `plugboard.glb`), placed as
+`Deployment/stage_layout.json` lists them and loaded by file name from `MHLLM_GLB_DIR` (see
+[Docs/SCENE-AUTHORING.md](Docs/SCENE-AUTHORING.md)). The GLBs
 are not committed to this repository, but they are cooked into the packaged app and shown in the
 streamed scene. Any build that ships them must carry the attributions below, and every package
 does: this file, `NOTICE.md` and `LICENSE` are staged in `MetaHumanLocalLLM/` beside its paks. The

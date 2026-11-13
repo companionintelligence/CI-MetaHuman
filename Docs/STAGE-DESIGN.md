@@ -293,7 +293,7 @@ the map has been authored headlessly in Unreal 5.8 and captured from the same ca
 (game view, the street-side lights culled for the interior shots): VITRINE, ARRIVAL, HOME, CLOSE and
 CUTAWAY_HUB, with the value-structure gate read on the Unreal pixels the previz ray-cast as ceiling
 panel and floor (ceiling 1.18 x the floor in VITRINE, 1.15 x in CUTAWAY_HUB; floor blue/red 0.99).
-The specs pass in the editor (43 `MetaHumanLocalLLM.Frontend.CompanionStage` specs, 366 of 366 plugin
+The specs pass in the editor (47 `MetaHumanLocalLLM.Frontend.CompanionStage` specs, 370 of 370 plugin
 specs), among them design 3.2's input table, the session trigger, the kiosk-reset rule, the CLOSE
 timing, the breathing bounds and a reel turned past 180 degrees.
 
