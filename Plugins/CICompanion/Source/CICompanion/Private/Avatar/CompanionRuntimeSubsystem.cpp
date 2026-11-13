@@ -26,6 +26,7 @@
 #include "UObject/Class.h"
 #include "Async/Async.h"
 #include "PixelStreaming2Delegates.h"
+#include "Misc/CommandLine.h"
 
 
 
@@ -421,6 +422,14 @@ void UCompanionRuntimeSubsystem::HandleHudTextSubmitted(const FString& Text)
 	if (Trimmed.Equals(TEXT("/console"), ESearchCase::IgnoreCase)
 		|| Trimmed.Equals(TEXT("/settings"), ESearchCase::IgnoreCase))
 	{
+		// The OPERATOR console: over a stream every visitor types into this box, so there it opens
+		// only with MHLLM_CONSOLE_COMMAND=1 (or MHLLM_CONSOLE=1 at startup). A native window or a
+		// kiosk has its operator at the keyboard and keeps the command.
+		if (!ConsoleCommandAllowed())
+		{
+			UE_LOG(LogCompanionRuntime, Log, TEXT("Console command ignored: this process streams to visitors (MHLLM_CONSOLE_COMMAND=1 enables it)."));
+			return;
+		}
 		if (SettingsPanel.IsValid())
 		{
 			const bool bNowVisible = !SettingsPanel->IsPanelVisible();
@@ -440,6 +449,24 @@ void UCompanionRuntimeSubsystem::HandleHudTextSubmitted(const FString& Text)
 	{
 		SubmitUserText(Text);
 	}
+}
+
+bool UCompanionRuntimeSubsystem::ConsoleCommandAllowed(TFunctionRef<FString(const TCHAR*)> Lookup, const TCHAR* CommandLine)
+{
+	const FString Explicit = Lookup(TEXT("MHLLM_CONSOLE_COMMAND")).TrimStartAndEnd();
+	if (!Explicit.IsEmpty())
+	{
+		return Explicit == TEXT("1") || Explicit.Equals(TEXT("true"), ESearchCase::IgnoreCase)
+			|| Explicit.Equals(TEXT("yes"), ESearchCase::IgnoreCase) || Explicit.Equals(TEXT("on"), ESearchCase::IgnoreCase);
+	}
+	// Unset: the visitors of a streamed process never get it; an operator at the machine does.
+	return UCompanionStageDirector::ResolveTrigger(Lookup, CommandLine) != EStageTrigger::Viewer;
+}
+
+bool UCompanionRuntimeSubsystem::ConsoleCommandAllowed() const
+{
+	auto Env = [](const TCHAR* Name) { return FPlatformMisc::GetEnvironmentVariable(Name); };
+	return ConsoleCommandAllowed(Env, FCommandLine::Get());
 }
 
 bool UCompanionRuntimeSubsystem::AnnounceUserTurn(const FString& Text)

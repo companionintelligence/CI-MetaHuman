@@ -117,7 +117,8 @@ implies — verified by probe against a running instance, not assumed.
 |---|---|---|
 | `MHLLM_COMPANION` | *(unset = on)* | `0` disables the whole conversational brain |
 | `MHLLM_HUD` | *(unset = on)* | `0` suppresses the chat HUD |
-| `MHLLM_CONSOLE` | `0` | `1` opens the operator console at startup. `/console` toggles it live |
+| `MHLLM_CONSOLE` | `0` | `1` opens the operator console at startup. `/console` toggles it live where the command is allowed (`MHLLM_CONSOLE_COMMAND`) |
+| `MHLLM_CONSOLE_COMMAND` | auto | Whether `/console` (or `/settings`) typed in the chat box opens the operator console. Unset: yes in a native window or a kiosk, no in a process that streams to visitors (any visitor types into that box). `1` gives it to a stream operator; `0` takes it away everywhere |
 | `MHLLM_GREETING` | `none` | An LLM-generated opening turn on a 5 s timer. **Default `none`** because the opening is now scripted, and two greetings collide |
 | `MHLLM_FACE_PROFILE` | *(empty)* | `CC` = Reallusion Character Creator; `ARKit` = MetaHuman. **The two share no curve names** — anything unrecognised silently becomes `CC`. Empty means *the rig the map declares*: the resident's `FaceProfile=` tag (`ARKit` on the opt-in MetaHuman, `CC` on Nia), and `CC` for a map authored before that tag existed or for the default mannequin, which has no rig and resolves nothing either way. It used to be a hard-coded `CC` |
 | `MHLLM_FACE_SELFTEST` | `0` (hard-coded) | Cycles all 15 visemes. Off deliberately: with it on the mouth moves whether or not the LLM ever replies, masking the exact failure the deployment exists to expose |

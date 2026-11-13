@@ -2,6 +2,7 @@
 #include "Avatar/CompanionStageDirector.h"
 #include "Avatar/CompanionStagePath.h"
 #include "Avatar/CompanionSetState.h"
+#include "Avatar/CompanionRuntimeSubsystem.h"
 #include "Avatar/TapeReelSpinner.h"
 #include "Settings/CompanionStageSettings.h"
 #include "UObject/Package.h"
@@ -507,6 +508,21 @@ void FCompanionStageSpec::Define()
 			Env.Add(TEXT("MHLLM_OPENING_TRIGGER"), TEXT(" Viewer "));
 			TestTrue("MHLLM_OPENING_TRIGGER=viewer without a stream",
 				UCompanionStageDirector::ResolveTrigger(MakeLookup(Env), TEXT("")) == EStageTrigger::Viewer);
+		});
+
+		It("keep the operator console from stream visitors", [this, MakeLookup]()
+		{
+			TMap<FString, FString> Env;
+			TestFalse("a streamed process ignores /console",
+				UCompanionRuntimeSubsystem::ConsoleCommandAllowed(MakeLookup(Env), TEXT("-PixelStreamingUrl=ws://127.0.0.1:8888")));
+			TestTrue("a native window or a kiosk keeps it",
+				UCompanionRuntimeSubsystem::ConsoleCommandAllowed(MakeLookup(Env), TEXT("-windowed")));
+			Env.Add(TEXT("MHLLM_CONSOLE_COMMAND"), TEXT("1"));
+			TestTrue("MHLLM_CONSOLE_COMMAND=1 gives it to a stream operator",
+				UCompanionRuntimeSubsystem::ConsoleCommandAllowed(MakeLookup(Env), TEXT("-PixelStreamingUrl=ws://127.0.0.1:8888")));
+			Env.Add(TEXT("MHLLM_CONSOLE_COMMAND"), TEXT("0"));
+			TestFalse("MHLLM_CONSOLE_COMMAND=0 takes it from a kiosk",
+				UCompanionRuntimeSubsystem::ConsoleCommandAllowed(MakeLookup(Env), TEXT("-windowed")));
 		});
 
 		It("replay the opening only as a kiosk reset, never with a viewer connected", [this]()

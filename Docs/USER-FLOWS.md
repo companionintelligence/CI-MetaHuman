@@ -100,7 +100,7 @@ Three deliberate choices:
 | Click the box, then type | ✅ | Requires the pointer-lock fix, §3 |
 | Press **Send** with the mouse | ✅ | Fires on `MouseDown`, not on a captured press-and-release |
 | Click somewhere useless, then type | ✅ | Recovered by the focus guard. Before it, one stray click bricked the session |
-| Type `/console` or `/settings` | ✅ | Intercepted **before** the LLM sees it; opens the operator console |
+| Type `/console` or `/settings` | operator only | Intercepted **before** the LLM sees it. Opens the operator console in a native window or a kiosk; a streamed process ignores it unless `MHLLM_CONSOLE_COMMAND=1`, because every stream visitor types into that box |
 | Speak into a mic | ❌ | `OnMicToggled` is exposed by the HUD and bound by nobody |
 | Look around | ❌ by default | `MHLLM_FREE_LOOK=1` hands input to the pawn — and then any viewer can drag the shot off the subject |
 | Resize the composition | partial | `?MatchViewportRes=true` makes UE re-render at the browser viewport. **The trade is real**: in a landscape window a composed portrait call becomes a wide shot with a small subject |
@@ -217,7 +217,8 @@ edit the settings through the operator console at runtime.
 
 ## 5. The operator console
 
-`/console` or `/settings` in the chat box, or `MHLLM_CONSOLE=1` at startup.
+`/console` or `/settings` in the chat box (a native window or a kiosk, or a stream with
+`MHLLM_CONSOLE_COMMAND=1`), or `MHLLM_CONSOLE=1` at startup.
 
 > Everything here is **live**: changing the voice affects the next utterance, muting the music takes
 > effect immediately. That is the point — the alternative is a 25-minute cook to hear a different

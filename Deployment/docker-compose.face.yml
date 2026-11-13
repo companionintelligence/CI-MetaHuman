@@ -29,14 +29,16 @@ services:
       # Facial expression. UEmotionMapper reads the reply text and the face holds the result as a
       # sustained brow/cheek/eye bias COMPOSITED OVER the visemes -- it never competes with them for
       # the mouth. ON unless explicitly set to 0: an expressionless face is the regression, so the
-      # kill switch is opt-OUT; the opening camera tour now runs by default on level load.
+      # kill switch is opt-OUT; the opening move now plays by default, once per viewer.
       # Set to 0 to isolate a lip-sync problem from an expression problem in a capture.
       MHLLM_EMOTION: "${MHLLM_EMOTION:-1}"
 
       # Operator console. Hidden by default so the opening reads as a brand moment rather than a
-      # settings screen; "/console" in the chat box toggles it at any time. Set to 1 to start it
-      # open, which is what a kiosk operator (or a screenshot) wants.
+      # settings screen. Set to 1 to start it open, which is what a kiosk operator (or a screenshot)
+      # wants. "/console" in the chat box toggles it only with MHLLM_CONSOLE_COMMAND=1 here: this
+      # process streams, and every visitor types into that box.
       MHLLM_CONSOLE: "${MHLLM_CONSOLE:-0}"
+      MHLLM_CONSOLE_COMMAND: "${MHLLM_CONSOLE_COMMAND:-}"
 
       # Cognition runs on BETA-1, not this box. core-2 is a Strix Halo iGPU and the best it
       # manages is gemma4:e2b at ~12s per reply -- not a conversation. beta-1 has two discrete

@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Subsystems/WorldSubsystem.h"
+#include "Templates/Function.h"
 #include "Voice/VisemePlanner.h"
 #include "Avatar/CompanionSetState.h"
 #include "CompanionRuntimeSubsystem.generated.h"
@@ -98,6 +99,12 @@ public:
 	// voice plays, Thinking while a turn is with the model, Listening while the visitor has text in
 	// the box, else Idle. UCompanionSetStateDisplay and UTapeReelSpinner read it every tick.
 	ECompanionPresence GetPresence() const;
+
+	// Whether "/console" in the chat box may open the operator console: MHLLM_CONSOLE_COMMAND when
+	// set, else only when the process does not stream to visitors (the experience critique: any
+	// stream visitor could open it). Injectable for the specs.
+	static bool ConsoleCommandAllowed(TFunctionRef<FString(const TCHAR*)> Lookup, const TCHAR* CommandLine);
+	bool ConsoleCommandAllowed() const;
 
 private:
 	// The OnAllConnectionsClosedNative binding, removed in Deinitialize: the delegates object is a
