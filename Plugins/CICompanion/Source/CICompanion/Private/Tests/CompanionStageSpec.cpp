@@ -5,6 +5,8 @@
 #include "Avatar/CompanionRuntimeSubsystem.h"
 #include "Avatar/TapeReelSpinner.h"
 #include "Settings/CompanionStageSettings.h"
+#include "Engine/World.h"
+#include "GameFramework/DefaultPawn.h"
 #include "UObject/Package.h"
 #include "UObject/UnrealType.h"
 
@@ -168,6 +170,30 @@ void FCompanionStageSpec::Define()
 			Env.Add(TEXT("MHLLM_OPENING_SHOT"), TEXT("1"));
 			TestTrue("shot on", UCompanionStageDirector::ShouldPlayOpeningShot(MakeLookup(Env)));
 			TestFalse("look still locked", UCompanionStageDirector::ShouldAllowFreeLook(MakeLookup(Env)));
+		});
+	});
+
+	// On the real stream GameModeBase's DefaultPawn stood at the map's PlayerStart (the HOME camera):
+	// its sphere hung beside her in the lobby still and filled the lens as the move landed, because it
+	// is hidden only from views through the pawn itself.
+	Describe("the stand-in pawn", [this]()
+	{
+		It("is hidden from the stage camera, once", [this]()
+		{
+			UWorld* World = UWorld::CreateWorld(EWorldType::Game, /*bInformEngineOfWorld*/ false);
+			ADefaultPawn* Pawn = World ? World->SpawnActor<ADefaultPawn>() : nullptr;
+			if (TestNotNull("a DefaultPawn spawns", Pawn))
+			{
+				TestFalse("visible as GameModeBase spawns it", Pawn->IsHidden());
+				TestTrue("hidden by the director", UCompanionStageDirector::HideStandInPawn(Pawn));
+				TestTrue("hidden in game", Pawn->IsHidden());
+				TestFalse("a second call changes nothing", UCompanionStageDirector::HideStandInPawn(Pawn));
+			}
+			TestFalse("no pawn, nothing to hide", UCompanionStageDirector::HideStandInPawn(nullptr));
+			if (World)
+			{
+				World->DestroyWorld(/*bInformEngineOfWorld*/ false);
+			}
 		});
 	});
 

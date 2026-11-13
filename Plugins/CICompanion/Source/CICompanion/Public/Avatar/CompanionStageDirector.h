@@ -8,6 +8,7 @@
 
 class ACameraActor;
 class AActor;
+class APawn;
 class UCompanionStageSettings;
 class FCompanionStageInputWatcher;
 
@@ -209,8 +210,17 @@ public:
 	// (built-in), then Live.
 	static EStageBeat BeatAt(const FCompanionStagePlan& Plan, float SecondsSinceStart);
 
+	// The game mode's stand-in pawn is no part of the set. GameModeBase spawns its DefaultPawn at the
+	// map's PlayerStart, which the author puts on the HOME camera, and the pawn's sphere is hidden only
+	// from views through the pawn itself (bOwnerNoSee): from the stage camera it hung beside her in the
+	// lobby still and filled the lens at the end of the move. Hidden in game, not destroyed (free look
+	// flies it). Returns true when this call hid it.
+	static bool HideStandInPawn(APawn* Pawn);
+
 private:
 	void LockPlayerView();
+	// HideStandInPawn on the local player's pawn, retried briefly while the pawn has not arrived.
+	void HidePawnFromStage();
 	// Holds a framing: position, level aim or look-at, lens and composition.
 	void ApplyFraming(const FCompanionStageFraming& Framing);
 	// The opening move MoveTime seconds in.
@@ -301,5 +311,6 @@ private:
 	// Bounded retry for the player controller. 20 x 0.25s covers a slow map load without spinning
 	// forever in a world that genuinely has no local player.
 	int32 ViewLockAttempts = 0;
+	int32 PawnHideAttempts = 0;
 	static constexpr int32 MaxViewLockAttempts = 20;
 };

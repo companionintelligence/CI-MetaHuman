@@ -701,9 +701,10 @@ try:
         raise RuntimeError("new_level(%s) failed; refusing to author into an untitled level" % MAP_PATH)
     w("new_level ok")
 
-    # The streamed pawn spawns at the WORLD ORIGIN, not at our PlayerStart (GameModeBase does not
-    # honour it here). The view comes from the runtime stage director's own camera instead, so the
-    # set is authored in world space.
+    # GameModeBase spawns its DefaultPawn at the PlayerStart placed with the fallback camera below
+    # (the HOME camera). The view comes from the runtime stage director's own camera instead, which
+    # also hides that pawn (its sphere stood in the lobby still and the move), so the set is
+    # authored in world space.
     SET_OFFSET = (0.0, 0.0, 0.0)
     def spawn(cls, loc=(0,0,0), yaw=0.0, pitch=0.0, roll=0.0):
         world = (loc[0] + SET_OFFSET[0], loc[1] + SET_OFFSET[1], loc[2] + SET_OFFSET[2])

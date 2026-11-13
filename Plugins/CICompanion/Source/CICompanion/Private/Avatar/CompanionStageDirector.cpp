@@ -617,10 +617,10 @@ void UCompanionStageDirector::LockPlayerView()
 		// set, but every streamed frame still came from the camera bolted to the call framing.
 		//
 		// The pawn is also started ON that framing rather than left where GameModeBase spawned it.
-		// That spawn is the world origin -- inside the floor plane -- so anyone who turned free
-		// look on got a grazing view of the tiles, which looks exactly like a switch that did
-		// nothing. Beginning at the solved shot makes the handover invisible: the picture does not
-		// change until the viewer moves.
+		// That spawn is the map's PlayerStart, or the world origin -- inside the floor plane -- in a
+		// map without one, where anyone who turned free look on got a grazing view of the tiles,
+		// which looks exactly like a switch that did nothing. Beginning at the solved shot makes the
+		// handover invisible: the picture does not change until the viewer moves.
 		APawn* Pawn = PC->GetPawn();
 		if (Camera)
 		{
@@ -637,6 +637,7 @@ void UCompanionStageDirector::LockPlayerView()
 	{
 		PC->SetViewTarget(Camera);
 	}
+	HidePawnFromStage();
 
 	// The actual anti-drift. GameModeBase's DefaultPawn installs its own movement bindings, so
 	// mouse X/Y become AddYawInput/AddPitchInput on the control rotation -- which moves the view
@@ -645,6 +646,43 @@ void UCompanionStageDirector::LockPlayerView()
 	// binding.
 	PC->SetIgnoreLookInput(true);
 	PC->SetIgnoreMoveInput(true);
+}
+
+bool UCompanionStageDirector::HideStandInPawn(APawn* Pawn)
+{
+	if (!Pawn || Pawn->IsHidden())
+	{
+		return false;
+	}
+	Pawn->SetActorHiddenInGame(true);
+	return true;
+}
+
+void UCompanionStageDirector::HidePawnFromStage()
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+	const APlayerController* PC = World->GetFirstPlayerController();
+	APawn* Pawn = PC ? PC->GetPawn() : nullptr;
+	if (!Pawn)
+	{
+		// The pawn can arrive after the controller does (see LockPlayerView); look again shortly.
+		if (PawnHideAttempts++ < MaxViewLockAttempts)
+		{
+			FTimerHandle Handle;
+			World->GetTimerManager().SetTimer(Handle,
+				FTimerDelegate::CreateUObject(this, &UCompanionStageDirector::HidePawnFromStage), 0.25f, false);
+		}
+		return;
+	}
+	if (HideStandInPawn(Pawn))
+	{
+		UE_LOG(LogCompanionStage, Log, TEXT("Stand-in pawn %s hidden (at %s): the stage camera holds the view."),
+			*Pawn->GetName(), *Pawn->GetActorLocation().ToCompactString());
+	}
 }
 
 void UCompanionStageDirector::ApplyLens(float FocalMm, const FVector2D& FilmbackMm, float Aperture, const FVector2D& ShiftMm, float FocusCm)
