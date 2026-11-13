@@ -52,18 +52,19 @@ ONE engine version, and a 5.8-authored map cannot be loaded by the 5.5 cook.
 
 ## The resident
 
-The default resident is **Epic's UE mannequin**, a placeholder. The MetaHuman **"Seo"** and the
+The default resident is **Epic's UE mannequin**, a placeholder. **Eliza**, the resident made in-house
+for this product, is placed on request from her staged content (README *Licensing*). The MetaHuman **"Seo"** and the
 Reallusion Character Creator **"Nia"** are still fully supported, but only when asked for by name:
 
-| | UE mannequin (default) | MetaHuman "Seo" (opt-in) | Reallusion "Nia" (opt-in) |
-|---|---|---|---|
-| select it | nothing, or `-Resident Mannequin` / `MHLLM_RESIDENT=mannequin` | `-Resident MetaHuman` / `MHLLM_RESIDENT=metahuman` | `-Resident Nia` / `MHLLM_RESIDENT=nia` |
-| input | none: `SKM_Manny` and `MM_Idle` from the engine's MoverTests plugin | FBX export: `fbx/SKM_MHC_Seo_BodyMesh.fbx`, `fbx/SKM_MHC_Seo_FaceMesh.fbx`, `fbx/MHC_Seo_Outfits.fbx` | the `CC_ControlRig_Nia` content folder |
-| where it lives | the engine (`Engine/Plugins/Experimental/MoverTests`) | core-2 `/home/ci/mh-seo` (`/mh`); Windows `-MetaHumanDir`, `MHLLM_MH_DIR`, default `C:\devel\_mh-convert\out\seo` | core-2 `/home/ci/nia-content`; Windows `-NiaContent` / `MHLLM_NIA_CONTENT` |
-| placed as | one `SkeletalMeshActor` playing `MM_Idle` | three `SkeletalMeshActor`s (Face, Body, Outfit) at one transform; **Body and Outfit attached to the Face** | one `SkeletalMeshActor` (`SK_Nia`) with her baked idle |
-| tags | `CompanionFace` (no rig, so no `FaceProfile=`) | `CompanionFace`, `FaceProfile=ARKit` on the Face | `CompanionFace`, `FaceProfile=CC` |
-| gate line | `resident: MANNEQUIN placed` | `resident: METAHUMAN placed` (else `METAHUMAN INCOMPLETE`) | `resident: NIA placed` — unchanged |
-| licence | Licensed Technology under the Unreal Engine EULA; no AI restriction | Fab listing tagged **NoAI** | Fab listing tagged **NoAI** |
+| | UE mannequin (default) | Eliza (on request) | MetaHuman "Seo" (opt-in) | Reallusion "Nia" (opt-in) |
+|---|---|---|---|---|
+| select it | nothing, or `-Resident Mannequin` / `MHLLM_RESIDENT=mannequin` | `-Resident Eliza` / `MHLLM_RESIDENT=eliza` (`-ElizaVariant` / `MHLLM_ELIZA_VARIANT` must match the manifest when set) | `-Resident MetaHuman` / `MHLLM_RESIDENT=metahuman` | `-Resident Nia` / `MHLLM_RESIDENT=nia` |
+| input | none: `SKM_Manny` and `MM_Idle` from the engine's MoverTests plugin | her staged `Eliza` folder (`eliza_manifest.json`, `SKM_Eliza` or `BP_Eliza`, idle, garments); private, never committed | FBX export: `fbx/SKM_MHC_Seo_BodyMesh.fbx`, `fbx/SKM_MHC_Seo_FaceMesh.fbx`, `fbx/MHC_Seo_Outfits.fbx` | the `CC_ControlRig_Nia` content folder |
+| where it lives | the engine (`Engine/Plugins/Experimental/MoverTests`) | Windows `-ElizaContent` / `MHLLM_ELIZA_CONTENT` (mirrored into `Content/Eliza`); core-2 `/home/ci/eliza-content` (`/eliza`) | core-2 `/home/ci/mh-seo` (`/mh`); Windows `-MetaHumanDir`, `MHLLM_MH_DIR`, default `C:\devel\_mh-convert\out\seo` | core-2 `/home/ci/nia-content`; Windows `-NiaContent` / `MHLLM_NIA_CONTENT` |
+| placed as | one `SkeletalMeshActor` playing `MM_Idle` | `mpfb`: one `SkeletalMeshActor` "Eliza" playing `A_Eliza_Idle`; `metahuman`: `BP_Eliza` (Body plays `A_Eliza_MH_Idle`, Face runs `ABP_MH_LiveLink`) with three garment actors attached, tagged `LeaderPose=Body` | three `SkeletalMeshActor`s (Face, Body, Outfit) at one transform; **Body and Outfit attached to the Face** | one `SkeletalMeshActor` (`SK_Nia`) with her baked idle |
+| tags | `CompanionFace` (no rig, so no `FaceProfile=`) | `CompanionFace`, `FaceProfile=ARKit`, `FaceGain=1.0`, `FacePoseCap=1.0`; MetaHuman adds `FaceSink=LiveLink`, `LiveLinkSubject=Eliza` and uses `FaceProfile=ARKitMH` | `CompanionFace`, `FaceProfile=ARKit` on the Face | `CompanionFace`, `FaceProfile=CC` |
+| gate line | `resident: MANNEQUIN placed` | `resident: ELIZA placed (variant=...)` (else `ELIZA INCOMPLETE`) | `resident: METAHUMAN placed` (else `METAHUMAN INCOMPLETE`) | `resident: NIA placed` — unchanged |
+| licence | Licensed Technology under the Unreal Engine EULA; no AI restriction | `mpfb`: CC0 1.0 assets (MPFB is a GPL authoring tool, not shipped); `metahuman`: Unreal Engine EULA + MetaHuman FAQ. Never used to build datasets or train or test AI | Fab listing tagged **NoAI** | Fab listing tagged **NoAI** |
 
 **Why the default is a mannequin.** Both characters the project has used are Fab content whose
 listings read **"Allows usage with AI: No"** (the `NoAI` tag), checked 2026-11-12: *Character Creator:

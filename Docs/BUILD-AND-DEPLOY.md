@@ -182,18 +182,22 @@ authored map only when that file passes:
 |---|---|---|
 | absent | `has no Content/AUTHOR_RESULT.txt beside it` | a map authored before this check existed, or a map copied without the rest of `Content/` |
 | no `SUCCESS` line | `does not report SUCCESS` | the authoring run failed |
-| no `resident: MANNEQUIN placed` line (`METAHUMAN` with `--build-arg RESIDENT=metahuman`, `NIA` with `RESIDENT=nia`) | `has no "resident: … placed" line` | the map holds another resident, such as Nia in a map authored before the switch |
+| no `resident: MANNEQUIN placed` line (`ELIZA` with `--build-arg RESIDENT=eliza`, `METAHUMAN` with `RESIDENT=metahuman`, `NIA` with `RESIDENT=nia`) | `has no "resident: … placed" line` | the map holds another resident, such as Nia in a map authored before the switch |
 | no `NoAI prop slots:` line | `has no "NoAI prop slots" line` | authored before `author_diorama.py` refused the NoAI-tagged props |
 | `map sha256` is not the map's | `belongs to another map` | a result and a map from different runs |
 
 Whatever the map, it also refuses `Content/CC_ControlRig_Nia` unless `--build-arg RESIDENT=nia`,
 and `Content/Seo` in a mannequin build: both are Fab content tagged NoAI ([`NOTICE.md`](../NOTICE.md)),
 and this is the rule `m2_clean.sh` applies to core-2's cook tree, now applied to every build
-context. `RESIDENT` defaults to `mannequin`, the only resident whose licence clears this use;
-`m2_clean.sh` and `m2_full.sh` pass the resident they authored. `ALLOW_STUB_MAP=1` lifts none of
-this: it lets an unauthored map through, never an authored one nothing vouches for.
+context. It refuses `Content/Eliza` unless `--build-arg RESIDENT=eliza` (her content is private,
+staged and cooked only when asked for), an `eliza_manifest.json` whose `id` is not `eliza` or whose
+variant is not `ELIZA_VARIANT`, and any `Content/EditableCharacters`, where MetaHuman Creator keeps
+editable characters, which are never cooked. `RESIDENT` defaults to `mannequin`; `m2_clean.sh` and
+`m2_full.sh` pass the resident they authored. `ALLOW_STUB_MAP=1` lifts none of this: it lets an
+unauthored map through, never an authored one nothing vouches for.
 `Scripts/BuildNative.ps1 -SkipAuthoring` applies the same checks before it cooks a map it did not
-author (§3).
+author (§3), and its default path refuses a stray `Content/Eliza` or any `Content/EditableCharacters`
+before it stages or authors anything.
 
 **The prerequisite, on any build host:**
 
@@ -279,7 +283,7 @@ empty:
 | Assertion | The failure it catches |
 |---|---|
 | starts with `SUCCESS` | `new_level()` **refuses to overwrite**, returns `False`, the run authors into an untitled transient level, the save fails — and the script printed SUCCESS anyway because that line was unconditional |
-| `resident: MANNEQUIN placed` (default), `resident: METAHUMAN placed` (`-Resident MetaHuman`) or `resident: NIA placed` (`-Resident Nia`) | a cooked build with sky, ground and nobody in it. The MetaHuman line is printed only when all three Seo parts imported, the face is tagged and the body and outfit are attached to it; the mannequin line only by the default path, never by the fall-back after a failed Seo import |
+| `resident: MANNEQUIN placed` (default), `resident: ELIZA placed` (`-Resident Eliza`, after her staged `eliza_manifest.json` checked out), `resident: METAHUMAN placed` (`-Resident MetaHuman`) or `resident: NIA placed` (`-Resident Nia`) | a cooked build with sky, ground and nobody in it. The MetaHuman line is printed only when all three Seo parts imported, the face is tagged and the body and outfit are attached to it; the mannequin line only by the default path, never by the fall-back after a failed Seo import |
 | `CRT vector displays placed: [1-9]` | *"Match the COUNT, not just the words"* — three empty actors and a cheerful success line |
 | `room tone placed` | a silent machine hall |
 | `exposure PINNED at EV100` | 3.5 stops of overexposure that **failed silently for weeks**, because nothing in any log distinguishes a lit room from a blown one |

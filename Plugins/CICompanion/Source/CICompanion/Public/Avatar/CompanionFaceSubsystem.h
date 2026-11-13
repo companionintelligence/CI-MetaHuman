@@ -43,6 +43,34 @@ public:
 	// same question the face driver does.
 	static FString ResolveProfileName(const AActor* Resident);
 
+	// "FaceGain=<float>" and "FacePoseCap=<float>": the viseme gain and pose cap the map declares
+	// for its resident's rig. The component's 3.0 / 2.0 defaults were tuned for Nia's subtle CC
+	// morphs; full-range ARKit shapes (Eliza) want 1.0 / 1.0, or the jaw opens twice as far as the
+	// shape was sculpted for. Precedence, per value: MHLLM_FACE_GAIN / MHLLM_FACE_POSE_CAP when set,
+	// then the tag, then the component default.
+	static const FString GainTagPrefix;
+	static const FString PoseCapTagPrefix;
+
+	// Parses the first "<Prefix><positive float>" tag on the resident. False when there is none or
+	// it does not parse to a positive number (a typo must not silently zero the mouth).
+	static bool ResolveFloatTag(const AActor* Resident, const FString& Prefix, float& OutValue);
+
+	// Applies the tag precedence above to a bound face component. Returns a one-line summary for
+	// the bind log. Static so the specs can exercise it without a world.
+	static FString ApplyTuningTags(const AActor* Resident, UCompanionFaceComponent* InFace);
+
+	// "FaceSink=LiveLink" routes the face through Live Link instead of morph targets (a MetaHuman
+	// face, Eliza Phase M); "LiveLinkSubject=<name>" names the subject (default: the resident's name).
+	// "LeaderPose=Body" on an attached garment actor makes its meshes follow the resident's Body.
+	static const FString SinkTagPrefix;
+	static const FString SubjectTagPrefix;
+	static const FName LeaderPoseTag;
+	static FString ResolveStringTag(const AActor* Resident, const FString& Prefix);
+
+	// The engine assets the Live Link sink relies on (UE 5.8 MetaHumanCharacter plugin content).
+	static const TCHAR* LiveLinkFaceAnimClassPath;
+	static const TCHAR* ArkitMappingPoseAssetPath;
+
 	virtual bool ShouldCreateSubsystem(UObject* Outer) const override;
 	virtual void OnWorldBeginPlay(UWorld& InWorld) override;
 
@@ -58,6 +86,9 @@ public:
 	AActor* FindResident(UWorld& InWorld) const;
 
 private:
+	// Phase M: Live Link subject, face anim class and garment leader pose. Returns the sink summary
+	// for the bind log, or an empty string when the resident does not ask for Live Link.
+	FString BindLiveLinkFace(AActor& Resident);
 
 	UPROPERTY(Transient)
 	TObjectPtr<UCompanionFaceComponent> Face;

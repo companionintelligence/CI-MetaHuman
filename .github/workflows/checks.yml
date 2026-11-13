@@ -117,7 +117,10 @@ jobs:
 
       # The stream's credits page is what a viewer can reach; CREDITS.md and NOTICE.md are the
       # licensing record behind it. All three must name the same CC BY 4.0 Sketchfab models, so a
-      # model added to or dropped from the set cannot leave the page behind.
+      # model added to or dropped from the set cannot leave the page behind. The page and CREDITS.md
+      # (which every package stages) are the product's credits, so both must also carry, word for
+      # word, the two notices section 7(a) of the Unreal Engine EULA requires in the credits of a
+      # product built with the engine, with the same year; a year behind the calendar is a warning.
       - name: Credits page matches the licensing record
         run: |
           set -euo pipefail
@@ -136,7 +139,21 @@ jobs:
           done
           grep -q 'href="https://creativecommons.org/licenses/by/4.0/"' Deployment/pixelstreaming/credits.html \
             || { echo "::error file=Deployment/pixelstreaming/credits.html::no link to the CC BY 4.0 licence"; status=1; }
-          [ "$status" -eq 0 ] && echo "CREDITS.md, NOTICE.md and credits.html name the same $(wc -l < "$work/CREDITS.md.txt") CC BY models"
+          ue_mark='CI Metahuman uses Unreal® Engine. Unreal® is a trademark or registered trademark of Epic Games, Inc. in the United States of America and elsewhere.'
+          ue_copy='Unreal® Engine, Copyright 1998 – [0-9]{4}, Epic Games, Inc\. All rights reserved\.'
+          for f in CREDITS.md Deployment/pixelstreaming/credits.html; do
+            grep -qF "$ue_mark" "$f" \
+              || { echo "::error file=$f::no Unreal Engine EULA 7(a) trademark notice, expected on one line: $ue_mark"; status=1; }
+            grep -qE "$ue_copy" "$f" \
+              || { echo "::error file=$f::no Unreal Engine EULA 7(a) copyright notice ('Unreal® Engine, Copyright 1998 – <year>, ...') on one line"; status=1; }
+          done
+          years="$({ grep -ohE 'Unreal® Engine, Copyright 1998 – [0-9]{4},' CREDITS.md Deployment/pixelstreaming/credits.html || true; } | grep -oE '[0-9]{4}' | grep -v '^1998$' | sort -u || true)"
+          if [ "$(printf '%s\n' "$years" | grep -c .)" -gt 1 ]; then
+            echo "::error::the Unreal Engine copyright notices give different years: ${years//$'\n'/ }"; status=1
+          elif [ -n "$years" ] && [ "$years" -lt "$(date -u +%Y)" ]; then
+            echo "::warning::the Unreal Engine copyright notice ends in $years; EULA 7(a) asks for the current year"
+          fi
+          [ "$status" -eq 0 ] && echo "CREDITS.md, NOTICE.md and credits.html name the same $(wc -l < "$work/CREDITS.md.txt") CC BY models; CREDITS.md and credits.html carry the Unreal Engine notices ($years)"
           exit "$status"
 
   kokoro-align:
@@ -480,8 +497,11 @@ jobs:
             fi
           }
           map=Content/Maps/CompanionStage.umap
+          # authored and result are called through eval "$setup", which shellcheck cannot follow
+          # shellcheck disable=SC2329
           authored() { head -c 300000 /dev/urandom > "$map"; }
           # result <resident line> [map sha256]: what a successful authoring run leaves beside the map
+          # shellcheck disable=SC2329
           result() {
             printf '%s\n' start 'NoAI prop slots: 0 of 3 refused' "$1" \
               "map sha256: ${2:-$(sha256sum "$map" | cut -d ' ' -f 1)}" SUCCESS > Content/AUTHOR_RESULT.txt
@@ -503,6 +523,16 @@ jobs:
           expect 0 metahuman-asked-for "authored && result 'resident: METAHUMAN placed' && mkdir -p Content/Seo && export RESIDENT=metahuman"
           expect 1 metahuman-without-seo "authored && result 'resident: METAHUMAN placed' && export RESIDENT=metahuman"
           expect 1 unknown-resident "authored && result '$manny' && export RESIDENT=someone"
+          # eliza <variant> [id]: her staged manifest, as stage_eliza_mpfb.py writes it (id defaults to eliza)
+          eliza() { mkdir -p Content/Eliza && printf '{\n "id": "%s",\n "variant": "%s"\n}\n' "${2:-eliza}" "$1" > Content/Eliza/eliza_manifest.json; }
+          expect 0 eliza-asked-for "authored && result 'resident: ELIZA placed' && eliza mpfb && export RESIDENT=eliza"
+          expect 0 eliza-variant-matches "authored && result 'resident: ELIZA placed' && eliza metahuman && export RESIDENT=eliza ELIZA_VARIANT=metahuman"
+          expect 1 eliza-variant-mismatch "authored && result 'resident: ELIZA placed' && eliza mpfb && export RESIDENT=eliza ELIZA_VARIANT=metahuman"
+          expect 1 eliza-without-content "authored && result 'resident: ELIZA placed' && export RESIDENT=eliza"
+          expect 1 eliza-manifest-not-hers "authored && result 'resident: ELIZA placed' && eliza mpfb someone && export RESIDENT=eliza"
+          expect 1 eliza-map-unasked "authored && result 'resident: ELIZA placed'"
+          expect 1 eliza-content-unasked "authored && result '$manny' && eliza mpfb"
+          expect 1 editable-source-in-context "authored && result 'resident: ELIZA placed' && eliza mpfb && mkdir -p Content/EditableCharacters && export RESIDENT=eliza"
           expect 0 allow-stub "head -c 150000 /dev/urandom > $map && export ALLOW_STUB_MAP=1"
           expect 1 allow-stub-authored-no-result 'authored && export ALLOW_STUB_MAP=1'
           expect 0 synthesized "touch /tmp/CompanionStage.synthesized"

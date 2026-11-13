@@ -28,7 +28,7 @@ grep -E "^place |placed " /home/ci/stage-out/AUTHOR_RESULT.txt
 if ! grep -q SUCCESS /home/ci/stage-out/AUTHOR_RESULT.txt; then echo "AUTHOR_FAIL"; exit 1; fi
 
 # refresh cook tree content with the newly authored assets
-rm -rf /home/ci/cook-m2/Content/Diorama /home/ci/cook-m2/Content/Maps /home/ci/cook-m2/Content/Seo /home/ci/cook-m2/Content/CC_ControlRig_Nia
+rm -rf /home/ci/cook-m2/Content/Diorama /home/ci/cook-m2/Content/Maps /home/ci/cook-m2/Content/Seo /home/ci/cook-m2/Content/CC_ControlRig_Nia /home/ci/cook-m2/Content/Eliza
 cp -r /home/ci/stage-out/Content/. /home/ci/cook-m2/Content/
 grep -E "^GameDefaultMap" /home/ci/cook-m2/Config/DefaultEngine.ini
 
@@ -36,7 +36,7 @@ cd /home/ci/cook-m2
 # RESIDENT: the resident Dockerfile.amd's CHECK_MAP requires the authored map's AUTHOR_RESULT.txt
 # (copied in above with Content/) to have placed, and the only one whose content it lets in.
 DOCKER_BUILDKIT=1 docker build -f Deployment/Dockerfile.amd --build-arg RELEASE="${RELEASE}" \
-  --build-arg RESIDENT="${MHLLM_RESIDENT}" \
+  --build-arg RESIDENT="${MHLLM_RESIDENT}" --build-arg ELIZA_VARIANT="${MHLLM_ELIZA_VARIANT:-}" \
   -t "ci/metahuman-local-llm:${UE_RELEASE}" . && echo "BUILD_OK" || { echo "BUILD_FAIL"; exit 1; }
 cd /home/ci/ci-metahermit/Deployment
 docker compose -f docker-compose.yml -f docker-compose.amd.yml -f docker-compose.ollama.yml up -d project

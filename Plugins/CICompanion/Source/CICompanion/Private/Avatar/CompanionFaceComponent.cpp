@@ -5,6 +5,9 @@
 #include "Engine/SkeletalMesh.h"
 #include "Animation/MorphTarget.h"
 #include "CICompanionEnv.h"
+#include "Avatar/CompanionLiveLinkFaceSource.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/PoseAsset.h"
 
 
 UCompanionFaceComponent::UCompanionFaceComponent()
@@ -74,9 +77,61 @@ void UCompanionFaceComponent::SetProfile(const FFaceProfile& InProfile)
 	ResolveCurvesAgainstMesh();
 }
 
+void UCompanionFaceComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (LiveLinkSink.IsValid())
+	{
+		LiveLinkSink->Shutdown();
+		LiveLinkSink.Reset();
+	}
+	Super::EndPlay(EndPlayReason);
+}
+
+void UCompanionFaceComponent::SetLiveLinkSink(TSharedPtr<FCompanionLiveLinkFaceSource> InSink,
+	USkeletalMeshComponent* InFaceMesh, const FString& InPoseAssetPath)
+{
+	LiveLinkSink = InSink;
+	LiveLinkFaceMesh = InFaceMesh;
+	LiveLinkPoseAssetName = FPaths::GetBaseFilename(InPoseAssetPath);
+	ResolvedCurveCount = 0;
+	if (!LiveLinkSink.IsValid())
+	{
+		return;
+	}
+	// Resolution for this sink means "the mapping has a pose by that name": a curve the pose asset
+	// does not carry arrives over Live Link and moves nothing, exactly like a missing morph target.
+	// FName comparison ignores case, so the ARKit camelCase names match the mapping's PascalCase.
+	const UPoseAsset* Mapping = LoadObject<UPoseAsset>(nullptr, *InPoseAssetPath);
+	TArray<FString> Missing;
+	if (Mapping)
+	{
+		const TArray<FName> Poses = Mapping->GetPoseFNames();
+		for (const FName& Curve : CachedAllCurves)
+		{
+			if (Poses.Contains(Curve)) { ++ResolvedCurveCount; } else { Missing.Add(Curve.ToString()); }
+		}
+	}
+	else
+	{
+		UE_LOG(LogCompanionFace, Warning,
+			TEXT("Live Link sink: could not load %s (is it cooked? see /Game/Eliza/PAL_Eliza); 0 curves resolved."),
+			*InPoseAssetPath);
+	}
+	if (Missing.Num() > 0)
+	{
+		UE_LOG(LogCompanionFace, Warning, TEXT("Face profile '%s': %d/%d curves have no pose in %s -> %s"),
+			*Profile.ProfileName.ToString(), Missing.Num(), CachedAllCurves.Num(), *LiveLinkPoseAssetName,
+			*FString::Join(Missing, TEXT(", ")));
+	}
+}
+
 void UCompanionFaceComponent::ResolveCurvesAgainstMesh()
 {
 	ResolvedCurveCount = 0;
+	if (LiveLinkSink.IsValid())
+	{
+		return;	// resolved against the pose asset in SetLiveLinkSink, not against morph targets
+	}
 	if (!TargetMesh)
 	{
 		return;
@@ -169,6 +224,21 @@ void UCompanionFaceComponent::ApplyCurves(const TMap<FName, float>& Curves)
 	// agrees on whether the mesh currently holds anything that will need clearing.
 	bFaceWritten = Curves.Num() > 0;
 
+	if (LiveLinkSink.IsValid())
+	{
+		// The whole curve set every frame, zeros included (Live Link latches unsent properties), and
+		// bounded to 0..1: the ARKit mapping's poses are authored for that range.
+		TMap<FName, float> Frame;
+		Frame.Reserve(CachedAllCurves.Num());
+		for (const FName& Curve : CachedAllCurves)
+		{
+			Frame.Add(Curve, FMath::Clamp(Curves.FindRef(Curve), 0.0f, 1.0f));
+		}
+		LiveLinkSink->PushFrame(Frame);
+		LastPushedJawOpen = Frame.FindRef(TEXT("jawOpen"));
+		return;
+	}
+
 	if (!TargetMesh)
 	{
 		return;
@@ -228,6 +298,25 @@ void UCompanionFaceComponent::SampleSurvival()
 	// AFTER the mesh's animation has evaluated (this component holds a tick prerequisite on it).
 	// If Written is high and Survived is ~0, the weights are being cleared between frames and the
 	// fault is downstream of this class, not in the compositing above.
+	if (LiveLinkSink.IsValid())
+	{
+		// One frame after a jawOpen >= 0.3 went out, the face's anim instance must hold its RigLogic
+		// control above 0.1, or the curves are not reaching the rig (wrong subject, wrong anim class,
+		// or the mapping not cooked). Logged once per session at Log level, because this is THE proof
+		// the MetaHuman path works in a cooked build.
+		const double NowLL = FPlatformTime::Seconds();
+		if (!bLiveLinkSurvivalLogged && LastPushedJawOpen >= 0.3f && LiveLinkFaceMesh && NowLL - LastLiveLinkSurvivalLog > 2.0)
+		{
+			LastLiveLinkSurvivalLog = NowLL;
+			const UAnimInstance* Anim = LiveLinkFaceMesh->GetAnimInstance();
+			const float Ctrl = Anim ? Anim->GetCurveValue(TEXT("CTRL_expressions_jawOpen")) : 0.0f;
+			UE_LOG(LogCompanionFace, Log, TEXT("FACESURVIVE LiveLink '%s' jawOpen pushed=%.3f CTRL_expressions_jawOpen=%.3f %s"),
+				*LiveLinkSink->GetSubjectName().ToString(), LastPushedJawOpen, Ctrl,
+				Ctrl > 0.1f ? TEXT("held") : TEXT("<-- NOT REACHING RIGLOGIC"));
+			bLiveLinkSurvivalLogged = Ctrl > 0.1f;
+		}
+		return;
+	}
 	if (!TargetMesh || LastWrittenCurve.IsNone() || LastWrittenWeight <= 0.01f)
 	{
 		return;

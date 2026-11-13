@@ -123,8 +123,8 @@ implies — verified by probe against a running instance, not assumed.
 | `MHLLM_FACE_SELFTEST` | `0` (hard-coded) | Cycles all 15 visemes. Off deliberately: with it on the mouth moves whether or not the LLM ever replies, masking the exact failure the deployment exists to expose |
 | `MHLLM_EMOTION` | `1` | `0` disables facial emotion. Deliberately opt-**out**, unlike `MHLLM_OPENING_SHOT`: *"an expressionless face is the regression"*. Set to `0` to isolate a lip-sync problem from an expression problem in a capture |
 | `MHLLM_GAZE` | *(unset = on)* | `0` disables eye aim, saccades and the planning aversion. Opt-**out** for the same reason `MHLLM_EMOTION` is: a dead stare is the regression this fixes. Set to `0` to isolate an eye problem from a lip-sync one |
-| `MHLLM_FACE_GAIN` | *(not in any compose; C++ default `3.0`)* | Gain on the **viseme layer only**. Dials the CC rig's subtle morphs up toward the ceiling `Config/DefaultEngine.ini` already grants the renderer; `1.0` is the historical behaviour. A value `<= 0` is rejected and falls back to `1.0` |
-| `MHLLM_FACE_POSE_CAP` | *(not in any compose; C++ default `2.0`)* | Bounds the composed pose so overlapping visemes cannot stack past what the rig was sculpted for. A value `<= 0` is rejected and falls back to `2.0` |
+| `MHLLM_FACE_GAIN` | *(not in any compose; C++ default `3.0`; a resident's `FaceGain=` tag replaces the default when the variable is unset, e.g. `1.0` on Eliza)* | Gain on the **viseme layer only**. Dials the CC rig's subtle morphs up toward the ceiling `Config/DefaultEngine.ini` already grants the renderer; `1.0` is the historical behaviour. A value `<= 0` is rejected and falls back to `1.0` |
+| `MHLLM_FACE_POSE_CAP` | *(not in any compose; C++ default `2.0`; a resident's `FacePoseCap=` tag replaces it when unset)* | Bounds the composed pose so overlapping visemes cannot stack past what the rig was sculpted for. A value `<= 0` is rejected and falls back to `2.0` |
 
 Both face-tuning variables above are read through `CICompanionEnv::Get` at component construction
 and appear in no compose file and no `.env.example`, so in practice they are always their defaults.
@@ -163,7 +163,9 @@ would be silently ignored on every machine that had already held one conversatio
 
 | Variable | Container default | Windows value |
 |---|---|---|
-| `MHLLM_RESIDENT` | `mannequin` | `mannequin` (default), `metahuman` or `nia`, set by `-Resident`. `metahuman` (Seo) and `nia` are opt-in for licence reasons (README *Licensing*); anything else fails the authoring run |
+| `MHLLM_ELIZA_CONTENT` | *(unset)* | `BuildNative.ps1 -Resident Eliza`: the staged `Eliza` folder (holding `eliza_manifest.json`) mirrored into `Content\Eliza`; `-ElizaContent` wins. Defaults to an `eliza-content\Eliza` folder beside the checkout |
+| `MHLLM_ELIZA_VARIANT` | *(unset)* | `mpfb` or `metahuman`. When set, `author_diorama.py` (and `-ElizaVariant`, `--build-arg ELIZA_VARIANT`) refuse a staged manifest naming the other variant |
+| `MHLLM_RESIDENT` | `mannequin` | `mannequin` (default), `eliza`, `metahuman` or `nia`, set by `-Resident`. `eliza` needs her staged content; `metahuman` (Seo) and `nia` are opt-in for licence reasons (README *Licensing*); anything else fails the authoring run |
 | `MHLLM_GLB_DIR` | `/glb` | `C:\devel\llm-metahuman\scene\glb` or `-GlbDir`. `ibm-1401-cpu.glb`, `ibm-3178-terminal.glb` and `ibm-3350-disk.glb` are imported only if CI-authored (`asset.copyright` names Companion Intelligence) |
 | `MHLLM_MH_DIR` | `/mh` | the Seo FBX export: `-MetaHumanDir`, else `C:\devel\_mh-convert\out\seo`; read only with `-Resident MetaHuman` (or Nia's fall-back). Was `Deployment\metahuman`, which holds the conversion scripts and no FBX |
 | `MHLLM_AUDIO_DIR` | `/audio` | `Deployment\audio` |

@@ -105,6 +105,16 @@ resident whose licence does not clear this use (next section).
 
 ## The resident avatar
 
+Eliza, the resident, was made by Companion Intelligence. Her current version was built with MPFB 2
+(MakeHuman Community) from CC0 1.0 assets: the MakeHuman system assets (the MakeHuman team),
+Faceunits 01 and Visemes 02 (Mika Suominen), and the fisherman sweater, wool slacks, flats and
+curled-under bob by Margaret Toigo, recoloured and fitted to her. Her idle is Epic's MM_Idle,
+retarget-adapted. CC0 needs no credit; it is given as a courtesy. A MetaHuman version is planned under
+the same name: it is to be created in MetaHuman Creator in Unreal Engine 5.8 from Epic-provided
+presets and grooms (Unreal Engine EULA), wearing clothing adapted from the same CC0 items, and this
+credit will name it once it exists. She is authored with `-Resident Eliza` (`MHLLM_RESIDENT=eliza`);
+her content is private and not in this repository.
+
 By default the companion appears as **Epic's UE mannequin** (`SKM_Manny` with its `MM_Idle`
 loop, from the engine's MoverTests plugin): Unreal Engine content, licensed with the engine under
 the Unreal Engine EULA. It is a faceless placeholder.
@@ -125,6 +135,20 @@ Neither one's content is in this repository, and a default build neither stages 
 `Docs/verification-2026-08-17/measurement-regions.png`, which were made before the mannequin
 became the default. [NOTICE.md](NOTICE.md) sets out why neither licence clears this use and what
 would: a MetaHuman created in-house, or written terms from the seller.
+
+## Unreal Engine
+
+The app is built with Epic Games' Unreal Engine. Section 7(a) of the
+[Unreal Engine EULA](https://www.unrealengine.com/eula/unreal) requires a product that has credits to
+place these two notices in them, with the current year:
+
+CI Metahuman uses Unreal® Engine. Unreal® is a trademark or registered trademark of Epic Games, Inc. in the United States of America and elsewhere.
+
+Unreal® Engine, Copyright 1998 – 2026, Epic Games, Inc. All rights reserved.
+
+The stream's credits page carries the same two lines, and CI fails unless both carry them word for
+word. Change the year each January. "CI Metahuman" is the product's name as this repository's README
+gives it; if the product is renamed, change the name in both places.
 
 ## Software and fonts
 

@@ -52,7 +52,7 @@ A photoreal avatar standing in a 1970s mainframe room, holding a conversation wi
 | | |
 |---|---|
 | **Engine** | UE **5.8** for editor authoring, MCP work and the current Pixel Streaming cook |
-| **Avatar** | **A placeholder by default**: Epic's UE mannequin, which has no facial rig, because neither character on hand is licensed for AI use. Two residents are **opt-in only**, both Fab content tagged *"Allows usage with AI: No"* (see [Licensing](#licensing)): the MetaHuman "Seo" (`-Resident MetaHuman`, `ARKit` profile, unverified) and the Reallusion Character Creator "Nia" (`-Resident Nia`; **CC-named** `V_*` morphs, 286 morphs, all 15 CC visemes). Persona: Eliza |
+| **Avatar** | **A placeholder by default**: Epic's UE mannequin, which has no facial rig. **Eliza** (`-Resident Eliza`) is the resident made in-house for this product and licensed for it: her MPFB variant (CC0 assets, 52 ARKit + 14 viseme morph targets, `ARKit` profile, 37/37 curves) authors and runs today, checked in game in [`Docs/verification-2026-11-13-eliza`](Docs/verification-2026-11-13-eliza/README.md) (a packaged Eliza build has not been made yet), and a MetaHuman variant (`ARKitMH` profile over Live Link) follows the owner's two steps in [NOTICE.md](NOTICE.md); making her the default is a separate decision. Two older residents are **opt-in only**, both Fab content tagged *"Allows usage with AI: No"* (see [Licensing](#licensing)): the MetaHuman "Seo" (`-Resident MetaHuman`, `ARKit` profile, unverified) and the Reallusion Character Creator "Nia" (`-Resident Nia`; **CC-named** `V_*` morphs, 286 morphs, all 15 CC visemes). Persona: Eliza |
 | **Cognition** | Ollama, thinking disabled — **424–914 ms** warm for `qwen3.8:27b` on the reference host |
 | **Voice out** | Kokoro via AMD Lemonade, OpenAI-shaped HTTP — 1166 ms median, **audible in the browser, measured by energy** |
 | **Voice in** | Whisper via the same endpoint — 66 ms median |
@@ -113,6 +113,8 @@ To package the game (authors the diorama first, then cooks):
 
 ```powershell
 pwsh Scripts/BuildNative.ps1                       # default: Epic's UE mannequin, no input beyond the engine
+pwsh Scripts/BuildNative.ps1 -Resident Eliza -ElizaContent <staged Eliza folder>   # Eliza: needs her staged content
+pwsh Scripts/BuildNative.ps1 -Resident Eliza -ElizaContent <staged Eliza folder> -ElizaVariant mpfb
 pwsh Scripts/BuildNative.ps1 -Resident MetaHuman   # opt-in MetaHuman "Seo": needs the Seo FBX export
 pwsh Scripts/BuildNative.ps1 -Resident Nia         # opt-in Reallusion "Nia": needs her CC_ControlRig_Nia content
 ```
@@ -124,7 +126,10 @@ Seo FBX export (`fbx\SKM_MHC_Seo_BodyMesh.fbx`, `fbx\SKM_MHC_Seo_FaceMesh.fbx`,
 `fbx\MHC_Seo_Outfits.fbx`) in `-MetaHumanDir`, `MHLLM_MH_DIR`, or `C:\devel\_mh-convert\out\seo`, and
 the script checks for all three before launching the editor
 ([`Docs/SCENE-AUTHORING.md`](Docs/SCENE-AUTHORING.md#the-resident) has the steps). On core-2 the same
-choice is `MHLLM_RESIDENT=mannequin|metahuman|nia` for `Deployment/core2/m2_clean.sh`.
+choice is `MHLLM_RESIDENT=mannequin|eliza|metahuman|nia` for `Deployment/core2/m2_clean.sh`. Eliza's
+content is private: `-ElizaContent` (or `MHLLM_ELIZA_CONTENT`) names the staged `Eliza` folder holding
+`eliza_manifest.json`, which `BuildNative.ps1` mirrors into `Content\Eliza`; core-2 mounts
+`/home/ci/eliza-content`.
 
 Three prop slots (`ibm-1401-cpu.glb`, `ibm-3178-terminal.glb`, `ibm-3350-disk.glb`) only accept
 CI-authored GLBs. The Sketchfab models that used to fill them are tagged NoAI, so authoring leaves a
@@ -201,6 +206,28 @@ sources were checked on 2026-11-12.
   prompt input for generative AI, and on using MetaHuman digital characters and animation curves to
   build databases or to train or test AI and machine learning technologies."* Rendering the mannequin
   is neither training nor prompt input, so the earlier terms permit this use too.
+- **Eliza** (`-Resident Eliza`) — the resident Companion Intelligence made for this product, named
+  after the opening line. Her content is private and staged, never committed (`Content/Eliza/` is in
+  `.gitignore`), and it comes in two variants under one id; the staged `eliza_manifest.json` says which.
+  Sources were read on 2026-11-13.
+  - *MPFB variant (`mpfb`, buildable today).* Built with [MPFB 2](https://extensions.blender.org/add-ons/mpfb/)
+    2.0.18 from CC0 assets only (the MakeHuman system assets, Faceunits 01, Visemes 02, and Margaret
+    Toigo's sweater, wool slacks, flats and curled-under bob). MPFB's code is GPL-3.0-or-later and is an
+    authoring tool only; it is not in the repository, the build or the image. Its
+    [LICENSE.md](https://github.com/makehumancommunity/mpfb2/blob/master/LICENSE.md) §C says the data
+    contributing to its output "have been released under CC0 1.0 Universal", and §D that "the MakeHuman
+    team makes no claim whatsoever over output" such as exports and renderings. CC0 1.0 §2 waives all
+    rights "for any purpose whatsoever, including without limitation commercial, advertising or
+    promotional purposes", which covers a generative-AI product, the packaged binary and a public image.
+  - *MetaHuman variant (`metahuman`, not built yet: it follows the owner's two steps in
+    [NOTICE.md](NOTICE.md)).* To be made in-house in MetaHuman Creator in Unreal Engine 5.8 from its
+    presets and grooms, which ship with the
+    engine: Licensed Technology under the EULA §1 quoted above, carried in object code as §4 requires,
+    with no AI clause since update 22. The [MetaHuman licence FAQ](https://www.metahuman.com/license)
+    allows MetaHumans "in workflows that incorporate artificial intelligence technology". Free below
+    US$1M; above that Unreal's standard terms apply.
+  - One rule comes with both: **never use Eliza's mesh, rig, curves or renders to build datasets or to
+    train or test AI.**
 - **MetaHuman "Seo"** (`-Resident MetaHuman`) — `mhc_seo.mhpkg` is the Fab listing
   [*Seo - Editable MetaHuman Character*](https://www.fab.com/listings/3693be83-9054-4fd3-9b2e-0b6d5b45fe22)
   by Groomchenko: Standard License (Personal free, Professional $4.99) and **"Allows usage with AI:
@@ -268,7 +295,11 @@ The credits travel with the build: every package, native or container, carries `
 `Source/MetaHumanLocalLLM/MetaHumanLocalLLM.Build.cs`, and the build scripts refuse a package
 without them. The stream page has a "Credits" link to `credits.html`, a page the signalling image
 serves with the eight attributions (`Deployment/pixelstreaming/credits.html`). CI fails if that page,
-CREDITS.md and NOTICE.md stop naming the same models.
+CREDITS.md and NOTICE.md stop naming the same models. Because the product has credits, the
+[Unreal Engine EULA](https://www.unrealengine.com/eula/unreal) §7(a) requires two Epic notices in
+them ("[Product name] uses Unreal® Engine. ..." and "Unreal® Engine, Copyright 1998 – xxxx, Epic
+Games, Inc. All rights reserved.", with the current year). That page and `CREDITS.md` carry both,
+word for word, and CI fails if either loses them.
 
 
 <!-- companion-hub-readme-deep-review -->

@@ -110,6 +110,8 @@ RUN cd /home/ue4/project-src \
 # a warning. See Docs/BUILD-AND-DEPLOY.md section 2.2.
 ARG ALLOW_STUB_MAP=0
 ARG RESIDENT=mannequin
+# RESIDENT=eliza only: when set, the staged Content/Eliza/eliza_manifest.json must name this variant.
+ARG ELIZA_VARIANT=
 WORKDIR /home/ue4/project-src
 RUN <<'CHECK_MAP'
 set -eu
@@ -127,10 +129,40 @@ refuse() {
 lines() { tr -d '\r' < "$result"; }
 case "$resident" in
     mannequin) placed="resident: MANNEQUIN placed" ;;
+    eliza)     placed="resident: ELIZA placed" ;;
     metahuman) placed="resident: METAHUMAN placed" ;;
     nia)       placed="resident: NIA placed" ;;
-    *) refuse "RESIDENT=$resident is not one of mannequin (the default), metahuman or nia." ;;
+    *) refuse "RESIDENT=$resident is not one of mannequin (the default), eliza, metahuman or nia." ;;
 esac
+# Eliza's content is staged from private storage, never committed, and carries her manifest. It is
+# cooked only when asked for: a stale Content/Eliza must not ride into another resident's image. The
+# editable MetaHuman source (Content/EditableCharacters) is never cooked at all.
+if [ -d Content/EditableCharacters ]; then
+    refuse "Content/EditableCharacters is in the build context." \
+        "MetaHuman Creator keeps its editable characters there (Eliza's MetaHuman source, or an imported" \
+        "mhc_seo.mhpkg); they are never staged or cooked. Remove it."
+fi
+if [ -d Content/Eliza ] && [ "$resident" != eliza ]; then
+    refuse "Content/Eliza is in the build context of a $resident build." \
+        "Remove it, or ask for her: --build-arg RESIDENT=eliza."
+fi
+if [ "$resident" = eliza ]; then
+    manifest=Content/Eliza/eliza_manifest.json
+    [ -f "$manifest" ] || refuse "RESIDENT=eliza, but the build context has no $manifest." \
+        "Her content is staged, not committed: copy the staged Content/Eliza into the context."
+    # Hers and nobody else's, as BuildNative.ps1 and author_diorama.py also require: one "id", eliza.
+    id="$(tr -d ' \t\r\n' < "$manifest" | grep -o '"id":"[^"]*"' | sed 's/^"id":"\(.*\)"$/\1/' | tr '\n' ' ')"
+    [ "$id" = "eliza " ] || refuse "$manifest names id \"${id% }\", not eliza." \
+        "Content/Eliza must be her staged content: copy the staged Eliza folder whole."
+    variant="$(tr -d ' \t\r\n' < "$manifest" | sed -n 's/.*"variant":"\([a-z]*\)".*/\1/p')"
+    case "$variant" in
+        mpfb|metahuman) ;;
+        *) refuse "$manifest names no known variant (\"$variant\"); expected mpfb or metahuman." ;;
+    esac
+    if [ -n "${ELIZA_VARIANT:-}" ] && [ "$ELIZA_VARIANT" != "$variant" ]; then
+        refuse "ELIZA_VARIANT=$ELIZA_VARIANT, but $manifest is variant $variant."
+    fi
+fi
 # Seo and Nia are Fab content tagged NoAI (NOTICE.md): cooked only when asked for by name, the same
 # rule m2_clean.sh applies to its cook tree. The mannequin is engine content, so nothing under
 # Content/ belongs to it; either folder in a mannequin build's context is a stale tree.

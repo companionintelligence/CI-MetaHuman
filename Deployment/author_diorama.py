@@ -37,12 +37,17 @@ BRAND_DIR = _dir("MHLLM_BRAND_DIR", os.path.join(os.path.dirname(os.path.abspath
 GEN_DIR   = _dir("MHLLM_GEN_DIR",   GLB_DIR)
 RESULT    = os.environ.get("MHLLM_AUTHOR_RESULT", "/out/AUTHOR_RESULT.txt")
 
-# WHICH RESIDENT. Three choices, and the default is the only one whose licence clears this use.
+# WHICH RESIDENT. Four choices. The default and "eliza" are the ones whose licences clear this use.
 #   "mannequin" (the default) places Epic's UE mannequin, SKM_Manny from the engine's MoverTests
 #       plugin, playing its MM_Idle loop. Content installed with Unreal Engine is Licensed
 #       Technology under the Unreal Engine EULA (section 1), and the current EULA carries no AI
 #       restriction. It is a PLACEHOLDER: it has no facial morph targets, so the face driver binds
 #       and resolves 0 curves (no lip-sync, no expression, no eye movement).
+#   "eliza" places Eliza, the resident Companion Intelligence made for this product, from the content
+#       staged under Content/Eliza (never committed; BuildNative.ps1 -Resident Eliza or the core-2 run
+#       copies it in). Content/Eliza/eliza_manifest.json says which variant is staged: "mpfb" (MPFB 2,
+#       CC0 1.0 assets, ARKit morph targets) or "metahuman" (MetaHuman Creator, Unreal Engine EULA,
+#       driven over Live Link). MHLLM_ELIZA_VARIANT, when set, must match it. NOTICE.md has the licences.
 #   "metahuman" places the MetaHuman "Seo" export read from MH_DIR.
 #   "nia" places the Reallusion Character Creator "Nia" content staged under
 #       /Game/CC_ControlRig_Nia, exactly as every build did before this switch existed, including
@@ -58,7 +63,7 @@ RESULT    = os.environ.get("MHLLM_AUTHOR_RESULT", "/out/AUTHOR_RESULT.txt")
 # Anything else is refused rather than guessed: authoring a different resident than the one asked
 # for is the silent-wrong-artifact failure every gate in this pipeline exists to stop.
 RESIDENT  = os.environ.get("MHLLM_RESIDENT", "").strip().lower() or "mannequin"
-RESIDENTS = ("mannequin", "metahuman", "nia")
+RESIDENTS = ("mannequin", "eliza", "metahuman", "nia")
 
 # THE RESULT TRAVELS WITH THE CONTENT. Both Dockerfiles, and BuildNative.ps1 -SkipAuthoring, cook a
 # map this run is not there to vouch for, and the bytes of a .umap do not say who stands in it or
@@ -709,7 +714,9 @@ try:
     for name, glb, pos, yaw, target_cm in PROPS:
         if place_prop(name, pos, yaw, target_cm):
             placed += 1
-    w("placed %d/12 hero props" % placed)
+    # Against the list, not a literal: this said "/12" long after the twelfth slot (the IBM 2401) left
+    # PROPS for the 729 below, so a complete run read "placed 11/12" -- a count that looks one short.
+    w("placed %d/%d hero props" % (placed, len(PROPS)))
 
     # ---------- re-home the glTF prop materials into /Game ----------
     # THE reason the props render pale. Interchange parents every imported material instance to
@@ -1116,9 +1123,9 @@ try:
     seo_parts = [(MH_DIR + "/fbx/SKM_MHC_Seo_BodyMesh.fbx", "/Game/Seo/Body", BODY_SLOTS),
                  (MH_DIR + "/fbx/SKM_MHC_Seo_FaceMesh.fbx", "/Game/Seo/Face", FACE_SLOTS),
                  (MH_DIR + "/fbx/MHC_Seo_Outfits.fbx",      "/Game/Seo/Outfit", OUTFIT_SLOTS)]
-    if nia_placed or RESIDENT == "mannequin":
-        # Nia is the resident, or the default mannequin is: skip the Seo import entirely (it also
-        # saves ~2 min). A mannequin build never reads MH_DIR, so Seo cannot reach its map or cook.
+    if nia_placed or RESIDENT in ("mannequin", "eliza"):
+        # Nia is the resident, or the default mannequin or Eliza is: skip the Seo import entirely (it
+        # also saves ~2 min). Those builds never read MH_DIR, so Seo cannot reach their map or cook.
         seo_parts = []
     placed_seo = 0
     seo_actors = {}      # part name ("Body"/"Face"/"Outfit") -> placed actor
@@ -1195,7 +1202,7 @@ try:
                     w("resident: Seo_%s did not attach to Seo_Face" % part)
             except Exception as e:
                 w("resident: Seo_%s attach FAILED: %s" % (part, e))
-    if not nia_placed and RESIDENT != "mannequin":
+    if not nia_placed and RESIDENT in ("metahuman", "nia"):
         # The gate line. BuildNative.ps1 and m2_clean.sh require "resident: METAHUMAN placed" for the
         # MetaHuman resident, and it is printed ONLY when every part imported, the face is tagged
         # and both other parts follow it -- "placed 0 of 3" must never read as success.
@@ -1206,6 +1213,122 @@ try:
             w("resident: METAHUMAN INCOMPLETE (Seo %d/%d parts placed, face %s, %d of %d attached; export dir %s)"
               % (placed_seo, len(seo_parts), "tagged" if seo_face else "MISSING", seo_attached,
                  max(len(seo_parts) - 1, 0), MH_DIR))
+
+    # ---------- opt-in resident (MHLLM_RESIDENT=eliza): Eliza ----------
+    # Made by Companion Intelligence; see WHICH RESIDENT at the top. The STAGED content decides the
+    # variant, through Content/Eliza/eliza_manifest.json, so a build cannot place one variant while
+    # vouching for the other. Placed where every resident stands, at the yaw that faces the camera:
+    # both variants carry their front on +Y, like SKM_Manny. The MPFB export was checked for that from
+    # its bounds (feet and face forward of the origin on +Y); confirm it from a captured frame (find
+    # her EYES) before changing it, as for every resident before her.
+    eliza_placed = False
+    if RESIDENT == "eliza":
+        try:
+            import json as _json
+            emf = os.path.join(CONTENT_DIR, "Eliza", "eliza_manifest.json")
+            if not os.path.isfile(emf):
+                raise RuntimeError("Content/Eliza/eliza_manifest.json is missing: her content is staged, not "
+                                   "committed (BuildNative.ps1 -Resident Eliza -ElizaContent <dir>)")
+            with open(emf) as f:
+                eman = _json.load(f)
+            evar = str(eman.get("variant", "")).strip().lower()
+            ewant = os.environ.get("MHLLM_ELIZA_VARIANT", "").strip().lower()
+            if eman.get("id") != "eliza" or evar not in ("mpfb", "metahuman"):
+                raise RuntimeError("eliza_manifest.json names id=%r variant=%r" % (eman.get("id"), evar))
+            if ewant and ewant != evar:
+                raise RuntimeError("MHLLM_ELIZA_VARIANT=%s but the staged manifest is variant %s" % (ewant, evar))
+            eassets = eman.get("assets") or {}
+            eface = eman.get("face") or {}
+            w("Eliza: manifest variant=%s version=%s engine=%s stature=%scm"
+              % (evar, eman.get("version"), eman.get("engine"), eman.get("stature_cm")))
+            etags = ["CompanionFace", "FaceProfile=%s" % eface.get("profile", "ARKit"),
+                     "FaceGain=%s" % eface.get("gain", 1.0), "FacePoseCap=%s" % eface.get("pose_cap", 1.0)]
+            def _idle(comp, path):
+                # Single-node idle, animation_data set as a WHOLE struct (mutating the returned copy
+                # does not persist), then read back.
+                anim = unreal.load_asset(path) if path else None
+                if not anim:
+                    return None
+                comp.set_editor_property("animation_mode", unreal.AnimationMode.ANIMATION_SINGLE_NODE)
+                ad = comp.get_editor_property("animation_data")
+                ad.set_editor_property("anim_to_play", anim)
+                ad.set_editor_property("saved_looping", True)
+                ad.set_editor_property("saved_playing", True)
+                comp.set_editor_property("animation_data", ad)
+                back = comp.get_editor_property("animation_data").get_editor_property("anim_to_play")
+                return back.get_name() if back else None
+            def _name_it(actor):
+                # The face driver logs the resident by OBJECT name (labels do not survive a cook).
+                actor.set_actor_label("Eliza")
+                try:
+                    actor.rename("Eliza")
+                except Exception:
+                    pass
+            if evar == "mpfb":
+                emesh = unreal.load_asset(eassets.get("mesh") or "")
+                if not emesh:
+                    raise RuntimeError("mesh %s did not load" % eassets.get("mesh"))
+                a = spawn(unreal.SkeletalMeshActor, RES_POS, yaw=RES_YAW)
+                _name_it(a)
+                a.set_editor_property("tags", etags)
+                comp = a.skeletal_mesh_component
+                comp.set_skeletal_mesh(emesh)
+                eidle = _idle(comp, eassets.get("idle"))
+                nmorph = len(emesh.get_editor_property("morph_targets"))
+                ELIZA_EYE_Z = float(eman.get("stature_cm") or 170.0) * 0.93
+                w("Eliza: %s, %d morph targets, idle=%s, eyeline z=%.0fcm" % (emesh.get_name(), nmorph, eidle, ELIZA_EYE_Z))
+                if eidle:
+                    eliza_placed = True
+                    w("resident: ELIZA placed (variant=mpfb, %s, tagged CompanionFace + FaceProfile=%s, idle=%s) at %s yaw %.0f"
+                      % (emesh.get_name(), eface.get("profile", "ARKit"), eidle, RES_POS, RES_YAW))
+                else:
+                    w("resident: ELIZA INCOMPLETE (variant=mpfb, idle %s did not load)" % eassets.get("idle"))
+            else:
+                # MetaHuman variant: the assembled blueprint, its Body playing the retargeted idle, its
+                # Face on ABP_MH_LiveLink (driven by the C++ Live Link sink), and the three CC0-derived
+                # garments attached and leader-posed to the Body at BeginPlay (LeaderPose=Body tag).
+                bp = unreal.load_asset(eassets.get("blueprint") or "")
+                bpc = bp.generated_class() if bp else None
+                if not bpc:
+                    raise RuntimeError("blueprint %s did not load" % eassets.get("blueprint"))
+                a = spawn(bpc, RES_POS, yaw=RES_YAW)
+                _name_it(a)
+                etags += ["FaceSink=%s" % eface.get("sink", "LiveLink"), "LiveLinkSubject=%s" % eface.get("subject", "Eliza")]
+                a.set_editor_property("tags", etags)
+                comps = {c.get_name(): c for c in a.get_components_by_class(unreal.SkeletalMeshComponent)}
+                body, face = comps.get("Body"), comps.get("Face")
+                eidle = _idle(body, eassets.get("idle")) if body else None
+                fcls = unreal.load_class(None, "/MetaHumanCharacter/Animation/ABP_MH_LiveLink.ABP_MH_LiveLink_C")
+                if face and fcls:
+                    face.set_editor_property("animation_mode", unreal.AnimationMode.ANIMATION_BLUEPRINT)
+                    face.set_editor_property("anim_class", fcls)
+                garments = list(eassets.get("garments") or [])
+                attached = 0
+                for gpath in garments:
+                    gm = unreal.load_asset(gpath)
+                    if not gm:
+                        w("Eliza: garment %s did not load" % gpath)
+                        continue
+                    g = spawn(unreal.SkeletalMeshActor, RES_POS, yaw=RES_YAW)
+                    g.set_actor_label("Eliza_" + gm.get_name())
+                    g.set_editor_property("tags", ["LeaderPose=Body"])
+                    g.skeletal_mesh_component.set_skeletal_mesh(gm)
+                    g.attach_to_actor(a, "", unreal.AttachmentRule.KEEP_WORLD, unreal.AttachmentRule.KEEP_WORLD,
+                                      unreal.AttachmentRule.KEEP_WORLD, False)
+                    if g.get_attach_parent_actor() == a:
+                        attached += 1
+                ELIZA_EYE_Z = float(eman.get("stature_cm") or 170.0) * 0.93
+                ok = bool(body and face and fcls and eidle) and garments and attached == len(garments)
+                if ok:
+                    eliza_placed = True
+                    w("resident: ELIZA placed (variant=metahuman, %s, tagged CompanionFace + FaceProfile=%s, idle=%s, "
+                      "garments %d/%d attached) at %s yaw %.0f"
+                      % (bp.get_name(), eface.get("profile", "ARKitMH"), eidle, attached, len(garments), RES_POS, RES_YAW))
+                else:
+                    w("resident: ELIZA INCOMPLETE (variant=metahuman, body %s, face %s, face anim %s, idle %s, garments %d/%d attached)"
+                      % (bool(body), bool(face), bool(fcls), eidle, attached, len(garments)))
+        except Exception as e:
+            w("resident: ELIZA INCOMPLETE (%s)" % e)
 
     # ---------- the default resident (MHLLM_RESIDENT=mannequin): Epic's UE mannequin ----------
     # SKM_Manny and its MM_Idle loop ship inside the engine's MoverTests plugin (enabled in the
@@ -1220,7 +1343,7 @@ try:
     # placed nothing, exactly as before; that fall-back still fails the requested resident's gate.
     MANNY_SK   = "/MoverTests/Characters/Mannequins/Meshes/SKM_Manny"
     MANNY_IDLE = "/MoverTests/Characters/Mannequins/Animations/Manny/MM_Idle"
-    if RESIDENT == "mannequin" or (placed_seo == 0 and not nia_placed):
+    if RESIDENT == "mannequin" or (placed_seo == 0 and not nia_placed and RESIDENT != "eliza"):
         skm = unreal.load_asset(MANNY_SK)
         if skm:
             a = spawn(unreal.SkeletalMeshActor, RES_POS, yaw=RES_YAW); a.set_actor_label("Resident")
@@ -1392,7 +1515,7 @@ try:
     # the -X side of her to see a face rather than the back of her head. Eyeline comes from the
     # measured mesh (NIA_EYE_Z, or MANNY_EYE_Z for the default mannequin); the literal is only a
     # fallback for the Seo path.
-    EYE_Z = float(globals().get("NIA_EYE_Z", globals().get("MANNY_EYE_Z", 165.0)))
+    EYE_Z = float(globals().get("ELIZA_EYE_Z", globals().get("NIA_EYE_Z", globals().get("MANNY_EYE_Z", 165.0))))
     CAM_POS = (330.0 - CAM_DIST, 20.0, EYE_Z - 8.0)
     # Camera sits just under eye level, with a slight lift to centre the face.
     LOOK_AT = (330.0, 20.0, EYE_Z - 6.5)
@@ -1412,8 +1535,10 @@ try:
     except Exception as e:
         w("fov warn " + str(e))
     spawn(unreal.PlayerStart, CAM_POS, yaw=cam_yaw, pitch=cam_pitch)
-    w("StageCamera ok (landscape 16:9, yaw=%.1f pitch=%.1f fov=65) — known issue: free-look input inert" %
-      (cam_yaw, cam_pitch))
+    # The FOV is read back off the component: this line used to print a literal "fov=65" beside the 48
+    # set just above.
+    w("StageCamera ok (landscape 16:9, yaw=%.1f pitch=%.1f fov=%.0f) — known issue: free-look input inert" %
+      (cam_yaw, cam_pitch, cam.camera_component.get_editor_property("field_of_view")))
 
     ok = les.save_current_level()
     w("save_current_level=%s" % ok)

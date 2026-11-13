@@ -133,6 +133,62 @@ void FCompanionSubsystemSpec::Define()
 		});
 	});
 
+	// FaceGain= / FacePoseCap=: Eliza's full-range ARKit shapes want 1.0 / 1.0, not the 3.0 / 2.0 tuned
+	// for Nia's subtle CC morphs. Env wins when set, so those cases skip (and say so) rather than
+	// mutate the process environment.
+	Describe("UCompanionFaceSubsystem tuning tags", [this]()
+	{
+		It("uses the tag prefixes the authoring script stamps", [this]()
+		{
+			TestEqual("gain", UCompanionFaceSubsystem::GainTagPrefix, FString(TEXT("FaceGain=")));
+			TestEqual("cap", UCompanionFaceSubsystem::PoseCapTagPrefix, FString(TEXT("FacePoseCap=")));
+		});
+
+		It("parses positive numbers and refuses junk", [this]()
+		{
+			AActor* R = World->SpawnActor<AActor>();
+			R->Tags.Add(FName(TEXT("FaceGain=1.0")));
+			R->Tags.Add(FName(TEXT("FacePoseCap=abc")));
+			float V = 0.0f;
+			TestTrue("gain parsed", UCompanionFaceSubsystem::ResolveFloatTag(R, UCompanionFaceSubsystem::GainTagPrefix, V));
+			TestEqual("gain value", V, 1.0f);
+			AddExpectedError(TEXT("is not a number"), EAutomationExpectedErrorFlags::Contains, 1);
+			TestFalse("junk cap refused", UCompanionFaceSubsystem::ResolveFloatTag(R, UCompanionFaceSubsystem::PoseCapTagPrefix, V));
+			AActor* Z = World->SpawnActor<AActor>();
+			Z->Tags.Add(FName(TEXT("FaceGain=0")));
+			AddExpectedError(TEXT("is not positive"), EAutomationExpectedErrorFlags::Contains, 1);
+			TestFalse("zero refused", UCompanionFaceSubsystem::ResolveFloatTag(Z, UCompanionFaceSubsystem::GainTagPrefix, V));
+			TestFalse("no resident", UCompanionFaceSubsystem::ResolveFloatTag(nullptr, UCompanionFaceSubsystem::GainTagPrefix, V));
+		});
+
+		It("applies the tags over the component defaults when the env vars are unset", [this]()
+		{
+			if (!CICompanionEnv::Get(TEXT("MHLLM_FACE_GAIN"), FString()).IsEmpty()
+				|| !CICompanionEnv::Get(TEXT("MHLLM_FACE_POSE_CAP"), FString()).IsEmpty())
+			{
+				AddInfo(TEXT("MHLLM_FACE_GAIN or MHLLM_FACE_POSE_CAP is set in this process, so it wins by design; skipping."));
+				return;
+			}
+			AActor* Eliza = World->SpawnActor<AActor>();
+			Eliza->Tags.Add(UCompanionFaceSubsystem::ResidentTag);
+			Eliza->Tags.Add(FName(TEXT("FaceProfile=ARKit")));
+			Eliza->Tags.Add(FName(TEXT("FaceGain=1.0")));
+			Eliza->Tags.Add(FName(TEXT("FacePoseCap=1.0")));
+			UCompanionFaceComponent* Face = NewObject<UCompanionFaceComponent>(Eliza);
+			TestEqual("default gain before", Face->GetFaceGain(), 3.0f);
+			TestEqual("default cap before", Face->GetVisemePoseCap(), 2.0f);
+			const FString Summary = UCompanionFaceSubsystem::ApplyTuningTags(Eliza, Face);
+			TestEqual("tag gain", Face->GetFaceGain(), 1.0f);
+			TestEqual("tag cap", Face->GetVisemePoseCap(), 1.0f);
+			TestTrue(*FString::Printf(TEXT("summary names the tag: %s"), *Summary), Summary.Contains(TEXT("FaceGain=")));
+
+			AActor* Untagged = World->SpawnActor<AActor>();
+			UCompanionFaceComponent* Plain = NewObject<UCompanionFaceComponent>(Untagged);
+			UCompanionFaceSubsystem::ApplyTuningTags(Untagged, Plain);
+			TestEqual("no tag keeps the default gain", Plain->GetFaceGain(), 3.0f);
+		});
+	});
+
 	Describe("UCompanionFaceSubsystem::ShouldCreateSubsystem", [this]()
 	{
 		It("declines a non-world outer", [this]()
