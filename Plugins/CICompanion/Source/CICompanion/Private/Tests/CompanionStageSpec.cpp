@@ -1,6 +1,7 @@
 #include "Misc/AutomationTest.h"
 #include "Avatar/CompanionStageDirector.h"
 #include "Avatar/CompanionStagePath.h"
+#include "Avatar/TapeReelSpinner.h"
 #include "Settings/CompanionStageSettings.h"
 #include "UObject/Package.h"
 #include "UObject/UnrealType.h"
@@ -88,10 +89,10 @@ void FCompanionStageSpec::Define()
 
 	Describe("the opening shot", [this, MakeLookup]()
 	{
-		It("plays on first load when nothing is configured", [this, MakeLookup]()
+		It("moves by default when nothing is configured", [this, MakeLookup]()
 		{
 			TMap<FString, FString> Env;
-			TestTrue("opening tour by default", UCompanionStageDirector::ShouldPlayOpeningShot(MakeLookup(Env)));
+			TestTrue("the move by default", UCompanionStageDirector::ShouldPlayOpeningShot(MakeLookup(Env)));
 		});
 
 		It("accepts explicit positive values", [this, MakeLookup]()
@@ -483,6 +484,176 @@ void FCompanionStageSpec::Define()
 			TestEqual("hold", Plan.HoldSeconds, 1.5f);
 			TestTrue("still moving after the hold", UCompanionStageDirector::BeatAt(Plan, 1.6f) == EStageBeat::Flythrough);
 		});
+	});
+
+	// Design 3.1 and 10.6: a session, not the level load, starts the opening once someone is there.
+	Describe("sessions", [this, MakeLookup]()
+	{
+		It("start when a viewer connects to a streamed process, and at load otherwise", [this, MakeLookup]()
+		{
+			TMap<FString, FString> Env;
+			TestTrue("a streaming command line waits for its viewer",
+				UCompanionStageDirector::ResolveTrigger(MakeLookup(Env), TEXT("-RenderOffScreen -PixelStreamingUrl=ws://127.0.0.1:8888 -AudioMixer")) == EStageTrigger::Viewer);
+			TestTrue("the 5.5 name too",
+				UCompanionStageDirector::ResolveTrigger(MakeLookup(Env), TEXT("-PixelStreamingConnectionURL=ws://host:80")) == EStageTrigger::Viewer);
+			TestTrue("a native window or a kiosk starts at load",
+				UCompanionStageDirector::ResolveTrigger(MakeLookup(Env), TEXT("-windowed -ResX=1280")) == EStageTrigger::Load);
+			TestTrue("an empty URL is not a stream",
+				UCompanionStageDirector::ResolveTrigger(MakeLookup(Env), TEXT("-PixelStreamingURL= -windowed")) == EStageTrigger::Load);
+			Env.Add(TEXT("MHLLM_OPENING_TRIGGER"), TEXT("load"));
+			TestTrue("MHLLM_OPENING_TRIGGER=load wins over the command line",
+				UCompanionStageDirector::ResolveTrigger(MakeLookup(Env), TEXT("-PixelStreamingUrl=ws://127.0.0.1:8888")) == EStageTrigger::Load);
+			Env.Add(TEXT("MHLLM_OPENING_TRIGGER"), TEXT(" Viewer "));
+			TestTrue("MHLLM_OPENING_TRIGGER=viewer without a stream",
+				UCompanionStageDirector::ResolveTrigger(MakeLookup(Env), TEXT("")) == EStageTrigger::Viewer);
+		});
+
+		It("replay the opening only as a kiosk reset, never with a viewer connected", [this]()
+		{
+			TestFalse("off by default", UCompanionStageDirector::ShouldReplay(0.0f, 1000.0f, false, true));
+			TestFalse("never while a viewer is connected", UCompanionStageDirector::ShouldReplay(60.0f, 1000.0f, true, true));
+			TestFalse("not before the visitor has been idle that long", UCompanionStageDirector::ShouldReplay(60.0f, 59.0f, false, true));
+			TestFalse("never during the opening", UCompanionStageDirector::ShouldReplay(60.0f, 1000.0f, false, false));
+			TestTrue("idle with nobody watching", UCompanionStageDirector::ShouldReplay(60.0f, 60.0f, false, true));
+		});
+	});
+
+	// Design 3.2, row by row.
+	Describe("input", [this]()
+	{
+		It("is G in the lobby, and a turn typed there is held for the landing", [this]()
+		{
+			for (const EStageInput In : { EStageInput::Key, EStageInput::Click, EStageInput::Escape, EStageInput::Enter })
+			{
+				const FStageInputResponse R = UCompanionStageDirector::RespondToInput(EStagePhase::Lobby, In, 4.0f);
+				TestTrue("starts the session", R.bStartSession);
+				TestEqual("the cut inside 0.3 s later", R.HoldSeconds, 0.3f);
+				TestFalse("no cut to HOME from the lobby", R.bCutToHome);
+				TestFalse("nothing held", R.bHoldTurn);
+			}
+			const FStageInputResponse Turn = UCompanionStageDirector::RespondToInput(EStagePhase::Lobby, EStageInput::Turn, 4.0f);
+			TestTrue("a turn starts the session", Turn.bStartSession);
+			TestTrue("and is held to be answered on landing", Turn.bHoldTurn);
+			TestTrue("she does not yield a floor the visitor already took", Turn.bDropLine);
+		});
+
+		It("cuts to HOME during the move, keeping or dropping the lines by input", [this]()
+		{
+			const FStageInputResponse Soon = UCompanionStageDirector::RespondToInput(EStagePhase::Arrival, EStageInput::Key, 0.6f);
+			TestTrue("a key cuts to HOME", Soon.bCutToHome);
+			TestTrue("the turn-yield line is dropped", Soon.bDropLine);
+			TestTrue("'Oh, hello.' due within 1 s is said", Soon.bGreetNow);
+			const FStageInputResponse Late = UCompanionStageDirector::RespondToInput(EStagePhase::Arrival, EStageInput::Click, 2.5f);
+			TestTrue("a click cuts to HOME", Late.bCutToHome);
+			TestTrue("a greeting 2.5 s off is dropped", Late.bDropGreeting && !Late.bGreetNow);
+			const FStageInputResponse Said = UCompanionStageDirector::RespondToInput(EStagePhase::Arrival, EStageInput::Key, -1.0f);
+			TestFalse("an already-said greeting is not repeated", Said.bGreetNow || Said.bDropGreeting);
+			const FStageInputResponse Esc = UCompanionStageDirector::RespondToInput(EStagePhase::Arrival, EStageInput::Escape, 2.5f);
+			TestTrue("Esc cuts to HOME", Esc.bCutToHome);
+			TestTrue("and drops nothing", Esc.bKeepLines && !Esc.bDropLine && !Esc.bDropGreeting);
+			TestTrue("the greeting comes now", Esc.bGreetNow);
+			const FStageInputResponse Turn = UCompanionStageDirector::RespondToInput(EStagePhase::Arrival, EStageInput::Turn, 0.5f);
+			TestTrue("a turn cuts to HOME", Turn.bCutToHome);
+			TestTrue("pending lines are dropped", Turn.bDropLine && Turn.bDropGreeting && !Turn.bGreetNow);
+			TestFalse("and she answers it now", Turn.bHoldTurn);
+		});
+
+		It("leaves the turn-yield line and the live conversation alone", [this]()
+		{
+			for (const EStagePhase Phase : { EStagePhase::Line, EStagePhase::Live })
+			{
+				for (const EStageInput In : { EStageInput::Key, EStageInput::Click, EStageInput::Escape, EStageInput::Turn })
+				{
+					const FStageInputResponse R = UCompanionStageDirector::RespondToInput(Phase, In, -1.0f);
+					TestFalse("no session start", R.bStartSession);
+					TestFalse("no cut", R.bCutToHome);
+					TestFalse("no line dropped", R.bDropLine);
+				}
+			}
+		});
+	});
+
+	Describe("the live framing", [this]()
+	{
+		It("punches in to CLOSE on long replies at a sentence boundary", [this]()
+		{
+			const FString Text = TEXT("Ten letters. Then the rest of a reply that goes on for a good while longer than that.");
+			TestTrue("a short reply stays on HOME", UCompanionStageDirector::CloseCutTime(Text, 4.0f) < 0.0f);
+			const float At = UCompanionStageDirector::CloseCutTime(Text, 14.0f);
+			TestEqual("the first boundary 1.5 s or more in", At, 14.0f * 12.0f / Text.Len(), 0.01f);
+			TestTrue("never inside the first 1.5 s", UCompanionStageDirector::CloseCutTime(TEXT("Hi. Then a long tail with no stop"), 8.0f) < 0.0f);
+			TestTrue("no boundary, no punch-in", UCompanionStageDirector::CloseCutTime(TEXT("one long clause without a full stop"), 9.0f) < 0.0f);
+		});
+
+		It("has a CLOSE framing on HOME's spot with the longer lens", [this]()
+		{
+			const FCompanionStagePlan Plan = CompanionStage::BuildPlan(GetDefault<UCompanionStageSettings>(),
+				StageSpecSubject(170.0f), StageSpecLookup(TMap<FString, FString>()));
+			if (!TestTrue("CLOSE solved from the layout", Plan.Close.bValid))
+			{
+				return;
+			}
+			TestTrue("from HOME's position", Plan.Close.Location.Equals(Plan.Home.Location, 0.1));
+			TestEqual("80 mm", Plan.Close.FocalMm, 80.0f, 0.01f);
+			TestTrue("her eyes held where HOME holds them", Plan.Close.Screen.Equals(Plan.Home.Screen, 0.02));
+		});
+
+		It("breathes by rotation only, small and slow", [this]()
+		{
+			const float A = 0.15f;
+			float MaxYaw = 0.0f, MaxPitch = 0.0f, MaxStep = 0.0f, MaxRoll = 0.0f;
+			FRotator Prev = CompanionStage::BreathOffset(0.0f, A);
+			for (int32 Frame = 1; Frame < 600 * 60; ++Frame)
+			{
+				const FRotator R = CompanionStage::BreathOffset(Frame / 60.0f, A);
+				MaxYaw = FMath::Max(MaxYaw, FMath::Abs((float)R.Yaw));
+				MaxPitch = FMath::Max(MaxPitch, FMath::Abs((float)R.Pitch));
+				MaxRoll = FMath::Max(MaxRoll, FMath::Abs((float)R.Roll));
+				MaxStep = FMath::Max(MaxStep, (float)FMath::Max(FMath::Abs(R.Yaw - Prev.Yaw), FMath::Abs(R.Pitch - Prev.Pitch)));
+				Prev = R;
+			}
+			TestEqual("never rolls", MaxRoll, 0.0f);
+			TestTrue(FString::Printf(TEXT("yaw within %.2f deg (%.3f)"), A, MaxYaw), MaxYaw <= A + 1e-4f && MaxYaw > 0.5f * A);
+			TestTrue(FString::Printf(TEXT("pitch within %.2f deg (%.3f)"), 0.6f * A, MaxPitch), MaxPitch <= 0.6f * A + 1e-4f);
+			TestTrue(FString::Printf(TEXT("at most %.4f deg a 60 fps frame"), MaxStep), MaxStep <= 0.6f * A / 60.0f);
+			TestTrue("nothing at amplitude 0", CompanionStage::BreathOffset(12.3f, 0.0f).IsZero());
+		});
+	});
+
+	// UTapeReelSpinner used to add to a read-back FRotator's Pitch, which Unreal normalises to
+	// [-90, 90]: every reel stopped at a quarter turn. The spin is now a quaternion about the axle.
+	Describe("tape reels", [this]()
+	{
+		for (const FRotator Rest : { FRotator(0.0, 90.0, 0.0), FRotator(0.0, 90.0, -90.0), FRotator(0.0, -35.0, -90.0) })
+		{
+			It(FString::Printf(TEXT("turn past a quarter turn about their own axle (rest %s)"), *Rest.ToCompactString()), [this, Rest]()
+			{
+				const FQuat Base = Rest.Quaternion();
+				const FVector Axle = UTapeReelSpinner::AxleOf(Base);
+				TestTrue("the axle is the yawed Y axis", Axle.Equals(FRotator(0.0, Rest.Yaw, 0.0).RotateVector(FVector::YAxisVector), 1e-4));
+				// What the engine stores and gives back between ticks: the rotator of the quaternion,
+				// rebuilt into a quaternion. The spinner never reads it back, but whatever it sets has to
+				// survive it.
+				const FVector Spoke0 = Base.RotateVector(FVector::XAxisVector);
+				double Angle = 0.0;
+				double Swept = 0.0;
+				double AxleDrift = 0.0;
+				FVector PrevSpoke = Spoke0;
+				for (int32 Frame = 1; Frame <= 90; ++Frame)
+				{
+					Angle = FMath::Fmod(Angle + 150.0 / 60.0, 360.0);
+					const FQuat Stored = UTapeReelSpinner::SpunRotation(Base, Angle).Rotator().Quaternion();
+					const FVector Spoke = Stored.RotateVector(FVector::XAxisVector);
+					AxleDrift = FMath::Max(AxleDrift, (Stored.RotateVector(Base.Inverse().RotateVector(Axle)) - Axle).Size());
+					Swept += FMath::RadiansToDegrees(FMath::Atan2(FVector::DotProduct(FVector::CrossProduct(PrevSpoke, Spoke), Axle),
+						FVector::DotProduct(PrevSpoke, Spoke)));
+					PrevSpoke = Spoke;
+				}
+				TestEqual("1.5 s at 150 deg/s sweeps 225 deg", (float)Swept, 225.0f, 0.5f);
+				TestTrue(FString::Printf(TEXT("the axle does not move (%.5f)"), AxleDrift), AxleDrift < 1e-3);
+				TestTrue("the hub stays a hub: the axle is unit length", FMath::IsNearlyEqual(Axle.Size(), 1.0, 1e-4));
+			});
+		}
 	});
 
 	Describe("the path", [this]()
