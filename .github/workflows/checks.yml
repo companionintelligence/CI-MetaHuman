@@ -531,6 +531,7 @@ jobs:
           expect 1 metahuman-without-seo "authored && result 'resident: METAHUMAN placed' && export RESIDENT=metahuman"
           expect 1 unknown-resident "authored && result '$manny' && export RESIDENT=someone"
           # eliza <variant> [id]: her staged manifest, as stage_eliza_mpfb.py writes it (id defaults to eliza)
+          # shellcheck disable=SC2329
           eliza() { mkdir -p Content/Eliza && printf '{\n "id": "%s",\n "variant": "%s"\n}\n' "${2:-eliza}" "$1" > Content/Eliza/eliza_manifest.json; }
           expect 0 eliza-asked-for "authored && result 'resident: ELIZA placed' && eliza mpfb && export RESIDENT=eliza"
           expect 0 eliza-variant-matches "authored && result 'resident: ELIZA placed' && eliza metahuman && export RESIDENT=eliza ELIZA_VARIANT=metahuman"
