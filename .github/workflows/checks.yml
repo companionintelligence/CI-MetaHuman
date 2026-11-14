@@ -102,6 +102,28 @@ jobs:
           test "$(grep -c 'data-ci-companion="ci-companion-credits-link-v1"' Deployment/pixelstreaming/player.html)" -eq 1
           test -s Deployment/pixelstreaming/credits.html
           grep -q '^COPY pixelstreaming/credits.html ' Deployment/Dockerfile.signalling
+          # The AI notice (EU AI Act Art. 50(1)): once in each page, in the words the streamed frame
+          # uses (SCompanionAiNotice.h), with the Privacy link; PRIVACY_POLICY_URL replaces the link
+          # and must be https.
+          notice='Eliza is an AI. Her replies are generated and can be wrong.'
+          grep -qF "\"$notice\"" Plugins/CICompanion/Source/CICompanion/Public/UI/SCompanionAiNotice.h
+          for page in "$work/player.html" Deployment/pixelstreaming/player.html; do
+            test "$(grep -c 'data-ci-companion="ci-companion-ai-notice-v1"' "$page")" -eq 1
+            grep -qF ">$notice <a href=\"https://ci.computer/privacy/companion-presence\"" "$page"
+            # Never a tap meant for Epic's controls: the line lets pointers through, its link takes them.
+            grep -F 'data-ci-companion="ci-companion-ai-notice-v1"' "$page" | grep -F 'pointer-events: none;">' \
+              | grep -qF 'style="color: inherit; pointer-events: auto;">Privacy</a>'
+          done
+          printf '<html><head><title>Pixel Streaming</title></head><body></body></html>\n' > "$work/stock.html"
+          cp "$work/stock.html" "$work/own-policy.html"
+          cp "$work/stock.html" "$work/http-policy.html"
+          PRIVACY_POLICY_URL=https://example.org/privacy python "$patch" "$work/own-policy.html"
+          grep -qF '<a href="https://example.org/privacy"' "$work/own-policy.html"
+          if PRIVACY_POLICY_URL=http://example.org/privacy python "$patch" "$work/http-policy.html" 2> "$work/http-policy.err"; then
+            echo "::error file=$patch::accepted a PRIVACY_POLICY_URL that is not https"; exit 1
+          fi
+          grep -q 'must be an https:// URL' "$work/http-policy.err"
+          cmp "$work/http-policy.html" "$work/stock.html"
 
           # It must refuse a page it cannot patch safely, for the right reason, and leave it untouched.
           printf '<html><head></head><head></head><title>Pixel Streaming</title></html>\n' > "$work/two-heads.html"
@@ -292,7 +314,11 @@ jobs:
       # as a clean checkout (no .env, which must still render) and with .env.example, which must
       # render with NO warnings -- i.e. .env.example names every variable the files interpolate
       # without a default. Rendering validates the schema, the merge and the interpolation; it
-      # starts nothing, so no image or GPU is needed.
+      # starts nothing, so no image or GPU is needed. Both renderings must also keep what the privacy
+      # policy promises (check_compose_privacy.py): capped connection logs that a recreate deletes,
+      # signalling ports on loopback, memory off, an opening line that says AI. The one without .env
+      # is what a host whose .env lacks a key runs, and the only one where a compose default shows:
+      # .env.example sets MHLLM_MEMORY=0, which would hide a "${MHLLM_MEMORY:-1}".
       - name: Render every documented combination
         run: |
           set -euo pipefail
@@ -318,6 +344,11 @@ jobs:
             elif [ -n "$warnings" ]; then
               echo "::error::with .env.example, '$combo' renders with warnings:"; echo "$warnings"; status=1
             fi
+            docker compose --env-file .env.example "${files[@]}" config --format json \
+              | python3 check_compose_privacy.py "$combo" || status=1
+            # Its warnings are the first rendering's, printed above.
+            docker compose "${files[@]}" config --format json 2> /dev/null \
+              | python3 check_compose_privacy.py "$combo, without .env" || status=1
           done
           exit "$status"
 

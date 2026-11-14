@@ -68,6 +68,11 @@ Run: `Scripts/RunBackendTests.ps1`
   `MaxRetainedChatEntries` cap — the HUD is an overlay on the companion, and an unbounded
   log grew until it covered the character, so the tests assert both the tracked array *and*
   the scroll box rows stop at the cap with the newest line kept and the oldest evicted.
+- `CompanionDisclosureSpec.cpp` — the AI notice (`SCompanionAiNotice`): it says she is an AI,
+  never takes a click, uses the player page's words, and the chat box's idle status names her an AI
+  too. Its `MetaHumanLocalLLM.Backend.Disclosure` half pins that the runtime builds the notice even
+  where no HUD can be (no viewport) and keeps it across the reset for the next viewer, and that
+  conversation memory is off unless `MHLLM_MEMORY` turns it on.
 
 Run: `Scripts/RunFrontendTests.ps1`
 

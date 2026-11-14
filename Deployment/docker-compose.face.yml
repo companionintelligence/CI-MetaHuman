@@ -103,7 +103,9 @@ services:
       # settles behind her, she turns to the lens, and says this verbatim. A brand line has to be
       # identical every run and must not wait on a model round trip while the camera holds on her.
       MHLLM_GREETING: "${MHLLM_GREETING:-none}"
-      MHLLM_OPENING_LINE: "${MHLLM_OPENING_LINE:-Welcome to Companion Intelligence, I'm Eliza. How can I help you?}"
+      # Her first sentence says what she is (EU AI Act Art. 50(1)); the frame and the player page
+      # also say it for as long as the stream runs (SCompanionAiNotice, patch_pixelstreaming_player.py).
+      MHLLM_OPENING_LINE: "${MHLLM_OPENING_LINE:-Welcome to Companion Intelligence. I'm Eliza, an AI. How can I help you?}"
       MHLLM_FLY_SECONDS: "${MHLLM_FLY_SECONDS:-11.0}"
       # The opening waits for its viewer: with -PixelStreamingUrl on the command line the room holds
       # the lobby still, silent, until a viewer's data channel opens, plays the opening for them, and

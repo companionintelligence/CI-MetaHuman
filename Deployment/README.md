@@ -265,6 +265,49 @@ comments explain each case.
   Tailscale Serve HTTPS port `:10000` to tailnet clients; it forwards to oauth2-proxy's loopback
   listener on `:8095`. TURN needs `3478` (TCP/UDP) and the UDP relay range `49152-65535` reachable
   within the tailnet.
+- **Connection logs.** coturn, the signalling server and the OIDC gate log viewers' network
+  addresses (the gate also the signed-in email address), and the privacy policy keeps such logs 14
+  days at most. `docker-compose.yml` gives those three services Docker's `local` log driver, so a
+  container's log goes when the container is recreated, together with the signalling server's own
+  `server-YYYY-MM-DD.log` files, which live inside it. The driver applies to containers created
+  after the change, so recreate them once (`docker compose up -d --force-recreate`). Then
+  `systemd/ci-metahuman-log-purge@.timer` recreates the three every Monday at 04:00, which keeps
+  every line under a week old. Install it once on the host that runs them, from this directory:
+
+  ```bash
+  # rootful Docker
+  sudo cp systemd/ci-metahuman-log-purge@.* /etc/systemd/system/ && sudo systemctl daemon-reload
+  sudo systemctl enable --now "ci-metahuman-log-purge@$(systemd-escape --path "$PWD").timer"
+  # rootless Docker: user units, and lingering so that they run while nobody is logged in
+  mkdir -p ~/.config/systemd/user && cp systemd/ci-metahuman-log-purge@.* ~/.config/systemd/user/
+  systemctl --user daemon-reload && loginctl enable-linger "$USER"
+  systemctl --user enable --now "ci-metahuman-log-purge@$(systemd-escape --path "$PWD").timer"
+  ```
+
+  Check that `docker inspect -f '{{.HostConfig.LogConfig.Type}}'` prints `local` for the three
+  containers, that `systemctl list-timers` (with `--user` for rootless) shows the next run, and,
+  after a run, that `docker ps` shows the three created at that time. Logs kept outside these
+  containers are the host's: if `journalctl -u tailscaled` holds per-request viewer details, set
+  journald's `MaxRetentionSec=13day` and `MaxFileSec=1day`. Both: journald never deletes the file
+  it is writing to, which collects up to `MaxFileSec` of lines (a month by default) before it is
+  archived, and it deletes an archived file once its oldest line is past `MaxRetentionSec`. So the
+  retention alone keeps some lines about a month; with daily files none outlives 14 days. They
+  apply to the whole host journal:
+
+  ```bash
+  sudo mkdir -p /etc/systemd/journald.conf.d
+  printf '[Journal]\nMaxRetentionSec=13day\nMaxFileSec=1day\n' \
+    | sudo tee /etc/systemd/journald.conf.d/ci-metahuman-retention.conf
+  sudo systemctl restart systemd-journald
+  ```
+- **The AI notice.** The resident introduces herself with a human name, so the stream says what she
+  is (EU AI Act Art. 50(1)): a line in the frame from its first frame (`SCompanionAiNotice`), the
+  same words on the player page with a Privacy link (`patch_pixelstreaming_player.py`, built into
+  the signalling image), "an AI" in the chat box's idle status, and the face stack's opening line.
+  The link defaults to the policy that covers the hosted preview; an operator whose deployment has
+  its own policy builds the signalling image with `--build-arg PRIVACY_POLICY_URL=https://...`.
+  In fullscreen only the in-frame notice shows: Epic's fullscreen button enlarges the player (the
+  video itself on an iPad), and the page's notice and Credits link are outside it.
 - **Pixel Streaming 2** is the plugin enabled in the `.uproject`
   (`-PixelStreamingUrl=ws://127.0.0.1:8888`). For the legacy Pixel Streaming plugin, substitute
   `-PixelStreamingIP`/`-PixelStreamingPort`.

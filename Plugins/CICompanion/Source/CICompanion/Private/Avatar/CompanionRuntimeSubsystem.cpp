@@ -18,6 +18,7 @@
 #include "Engine/World.h"
 #include "TimerManager.h"
 #include "Voice/VisemePlanner.h"
+#include "UI/SCompanionAiNotice.h"
 #include "UI/SCompanionHUD.h"
 #include "UI/SCompanionSettingsPanel.h"
 #include "Engine/GameViewportClient.h"
@@ -155,6 +156,7 @@ void UCompanionRuntimeSubsystem::OnWorldBeginPlay(UWorld& InWorld)
 			TEXT("Phoneme alignment DISABLED (no KOKORO_ALIGNER_URL): lip-sync will use a spelling ESTIMATE."));
 	}
 
+	CreateAiNotice();
 	CreateHud();
 
 	UE_LOG(LogCompanionRuntime, Log, TEXT("Companion spawned and bound (backend=%s model=%s)."),
@@ -182,6 +184,25 @@ void UCompanionRuntimeSubsystem::OnWorldBeginPlay(UWorld& InWorld)
 			SubmitUserText(Greeting);
 		}), 5.0f, false);
 	}
+}
+
+void UCompanionRuntimeSubsystem::CreateAiNotice()
+{
+	// Not gated on MHLLM_HUD: a build without the chat box still talks, and still has to say what she
+	// is. Built even with no viewport to show it in (a headless run), so the specs can see it exists.
+	AiNotice = SNew(SCompanionAiNotice);
+	if (!GEngine || !GEngine->GameViewport)
+	{
+		return;
+	}
+	AiNoticeSlot = SNew(SWeakWidget).PossiblyNullContent(AiNotice.ToSharedRef());
+	// Above the HUD (10000) and the console (10001).
+	GEngine->GameViewport->AddViewportWidgetContent(AiNoticeSlot.ToSharedRef(), 10002);
+}
+
+FString UCompanionRuntimeSubsystem::GetAiNoticeText() const
+{
+	return AiNotice.IsValid() ? AiNotice->GetDisplayedText() : FString();
 }
 
 void UCompanionRuntimeSubsystem::CreateHud()
@@ -274,7 +295,7 @@ void UCompanionRuntimeSubsystem::CreateHud()
 		UE_LOG(LogCompanionRuntime, Log, TEXT("Console opened by MHLLM_CONSOLE=1."));
 	}
 
-	Hud->SetStatusText(TEXT("Type to Eliza and press Enter"));
+	Hud->SetStatusText(SCompanionAiNotice::ChatPrompt);
 	UE_LOG(LogCompanionRuntime, Log, TEXT("Chat box + console attached to viewport. Settings: %s"),
 		*Initial.ToCompactString());
 
@@ -437,7 +458,7 @@ void UCompanionRuntimeSubsystem::HandleHudTextSubmitted(const FString& Text)
 			if (Hud.IsValid())
 			{
 				Hud->SetStatusText(bNowVisible ? TEXT("console open — /console to close")
-				                               : TEXT("Type to Eliza and press Enter"));
+				                               : SCompanionAiNotice::ChatPrompt);
 			}
 			UE_LOG(LogCompanionRuntime, Log, TEXT("Console toggled -> %s"),
 				bNowVisible ? TEXT("open") : TEXT("closed"));
@@ -608,7 +629,13 @@ void UCompanionRuntimeSubsystem::Deinitialize()
 		{
 			GEngine->GameViewport->RemoveViewportWidgetContent(SettingsPanelSlot.ToSharedRef());
 		}
+		if (AiNoticeSlot.IsValid())
+		{
+			GEngine->GameViewport->RemoveViewportWidgetContent(AiNoticeSlot.ToSharedRef());
+		}
 	}
+	AiNoticeSlot.Reset();
+	AiNotice.Reset();
 	HudSlot.Reset();
 	SettingsPanelSlot.Reset();
 	Hud.Reset();
@@ -701,7 +728,7 @@ void UCompanionRuntimeSubsystem::ResetForNextViewer()
 	{
 		Hud->ClearChatLog();
 		Hud->SetMicListening(false);
-		Hud->SetStatusText(TEXT("Type to Eliza and press Enter"));
+		Hud->SetStatusText(SCompanionAiNotice::ChatPrompt);
 	}
 
 	UE_LOG(LogCompanionRuntime, Log, TEXT("Session reset for the next viewer: conversation history cleared%s."),
@@ -726,7 +753,7 @@ void UCompanionRuntimeSubsystem::HandleMicToggled(bool bListening)
 		Companion->StopListening();
 		if (Hud.IsValid())
 		{
-			Hud->SetStatusText(TEXT("Type to Eliza and press Enter"));
+			Hud->SetStatusText(SCompanionAiNotice::ChatPrompt);
 		}
 		// The transcript arrives asynchronously and enters at SubmitUserText, which is where the
 		// thinking aversion is armed. Nothing to do for gaze here.
@@ -1058,7 +1085,7 @@ void UCompanionRuntimeSubsystem::HandleCompanionSpoke(const FString& Text)
 	if (Hud.IsValid())
 	{
 		Hud->AppendChatEntry(TEXT("Eliza"), Text);
-		Hud->SetStatusText(TEXT("Type to Eliza and press Enter"));
+		Hud->SetStatusText(SCompanionAiNotice::ChatPrompt);
 	}
 
 	// Safety net for the adoption above: this handler runs from the broadcast the character fires
