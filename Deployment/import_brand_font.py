@@ -16,12 +16,18 @@ Weight ladder follows the guide (200/400/500/600/700) as closely as three faces 
 The 500 slot resolves to Regular; SemiBold is closer to 600 than Bold is, which is why SemiBold was
 chosen over Bold when only three faces could be vendored.
 
-Run:
-  UnrealEditor-Cmd.exe <project>.uproject -run=pythonscript -script=Deployment/import_brand_font.py \
-      -unattended -nullrhi -nosplash -stdout -utf8output
+Each face records only "<Face>.ttf" as the file it came from (record_source below), never the path
+this machine imported it from, and the run ends by checking the saved files with
+Deployment/check_font_sources.py, the check CI runs on the repository.
+
+Run it in the FULL editor, headless (see the end of this file for why not the commandlet):
+  UnrealEditor-Cmd.exe <project>.uproject -ExecutePythonScript=<this file, a path without spaces> \
+      -unattended -nullrhi -nosplash -nosound -stdout -utf8output
 Writes Saved/FONT_IMPORT.txt.
 """
 import os
+import sys
+
 import unreal
 
 OUT = os.path.join(unreal.Paths.project_saved_dir(), "FONT_IMPORT.txt")
@@ -34,7 +40,8 @@ def w(m):
 
 
 DEST = "/Game/Fonts"
-SRC_DIR = os.path.join(unreal.Paths.project_content_dir(), "Fonts")
+PROJECT_DIR = unreal.Paths.convert_relative_path_to_full(unreal.Paths.project_dir())
+SRC_DIR = os.path.join(PROJECT_DIR, "Content", "Fonts")
 FACES = [("Montserrat-Light", "Light"),
          ("Montserrat-Regular", "Regular"),
          ("Montserrat-SemiBold", "SemiBold")]
@@ -42,34 +49,61 @@ FACES = [("Montserrat-Light", "Light"),
 tools = unreal.AssetToolsHelpers.get_asset_tools()
 imported = {}
 
+
+def record_source(face, value):
+    """Make FACE record VALUE as the file it came from, then save it.
+
+    The font factory sets UFontFace::SourceFilename to the path it imported from, and saving repeats
+    it in the package's AssetImportData tag. That path is this machine's (f1e06c4's import recorded
+    one that climbed to the drive root and through the user's profile folder), and a cook ships
+    SourceFilename with the face. VALUE is "<Face>.ttf", the form UAssetImportData stores for a
+    source file beside the package: Content/Fonts/<Face>.ttf on every machine. It is set without a
+    change notification, because UFontFace::PostEditChangeProperty flushes Slate's font cache
+    without checking that there is one."""
+    try:
+        never = unreal.PropertyAccessChangeNotifyMode.NEVER
+        face.set_editor_property("source_filename", value, notify_mode=never)
+    except (AttributeError, TypeError):
+        # Older Python API without notify_mode: the full editor can take the notification.
+        face.set_editor_property("source_filename", value)
+    face.modify(True)
+    return unreal.EditorAssetLibrary.save_loaded_asset(face, False)
+
+
 for filename, typeface in FACES:
-    src = os.path.join(SRC_DIR, filename + ".ttf")
+    source = filename + ".ttf"
+    src = os.path.join(SRC_DIR, source)
     if not os.path.exists(src):
-        w("MISSING source %s -- skipping" % src)
+        w("MISSING source Content/Fonts/%s -- skipping" % source)
         continue
 
     pkg = "%s/%s" % (DEST, filename)
-    existing = unreal.load_asset(pkg)
-    if existing:
-        w("already imported: %s" % pkg)
-        imported[typeface] = existing
-        continue
-
-    task = unreal.AssetImportTask()
-    task.filename = src
-    task.destination_path = DEST
-    task.destination_name = filename
-    task.automated = True
-    task.replace_existing = True
-    task.save = True
-    tools.import_asset_tasks([task])
-
-    obj = unreal.load_asset(pkg)
-    if obj:
-        w("imported %s -> %s (%s)" % (filename, pkg, type(obj).__name__))
-        imported[typeface] = obj
+    face = unreal.load_asset(pkg)
+    if face:
+        action = "already imported"
     else:
-        w("IMPORT FAILED for %s" % filename)
+        task = unreal.AssetImportTask()
+        task.filename = src
+        task.destination_path = DEST
+        task.destination_name = filename
+        task.automated = True
+        task.replace_existing = True
+        task.save = False  # saved by record_source(), once SourceFilename names only the file
+        tools.import_asset_tasks([task])
+        face = unreal.load_asset(pkg)
+        if not face:
+            w("IMPORT FAILED for %s" % filename)
+            continue
+        action = "imported from Content/Fonts/%s" % source
+
+    # A face imported earlier may record a path, as f1e06c4's did: it is re-saved the same way.
+    if face.get_editor_property("source_filename") != source:
+        if not record_source(face, source):
+            w("SAVE FAILED for %s" % pkg)
+            continue
+        action += ", saved with SourceFilename %s" % source
+    w("%s -> %s (%s): %s" % (filename, pkg, type(face).__name__, action))
+    imported[typeface] = face
 
 w("faces available: %s" % ", ".join(sorted(imported.keys())))
 
@@ -93,8 +127,10 @@ if font:
         face = imported.get(typeface)
         if not face:
             continue
-        entry = unreal.TypefaceEntry()
         try:
+            # UE 5.8's Python API has no TypefaceEntry: this fails there, F_Montserrat is left
+            # unsaved, and the run goes on to the check below (CIBrandStyle.h composes the font).
+            entry = unreal.TypefaceEntry()
             entry.set_editor_property("name", typeface)
             entry.set_editor_property("font", unreal.FontData(font_face_asset=face))
             typefaces.append(entry)
@@ -114,6 +150,14 @@ if font:
             w("composite font wiring FAILED: %s" % e)
     else:
         w("no typeface entries built -- F_Montserrat left empty")
+
+# What reached disk, by the engine-free check CI runs on the repository: every Content/Fonts asset
+# must record its source as a bare file name beside it, with nothing path-like left in it.
+sys.path.insert(0, os.path.join(PROJECT_DIR, "Deployment"))
+import check_font_sources  # noqa: E402
+
+for path, status, message in check_font_sources.check(PROJECT_DIR):
+    w("%s: %s, %s" % (path, status, message))
 
 with open(OUT, "w", encoding="utf-8") as f:
     f.write("\n".join(lines))
