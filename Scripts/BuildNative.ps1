@@ -47,8 +47,9 @@
     same rule as CHECK_MAP in both Dockerfiles: Content/AUTHOR_RESULT.txt has to report SUCCESS,
     place the -Resident asked for, show the NoAI prop gate ran, and record this map's sha256. A map
     authored before those existed may hold Nia or the three NoAI-tagged Sketchfab props, and
-    nothing else here could tell. Nia's and Seo's content (Content/CC_ControlRig_Nia, Content/Seo)
-    is refused unless -Resident names her.
+    nothing else here could tell. Nia's, Seo's and Eliza's content (Content/CC_ControlRig_Nia,
+    Content/Seo, Content/Eliza) is refused unless -Resident names her, and so is any
+    Content/EditableCharacters; the Eliza and EditableCharacters checks run before authoring too.
 
 .PARAMETER KeepAuthoredMap
     Leave the freshly authored .umap in Content/Maps, with the Content/AUTHOR_RESULT.txt that
@@ -62,7 +63,15 @@
     C:\devel\llm-metahuman\scene\glb.
 
 .PARAMETER Resident
-    Who stands in the diorama: Mannequin (default), MetaHuman or Nia.
+    Who stands in the diorama: Mannequin (default), Eliza, MetaHuman or Nia.
+
+    Eliza is the resident Companion Intelligence made for this product (see -ElizaContent). Her
+    content is staged from private storage into Content\Eliza and never committed, and a build for
+    any other resident stops while that staged copy is still there (delete it). Two variants share
+    the id; the staged eliza_manifest.json says which: "mpfb" (MPFB 2 with CC0 1.0 assets) or
+    "metahuman" (made in MetaHuman Creator, Unreal Engine EULA). Neither carries a NoAI restriction;
+    NOTICE.md has the licences and the one rule that comes with them (never use her to build datasets
+    or to train or test AI).
 
     Mannequin places Epic's UE mannequin (SKM_Manny with its idle, from the engine's MoverTests
     plugin). It needs no input outside the engine, and it is the only choice whose licence clears
@@ -86,6 +95,15 @@
     Only read with -Resident MetaHuman. (This used to be hard-wired to Deployment\metahuman, which
     holds the conversion SCRIPTS and no FBX, so a native build could never place Seo at all.)
 
+.PARAMETER ElizaContent
+    The staged Eliza content: a folder named Eliza holding eliza_manifest.json. Defaults to
+    $env:MHLLM_ELIZA_CONTENT, then to an eliza-content\Eliza folder beside this checkout. Mirrored into
+    Content\Eliza (robocopy /MIR). Only read with -Resident Eliza.
+
+.PARAMETER ElizaVariant
+    mpfb or metahuman. When given, the staged manifest must name the same variant or the build stops
+    (and author_diorama.py checks it again through MHLLM_ELIZA_VARIANT). Only read with -Resident Eliza.
+
 .PARAMETER NiaContent
     The Reallusion Character Creator "Nia" content root (the folder named CC_ControlRig_Nia).
     Defaults to $env:MHLLM_NIA_CONTENT, then to a CharacterCreatorNia project sitting beside
@@ -93,6 +111,9 @@
 
 .EXAMPLE
     ./Scripts/BuildNative.ps1 -Platform Win64 -Engine "C:\Program Files\Epic Games\UE_5.8"
+
+.EXAMPLE
+    ./Scripts/BuildNative.ps1 -Resident Eliza -ElizaContent "<private storage>\stage\Eliza" -ElizaVariant mpfb
 
 .EXAMPLE
     ./Scripts/BuildNative.ps1 -Resident MetaHuman -MetaHumanDir "D:\mh-export\seo"
@@ -109,10 +130,13 @@ param(
     [switch]$SkipAuthoring,
     [switch]$KeepAuthoredMap,
     [string]$GlbDir = '',
-    [ValidateSet('Mannequin', 'MetaHuman', 'Nia')]
+    [ValidateSet('Mannequin', 'Eliza', 'MetaHuman', 'Nia')]
     [string]$Resident = 'Mannequin',
     [string]$MetaHumanDir = '',
-    [string]$NiaContent = ''
+    [string]$NiaContent = '',
+    [string]$ElizaContent = '',
+    [ValidateSet('', 'mpfb', 'metahuman')]
+    [string]$ElizaVariant = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -135,8 +159,25 @@ $script:RefusedPropsNote = $null   # set by Invoke-StageAuthoring when NoAI prop
 $ProvenanceFile = Join-Path $ProjectRoot 'Content\AUTHOR_RESULT.txt'
 $ResidentGateLine = @{
     Mannequin = 'resident: MANNEQUIN placed'
+    Eliza     = 'resident: ELIZA placed'
     MetaHuman = 'resident: METAHUMAN placed'
     Nia       = 'resident: NIA placed'
+}
+$ElizaManifest = Join-Path $ProjectRoot 'Content\Eliza\eliza_manifest.json'
+
+function Assert-ElizaManifest {
+    # Her content is staged, never committed, so the manifest is the only thing that says which variant
+    # (and which version) is about to be cooked.
+    if (-not (Test-Path $ElizaManifest)) {
+        throw ('-Resident Eliza, but Content\Eliza\eliza_manifest.json is missing. Stage her content with ' +
+               '-ElizaContent <folder> (or MHLLM_ELIZA_CONTENT); it is not in git.')
+    }
+    $m = Get-Content $ElizaManifest -Raw | ConvertFrom-Json
+    if ($m.id -ne 'eliza') { throw "Content\Eliza\eliza_manifest.json names id '$($m.id)', not eliza." }
+    if ($ElizaVariant -and $m.variant -ne $ElizaVariant) {
+        throw "-ElizaVariant $ElizaVariant, but the staged manifest is variant '$($m.variant)'."
+    }
+    return $m
 }
 
 function Assert-StageProvenance {
@@ -168,7 +209,28 @@ function Assert-StageProvenance {
                 (@($lines -match '^NoAI prop slots: ') | Select-Object -Last 1)) -ForegroundColor Cyan
 }
 
+function Assert-NoStrayEliza {
+    # Eliza's content is staged from private storage and cooked only when asked for, the same rule
+    # CHECK_MAP (both Dockerfiles) and m2_clean.sh apply. A Content\Eliza left by an earlier -Resident
+    # Eliza build is not referenced by another resident's map today, but her MetaHuman variant points
+    # the runtime at /Game/Eliza/PAL_Eliza, and the cook scans all of /Game for PrimaryAssetLabels in
+    # every build (BaseGame.ini), so a stale folder could ride into another resident's package.
+    # MetaHuman Creator's editable characters (Content\EditableCharacters: Eliza's MetaHuman source, or
+    # an imported mhc_seo.mhpkg) are never staged or cooked at all.
+    if (Test-Path (Join-Path $ProjectRoot 'Content\EditableCharacters')) {
+        throw ('Content\EditableCharacters is in this project. MetaHuman Creator keeps its editable characters there ' +
+               "(Eliza's MetaHuman source, or an imported mhc_seo.mhpkg); they are never staged or cooked. Move it " +
+               'out of Content\ (to private storage) and build again.')
+    }
+    if ($Resident -ne 'Eliza' -and (Test-Path (Join-Path $ProjectRoot 'Content\Eliza'))) {
+        throw ("Content\Eliza (Eliza's staged content) is in a -Resident $Resident build; it is cooked only when " +
+               'asked for. Delete Content\Eliza (a staged copy: her content stays in private storage), or pass -Resident Eliza.')
+    }
+}
+
 function Assert-NoUnrequestedResident {
+    Assert-NoStrayEliza
+    if ($Resident -eq 'Eliza') { Assert-ElizaManifest | Out-Null }
     # Seo and Nia are Fab content tagged NoAI (NOTICE.md): staged and cooked only when asked for by name.
     if ($Resident -ne 'Nia' -and (Test-Path (Join-Path $ProjectRoot 'Content\CC_ControlRig_Nia'))) {
         throw ("Content\CC_ControlRig_Nia (Reallusion's Nia, Fab content tagged NoAI) is staged, and this is a " +
@@ -232,6 +294,9 @@ function Invoke-StageAuthoring {
         throw "Prop GLBs not found: $glb. Pass -GlbDir <path> or set MHLLM_GLB_DIR."
     }
 
+    # Before anything is staged or authored: a stray Content\Eliza or any Content\EditableCharacters.
+    Assert-NoStrayEliza
+
     # A checkout that once built with -Resident Nia keeps her staged under Content\ (the folder is
     # gitignored, not deleted). It is not referenced by a Mannequin or MetaHuman map and not cooked --
     # DefaultGame.ini cooks only /Game/Maps/CompanionStage and what it references -- but say so, so
@@ -251,6 +316,29 @@ function Invoke-StageAuthoring {
         }
         Write-Host ('Resident: Mannequin (default). A placeholder with no facial rig: no lip-sync or ' +
                     'expression until a resident licensed for AI use replaces it (README.md "Licensing").') -ForegroundColor Cyan
+    }
+    elseif ($Resident -eq 'Eliza') {
+        $eliza = if ($ElizaContent) { $ElizaContent } elseif ($env:MHLLM_ELIZA_CONTENT) { $env:MHLLM_ELIZA_CONTENT }
+                 else { Join-Path (Split-Path -Parent $ProjectRoot) 'eliza-content\Eliza' }
+        $src = Join-Path $eliza 'eliza_manifest.json'
+        if (-not (Test-Path $src)) {
+            throw ("Eliza content not found: $eliza (expected eliza_manifest.json). Pass -ElizaContent <folder> " +
+                   'or set MHLLM_ELIZA_CONTENT. Her content is private and staged, never committed.')
+        }
+        $sm = Get-Content $src -Raw | ConvertFrom-Json
+        if ($ElizaVariant -and $sm.variant -ne $ElizaVariant) {
+            throw "-ElizaVariant $ElizaVariant, but $src is variant '$($sm.variant)'."
+        }
+        # /MIR, so a staged MPFB Eliza can never leave files behind under a MetaHuman one or the reverse.
+        $elizaDest = Join-Path $ProjectRoot 'Content\Eliza'
+        Write-Host "Staging Eliza ($($sm.variant) $($sm.version)) -> Content\Eliza" -ForegroundColor Cyan
+        robocopy $eliza $elizaDest /MIR /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null
+        # robocopy's exit code is a bit field: 0-7 are success, only >= 8 is a failure.
+        if ($LASTEXITCODE -ge 8) { throw "robocopy failed ($LASTEXITCODE) staging $eliza" }
+        Assert-ElizaManifest | Out-Null
+        if ($ElizaVariant) { $env:MHLLM_ELIZA_VARIANT = $ElizaVariant } else { Remove-Item Env:MHLLM_ELIZA_VARIANT -ErrorAction SilentlyContinue }
+        Write-Host ("Resident: Eliza, variant $($sm.variant) (opt-in). Made by Companion Intelligence; " +
+                    'NOTICE.md "The resident" has her licences.') -ForegroundColor Cyan
     }
     elseif ($Resident -eq 'MetaHuman') {
         # All three parts, checked up front. author_diorama.py would otherwise skip a missing FBX,
@@ -361,6 +449,10 @@ function Invoke-StageAuthoring {
     }
     elseif ($Resident -eq 'MetaHuman') {
         if (-not ($lines -match 'resident: METAHUMAN placed')) { throw "Authoring placed no complete MetaHuman resident. See $result" }
+    }
+    elseif ($Resident -eq 'Eliza') {
+        # Printed only when her manifest, mesh (or blueprint), idle and tags all checked out.
+        if (-not ($lines -match 'resident: ELIZA placed')) { throw "Authoring placed no complete Eliza. See $result" }
     }
     elseif (-not ($lines -match 'resident: MANNEQUIN placed')) {
         throw "Authoring placed no mannequin resident (the default). See $result"

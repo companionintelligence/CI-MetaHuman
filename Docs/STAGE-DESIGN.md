@@ -344,9 +344,12 @@ the operator panel on top), the 3803s, the six 729s (cream fascia, smoked reel d
 and dark take-up reel, 2700 K lamp window), the 1402, 1403, 1406, the 1407 desk and typewriter, the
 029, the Selectric II, the oscilloscope, the air unit, the desks, chairs and dressing, the storefront
 and the street. The 30 reels spin (`UTapeReelSpinner`, a quaternion about each reel's own axle), with
-their flange windows attached. The resident is Epic's mannequin as a placeholder; Reallusion Nia and
-the MetaHuman Seo are Fab content marked NoAI and stay opt-in. The cleared path is a MetaHuman
-authored in-house in MetaHuman Creator.
+their flange windows attached. The resident is Epic's mannequin as a placeholder by default. Eliza,
+the resident Companion Intelligence made for this product (her MPFB variant from CC0 assets; a
+MetaHuman variant made in MetaHuman Creator is still to come), stands on the same mark at the same
+`actorYaw` when asked for (`MHLLM_RESIDENT=eliza`, SCENE-AUTHORING.md "The resident"); she has not
+been captured on this stage. Reallusion Nia and the MetaHuman Seo are Fab content marked NoAI and stay
+opt-in.
 
 ## 10. Designed, not built
 

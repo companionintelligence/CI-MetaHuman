@@ -30,6 +30,10 @@
 			"Enabled": true
 		},
 		{
+			"Name": "LiveLink",
+			"Enabled": true
+		},
+		{
 			"Name": "OpenXR",
 			"Enabled": true
 		},

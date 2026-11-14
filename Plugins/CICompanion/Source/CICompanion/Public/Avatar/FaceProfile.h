@@ -132,10 +132,16 @@ struct CICOMPANION_API FFaceProfile
 	// Reallusion Character Creator naming (V_* viseme morphs + Jaw_/Mouth_ articulators).
 	static const FFaceProfile& CharacterCreator();
 
-	// Apple ARKit naming, as used by MetaHuman faces.
+	// Apple ARKit naming, as used by MetaHuman faces. Also what the MPFB resident "Eliza" carries as
+	// morph targets (MPFB's Faceunits 01 export), so she binds 37/37 through the morph sink.
 	static const FFaceProfile& ARKit();
 
-	// Looks up a profile by name ("CC" / "ARKit"), defaulting to CC for anything unrecognised. Which
+	// ARKit for a MetaHuman face driven over Live Link (Eliza, Phase M): ARKit without mouthClose,
+	// which PA_MetaHuman_ARKit_Mapping does not carry, with PP and NN rebuilt from press and roll
+	// curves. 38 curves.
+	static const FFaceProfile& ARKitMH();
+
+	// Looks up a profile by name ("CC" / "ARKit" / "ARKitMH"), defaulting to CC for anything unrecognised. Which
 	// name to ask for is no longer assumed here: the authored map declares its resident's rig (see
 	// UCompanionFaceSubsystem::ResolveProfileName) -- ARKit for the opt-in MetaHuman resident, CC
 	// for the opt-in Reallusion "Nia". The default mannequin has no facial rig and declares none.
