@@ -304,9 +304,11 @@ jobs:
       # as a clean checkout (no .env, which must still render) and with .env.example, which must
       # render with NO warnings -- i.e. .env.example names every variable the files interpolate
       # without a default. Rendering validates the schema, the merge and the interpolation; it
-      # starts nothing, so no image or GPU is needed. Each rendering with .env.example must also keep
-      # what the privacy policy promises (check_compose_privacy.py): capped connection logs that a
-      # recreate deletes, signalling ports on loopback, memory off, an opening line that says AI.
+      # starts nothing, so no image or GPU is needed. Both renderings must also keep what the privacy
+      # policy promises (check_compose_privacy.py): capped connection logs that a recreate deletes,
+      # signalling ports on loopback, memory off, an opening line that says AI. The one without .env
+      # is what a host whose .env lacks a key runs, and the only one where a compose default shows:
+      # .env.example sets MHLLM_MEMORY=0, which would hide a "${MHLLM_MEMORY:-1}".
       - name: Render every documented combination
         run: |
           set -euo pipefail
@@ -334,6 +336,9 @@ jobs:
             fi
             docker compose --env-file .env.example "${files[@]}" config --format json \
               | python3 check_compose_privacy.py "$combo" || status=1
+            # Its warnings are the first rendering's, printed above.
+            docker compose "${files[@]}" config --format json 2> /dev/null \
+              | python3 check_compose_privacy.py "$combo, without .env" || status=1
           done
           exit "$status"
 

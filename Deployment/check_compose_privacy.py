@@ -2,7 +2,10 @@
 """Check what the privacy policy promises about a rendered compose stack.
 
 Reads `docker compose ... config --format json` on stdin; the argument names the combination for
-the messages. Exits 1, with one GitHub annotation per problem, unless:
+the messages. checks.yml runs it on two renderings of each combination: with --env-file .env.example,
+and with no env file at all, which is what a host whose .env lacks a key runs and the only one where
+a compose default shows (.env.example sets MHLLM_MEMORY=0, which would hide "${MHLLM_MEMORY:-1}").
+Exits 1, with one GitHub annotation per problem, unless:
 
 - coturn, the signalling server and the OIDC gate, whose logs carry viewers' network addresses and
   signed-in email addresses, log to Docker's "local" driver with a size cap, so that recreating
