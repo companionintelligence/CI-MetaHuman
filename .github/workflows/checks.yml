@@ -156,6 +156,23 @@ jobs:
           [ "$status" -eq 0 ] && echo "CREDITS.md, NOTICE.md and credits.html name the same $(wc -l < "$work/CREDITS.md.txt") CC BY models; CREDITS.md and credits.html carry the Unreal Engine notices ($years)"
           exit "$status"
 
+      # A font asset must not ship a machine path. An imported UFontFace records the file it came
+      # from, in SourceFilename and again in its AssetImportData tag, and the cook ships that record:
+      # f1e06c4's faces named the importing user's profile folder. check_font_sources.py fails on a
+      # Content/Fonts/*.uasset whose recorded source is anything but the file name of a font beside
+      # it, or that holds anything path-like; its tests run first. Every checkout here skips Git LFS
+      # (the stub-map gate in `pins` relies on it), so those assets are pointers: the step fetches
+      # just their objects, without credentials as the repository is public, and the check fails on
+      # a pointer (NOT CHECKED) instead of passing it.
+      - name: Font assets record no machine path
+        run: |
+          set -euo pipefail
+          python -I Deployment/test_check_font_sources.py
+          git lfs install --local
+          git lfs pull --include='Content/Fonts/*.uasset' \
+            || { echo "::error::git lfs pull of Content/Fonts/*.uasset failed, so their sources were NOT checked"; exit 1; }
+          python -I Deployment/check_font_sources.py .
+
   kokoro-align:
     name: kokoro-align lock and smoke test
     runs-on: ubuntu-24.04
