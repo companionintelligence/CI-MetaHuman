@@ -180,7 +180,7 @@ Seo is also unfinished: no idle, flat skin, and an `ARKit` mapping never checked
 
 ## Licensing
 
-CI-MetaHuman's first-party code is free for noncommercial use under the [PolyForm Noncommercial License 1.0.0](LICENSE). See the [License FAQ](Docs/License-FAQ.md). The exception is the four Blender scripts that import Blender's Python API (`Deployment/blender/make_period_props.py`, `Deployment/blender/make_ibm729.py`, `Deployment/blend_fix_mats.py` and `Deployment/ue_prop_fbx.py`): they are GPL-3.0-or-later, as their headers state. Epic Games Unreal Engine and MetaHuman assets are **not** covered by this license; they remain under Epic's EULA terms (see [NOTICE.md](NOTICE.md)).
+CI-MetaHuman's first-party code is free for noncommercial use under the [PolyForm Noncommercial License 1.0.0](LICENSE). See the [License FAQ](Docs/License-FAQ.md). The exception is the five Blender scripts that import Blender's Python API (`Deployment/blender/make_period_props.py`, `Deployment/blender/make_ibm729.py`, `Deployment/blender/previz_diorama.py`, `Deployment/blend_fix_mats.py` and `Deployment/ue_prop_fbx.py`): they are GPL-3.0-or-later, as their headers state. Epic Games Unreal Engine and MetaHuman assets are **not** covered by this license; they remain under Epic's EULA terms (see [NOTICE.md](NOTICE.md)).
 
 This section is the engineering record of what was checked and why the build behaves as it does.
 The licensing record itself is three files, kept in step with each other and with this section:

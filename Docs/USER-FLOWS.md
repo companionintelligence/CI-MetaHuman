@@ -35,17 +35,19 @@ sequenceDiagram
     participant RT as RuntimeSubsystem
     participant E as Eliza
 
+    Note over SD: until a session starts: the lobby still (VITRINE), nothing spoken
     V->>PG: open :8090
     PG->>PG: force HoveringMouse=true before player.js parses
     PG->>PS: negotiate, ~10s
-    Note over SD: MHLLM_OPENING_DELAY holds 3s<br/>before the first-load tour
+    PS->>SD: OnDataTrackOpenNative: the viewer is here, the session starts
+    Note over SD: the lobby still is held 3s more<br/>(MHLLM_OPENING_DELAY; 0.3s after a key or click)
     alt MHLLM_OPENING_SHOT is unset or 1
-        SD->>SD: Six-key cubic tour — 11s through the hall
-        SD->>SD: Turn — settle into the call framing
+        SD->>SD: Cut inside, ARRIVAL walk-in ~5.6s; "Oh, hello." on the way
+        SD->>SD: She turns back to the lens; Settle on HOME
         SD->>E: SpeakLiteral, the fixed brand line
         SD->>SD: Live
     else MHLLM_OPENING_SHOT=0
-        SD->>SD: park on the solved framing immediately, Live
+        SD->>SD: One cut to HOME; greeting, line, Live
     end
     V->>PG: types with no click at all
     PG->>RT: KEY_DOWN, KEY_PRESSED, KEY_UP on Slate user 0
@@ -60,13 +62,14 @@ sequenceDiagram
 
 | Beat | What happens |
 |---|---|
-| `Flythrough` | camera follows a six-key cubic path from the glass entry, through the cabinet rows, to the resident; `MHLLM_FLY_SECONDS` defaults to 11.0 |
-| `Turn` | settles into the solved call framing |
+| `Flythrough` | the lobby still (VITRINE) is held, then a flagged cut into ARRIVAL: a walk-in at her eye height, timed for the measured resident (~5.6 s for 170 cm; `MHLLM_FLY_SECONDS` caps it). "Oh, hello." plays on the way, and she turns back 30 degrees after the look-up. Shots and beats come from `Deployment/stage_layout.json` through `DefaultGame.ini` (Docs/STAGE-DESIGN.md); with no stage section, the old six-key path flies instead |
+| `Settle` | the move has landed on HOME; the frame holds until the turn-yield line |
 | `Speak` | calls `SpeakLiteral(MHLLM_OPENING_LINE)` |
 | `Live` | camera parks; ordinary conversation from here |
 
-*(`EStageBeat::Settle` is declared but never assigned — `Flythrough` transitions straight to
-`Turn`.)*
+*(The data-driven opening goes `Flythrough`, `Settle`, `Live`; the built-in path `Flythrough`,
+`Turn`, `Speak`, `Live`. `UCompanionStageDirector::BeatAt` gives the beat at any time, and the specs
+assert the order.)*
 
 Three deliberate choices:
 
@@ -78,10 +81,16 @@ Three deliberate choices:
   handler directly. That drove the visemes perfectly and skipped `TextToSpeech->Speak` entirely, so
   the opening mouthed the brand line while the audio track carried digital silence.
   *"Same handler" was true of the face and false of the voice.*
-- **The camera tours on first load.** `MHLLM_OPENING_SHOT` defaults on so a new level opens with
-  the storefront-to-resident move. Set it to `0` for a static call frame; a typo also fails closed
-  to static. `MHLLM_OPENING_REPLAY=N` remains an optional attract loop for late stream viewers.
-- Typing a turn calls `Stage->SkipToLive()` — a visitor who starts talking wins over the cinematic.
+- **The opening plays once per session, to someone.** A streamed process holds the lobby still,
+  silent, until a viewer's data channel opens, and goes back to it when the last viewer leaves; a
+  kiosk or a native window starts at load (`MHLLM_OPENING_TRIGGER=load|viewer` overrides the choice,
+  which follows whether the command line names a Pixel Streaming server). `MHLLM_OPENING_SHOT` defaults
+  on (the storefront-to-resident move); `0` is the reduced-motion path (one cut to HOME); a typo fails
+  closed to it. `MHLLM_OPENING_REPLAY=N` is a kiosk reset after N s idle, never with a viewer connected.
+- **Any key, click or Esc settles the opening** (Docs/STAGE-DESIGN.md section 4, design 3.2). In the
+  lobby it starts the session; during the move it cuts to HOME at once, dropping the turn-yield line
+  (Esc keeps it). A turn typed during the move cuts to HOME and she answers; typed in the lobby, it is
+  held and answered when the move lands.
 
 ### 2.2 What a visitor can actually do
 
@@ -91,7 +100,7 @@ Three deliberate choices:
 | Click the box, then type | ✅ | Requires the pointer-lock fix, §3 |
 | Press **Send** with the mouse | ✅ | Fires on `MouseDown`, not on a captured press-and-release |
 | Click somewhere useless, then type | ✅ | Recovered by the focus guard. Before it, one stray click bricked the session |
-| Type `/console` or `/settings` | ✅ | Intercepted **before** the LLM sees it; opens the operator console |
+| Type `/console` or `/settings` | operator only | Intercepted **before** the LLM sees it. Opens the operator console in a native window or a kiosk; a streamed process ignores it unless `MHLLM_CONSOLE_COMMAND=1`, because every stream visitor types into that box |
 | Speak into a mic | ❌ | `OnMicToggled` is exposed by the HUD and bound by nobody |
 | Look around | ❌ by default | `MHLLM_FREE_LOOK=1` hands input to the pawn — and then any viewer can drag the shot off the subject |
 | Resize the composition | partial | `?MatchViewportRes=true` makes UE re-render at the browser viewport. **The trade is real**: in a landscape window a composed portrait call becomes a wide shot with a small subject |
@@ -208,7 +217,8 @@ edit the settings through the operator console at runtime.
 
 ## 5. The operator console
 
-`/console` or `/settings` in the chat box, or `MHLLM_CONSOLE=1` at startup.
+`/console` or `/settings` in the chat box (a native window or a kiosk, or a stream with
+`MHLLM_CONSOLE_COMMAND=1`), or `MHLLM_CONSOLE=1` at startup.
 
 > Everything here is **live**: changing the voice affects the next utterance, muting the music takes
 > effect immediately. That is the point — the alternative is a 25-minute cook to hear a different

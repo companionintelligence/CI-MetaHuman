@@ -29,14 +29,16 @@ services:
       # Facial expression. UEmotionMapper reads the reply text and the face holds the result as a
       # sustained brow/cheek/eye bias COMPOSITED OVER the visemes -- it never competes with them for
       # the mouth. ON unless explicitly set to 0: an expressionless face is the regression, so the
-      # kill switch is opt-OUT; the opening camera tour now runs by default on level load.
+      # kill switch is opt-OUT; the opening move now plays by default, once per viewer.
       # Set to 0 to isolate a lip-sync problem from an expression problem in a capture.
       MHLLM_EMOTION: "${MHLLM_EMOTION:-1}"
 
       # Operator console. Hidden by default so the opening reads as a brand moment rather than a
-      # settings screen; "/console" in the chat box toggles it at any time. Set to 1 to start it
-      # open, which is what a kiosk operator (or a screenshot) wants.
+      # settings screen. Set to 1 to start it open, which is what a kiosk operator (or a screenshot)
+      # wants. "/console" in the chat box toggles it only with MHLLM_CONSOLE_COMMAND=1 here: this
+      # process streams, and every visitor types into that box.
       MHLLM_CONSOLE: "${MHLLM_CONSOLE:-0}"
+      MHLLM_CONSOLE_COMMAND: "${MHLLM_CONSOLE_COMMAND:-}"
 
       # Cognition runs on BETA-1, not this box. core-2 is a Strix Halo iGPU and the best it
       # manages is gemma4:e2b at ~12s per reply -- not a conversation. beta-1 has two discrete
@@ -105,15 +107,17 @@ services:
       # also say it for as long as the stream runs (SCompanionAiNotice, patch_pixelstreaming_player.py).
       MHLLM_OPENING_LINE: "${MHLLM_OPENING_LINE:-Welcome to Companion Intelligence. I'm Eliza, an AI. How can I help you?}"
       MHLLM_FLY_SECONDS: "${MHLLM_FLY_SECONDS:-11.0}"
-      # Held before the move starts. Pixel Streaming clients take ~10s to negotiate, so with no
-      # delay the opening plays to an empty room and every real visitor arrives after it.
+      # The opening waits for its viewer: with -PixelStreamingUrl on the command line the room holds
+      # the lobby still, silent, until a viewer's data channel opens, plays the opening for them, and
+      # goes back to the lobby when the last viewer leaves (MHLLM_OPENING_TRIGGER=load|viewer forces
+      # either). This is how long the lobby still is held once the viewer is there.
       MHLLM_OPENING_DELAY: "${MHLLM_OPENING_DELAY:-3.0}"
-      # Attract loop: replay the opening every N seconds while idle. 0 = once only. A live stream
-      # has no other way to show its opening to someone who connects late.
+      # Kiosk reset: replay the opening after N seconds without input, only with no viewer connected.
+      # 0 = off. A stream needs none: every viewer gets the opening.
       MHLLM_OPENING_REPLAY: "${MHLLM_OPENING_REPLAY:-0}"
 
-      # Tour the datacenter on level load, then settle on the resident. Set to 0 for a static
-      # call frame; an explicit 1 also enables the tour.
+      # The opening move each session, then the resident's HOME framing. Set to 0 for the
+      # reduced-motion path (one cut to HOME); an explicit 1 also enables the move.
       MHLLM_OPENING_SHOT: "${MHLLM_OPENING_SHOT:-1}"
 
       # Free-look is opt-in for the same reason: with it on, the GameModeBase DefaultPawn turns

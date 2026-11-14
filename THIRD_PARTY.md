@@ -95,12 +95,13 @@ in [NOTICE.md](NOTICE.md).
 
 | Tool | Used for | Licence | Effect on this repository |
 |---|---|---|---|
-| Blender 5.1 | runs `Deployment/blender/make_period_props.py`, `Deployment/blender/make_ibm729.py`, `Deployment/blend_fix_mats.py` and `Deployment/ue_prop_fbx.py` on a workstation to make the prop GLBs; not shipped | GPL-3.0-or-later | The four scripts import Blender's Python API, so they are GPL-3.0-or-later rather than PolyForm Noncommercial. See [NOTICE.md](NOTICE.md) |
+| Blender 5.1 | runs `Deployment/blender/make_period_props.py`, `Deployment/blender/make_ibm729.py`, `Deployment/blend_fix_mats.py` and `Deployment/ue_prop_fbx.py` on a workstation to make the prop GLBs, and `Deployment/blender/previz_diorama.py` to previsualise the stage; not shipped | GPL-3.0-or-later | The five scripts import Blender's Python API, so they are GPL-3.0-or-later rather than PolyForm Noncommercial. See [NOTICE.md](NOTICE.md) |
 
 ### 3D assets
 
 The machine-room props are listed with their licences and attributions in
-[CREDITS.md](CREDITS.md): eight Sketchfab models under CC BY 4.0 and four CI-authored props.
+[CREDITS.md](CREDITS.md): the five Sketchfab models under CC BY 4.0 that the stage places, and the
+four CI-authored props.
 <!-- end hand-authored -->
 
 ---

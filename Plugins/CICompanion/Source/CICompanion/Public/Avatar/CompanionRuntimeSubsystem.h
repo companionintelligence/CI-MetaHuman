@@ -2,7 +2,9 @@
 
 #include "CoreMinimal.h"
 #include "Subsystems/WorldSubsystem.h"
+#include "Templates/Function.h"
 #include "Voice/VisemePlanner.h"
+#include "Avatar/CompanionSetState.h"
 #include "CompanionRuntimeSubsystem.generated.h"
 
 class AMetaHumanCompanionCharacter;
@@ -97,6 +99,17 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM")
 	void ResetForNextViewer();
 
+	// What the visitor sees her doing, for the set to show it (design 10.7): Speaking while her
+	// voice plays, Thinking while a turn is with the model, Listening while the visitor has text in
+	// the box, else Idle. UCompanionSetStateDisplay and UTapeReelSpinner read it every tick.
+	ECompanionPresence GetPresence() const;
+
+	// Whether "/console" in the chat box may open the operator console: MHLLM_CONSOLE_COMMAND when
+	// set, else only when the process does not stream to visitors (the experience critique: any
+	// stream visitor could open it). Injectable for the specs.
+	static bool ConsoleCommandAllowed(TFunctionRef<FString(const TCHAR*)> Lookup, const TCHAR* CommandLine);
+	bool ConsoleCommandAllowed() const;
+
 private:
 	// The OnAllConnectionsClosedNative binding, removed in Deinitialize: the delegates object is a
 	// rooted singleton that outlives every world.
@@ -106,8 +119,10 @@ private:
 	void HandleHudTextSubmitted(const FString& Text);
 
 	// The presentation half of "a user turn arrived", shared by every input path so typed and spoken
-	// turns cannot drift into looking different to the viewer.
-	void AnnounceUserTurn(const FString& Text);
+	// turns cannot drift into looking different to the viewer. Returns false when the stage holds
+	// the turn (typed in the lobby: answered when the opening lands), in which case the caller must
+	// not submit it now.
+	bool AnnounceUserTurn(const FString& Text);
 
 	// Connects the HUD's mic button to the STT backend.
 	//
@@ -280,6 +295,8 @@ private:
 	// a lie if this path pretended audio had arrived.
 	bool bAudioFailed = false;
 	bool bMouthDriven = false;
+	// A turn is with the model and no reply has come back yet (GetPresence's Thinking).
+	bool bAwaitingReply = false;
 	FTimerHandle AlignmentGraceHandle;
 
 	UPROPERTY(Transient)

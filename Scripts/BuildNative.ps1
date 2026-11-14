@@ -435,7 +435,7 @@ function Invoke-StageAuthoring {
 
     if (-not (Test-Path $result)) { throw "Authoring produced no result file. See $log" }
     $lines = Get-Content $result
-    $lines | Where-Object { $_ -match 'resident|Nia:|729|placed|REFUSED|NoAI|SUCCESS|FAIL' } | ForEach-Object { "  $_" }
+    $lines | Where-Object { $_ -match 'resident|Nia:|placed|self-check|REFUSED|NoAI|SUCCESS|FAIL' } | ForEach-Object { "  $_" }
 
     # FAIL FAST, loudly, on every condition that has previously shipped an empty stage.
     if (-not ($lines -match '^SUCCESS')) { throw "Authoring did not report SUCCESS. See $log and $result" }
@@ -467,14 +467,16 @@ function Invoke-StageAuthoring {
             "'blender --background --python Deployment/blender/make_period_props.py -- --out $glb'.")
         Write-Host $script:RefusedPropsNote -ForegroundColor Yellow
     }
-    # Both of these ship in the repo now, so a miss is a regression rather than a missing optional
-    # input. They used to fail SILENTLY -- try/except around the import, no line in the result
-    # either way -- and the build went out with dead screens and a silent hall for weeks.
-    # Match the COUNT, not just the words: the authoring line reports "N of 3" precisely so this
-    # gate can tell "placed three screens" from "placed nothing and said so cheerfully".
-    if (-not ($lines -match 'CRT vector displays placed: [1-9]')) {
-        throw "Authoring placed no CRT displays (screens will read as painted plastic). See $result"
+    # The set is Deployment/stage_layout.json, and the author checks the map against it: every
+    # blockout, light, prop, TapeReel actor, attachment and TargetPoint the layout lists, each count
+    # derived from the layout rather than written down. It prints this line and stops before SUCCESS
+    # on any mismatch; the gate also catches an author too old to make the check at all.
+    if (-not ($lines -match '^self-check: .*; all counts match')) {
+        throw "Authoring did not confirm the map against stage_layout.json (self-check line missing or failed). See $result"
     }
+    # The room tone ships in the repo, so a miss is a regression rather than a missing optional
+    # input. It used to fail SILENTLY -- try/except around the import, no line in the result
+    # either way -- and the build went out with a silent hall for weeks.
     if (-not ($lines -match 'room tone placed')) {
         throw "Authoring placed no room tone (the hall will be silent). See $result"
     }

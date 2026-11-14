@@ -27,6 +27,7 @@
 #include "UObject/Class.h"
 #include "Async/Async.h"
 #include "PixelStreaming2Delegates.h"
+#include "Misc/CommandLine.h"
 
 
 
@@ -442,6 +443,14 @@ void UCompanionRuntimeSubsystem::HandleHudTextSubmitted(const FString& Text)
 	if (Trimmed.Equals(TEXT("/console"), ESearchCase::IgnoreCase)
 		|| Trimmed.Equals(TEXT("/settings"), ESearchCase::IgnoreCase))
 	{
+		// The OPERATOR console: over a stream every visitor types into this box, so there it opens
+		// only with MHLLM_CONSOLE_COMMAND=1 (or MHLLM_CONSOLE=1 at startup). A native window or a
+		// kiosk has its operator at the keyboard and keeps the command.
+		if (!ConsoleCommandAllowed())
+		{
+			UE_LOG(LogCompanionRuntime, Log, TEXT("Console command ignored: this process streams to visitors (MHLLM_CONSOLE_COMMAND=1 enables it)."));
+			return;
+		}
 		if (SettingsPanel.IsValid())
 		{
 			const bool bNowVisible = !SettingsPanel->IsPanelVisible();
@@ -457,26 +466,52 @@ void UCompanionRuntimeSubsystem::HandleHudTextSubmitted(const FString& Text)
 		return;
 	}
 
-	AnnounceUserTurn(Text);
-	SubmitUserText(Text);
+	if (AnnounceUserTurn(Text))
+	{
+		SubmitUserText(Text);
+	}
 }
 
-void UCompanionRuntimeSubsystem::AnnounceUserTurn(const FString& Text)
+bool UCompanionRuntimeSubsystem::ConsoleCommandAllowed(TFunctionRef<FString(const TCHAR*)> Lookup, const TCHAR* CommandLine)
+{
+	const FString Explicit = Lookup(TEXT("MHLLM_CONSOLE_COMMAND")).TrimStartAndEnd();
+	if (!Explicit.IsEmpty())
+	{
+		return Explicit == TEXT("1") || Explicit.Equals(TEXT("true"), ESearchCase::IgnoreCase)
+			|| Explicit.Equals(TEXT("yes"), ESearchCase::IgnoreCase) || Explicit.Equals(TEXT("on"), ESearchCase::IgnoreCase);
+	}
+	// Unset: the visitors of a streamed process never get it; an operator at the machine does.
+	return UCompanionStageDirector::ResolveTrigger(Lookup, CommandLine) != EStageTrigger::Viewer;
+}
+
+bool UCompanionRuntimeSubsystem::ConsoleCommandAllowed() const
+{
+	auto Env = [](const TCHAR* Name) { return FPlatformMisc::GetEnvironmentVariable(Name); };
+	return ConsoleCommandAllowed(Env, FCommandLine::Get());
+}
+
+bool UCompanionRuntimeSubsystem::AnnounceUserTurn(const FString& Text)
 {
 	if (Hud.IsValid())
 	{
 		Hud->AppendChatEntry(TEXT("You"), Text);
 		Hud->SetStatusText(TEXT("thinking..."));
 	}
-	// A user turn must cut the scripted opening short: making someone wait out a camera move
-	// after they have spoken is the rudest thing an assistant can do.
+	// The stage decides what a turn does to the opening (design 3.2): during the move it cuts to
+	// HOME and drops the pending lines, because making someone wait out a camera move after they
+	// have spoken is the rudest thing an assistant can do; typed in the lobby, it starts the session
+	// and the stage HOLDS it, to be answered when the move lands.
 	if (UWorld* World = GetWorld())
 	{
 		if (UCompanionStageDirector* Stage = World->GetSubsystem<UCompanionStageDirector>())
 		{
-			Stage->SkipToLive();
+			if (Stage->OnVisitorTurn(Text))
+			{
+				return false;
+			}
 		}
 	}
+	return true;
 }
 
 bool UCompanionRuntimeSubsystem::SubmitTranscribedText(const FString& Text)
@@ -508,7 +543,10 @@ bool UCompanionRuntimeSubsystem::SubmitTranscribedText(const FString& Text)
 	}
 
 	UE_LOG(LogCompanionRuntime, Log, TEXT("Transcribed turn (%d chars): %s"), Trimmed.Len(), *Trimmed.Left(160));
-	AnnounceUserTurn(Trimmed);
+	if (!AnnounceUserTurn(Trimmed))
+	{
+		return true;	// held by the stage; answered when the opening lands
+	}
 	return SubmitUserText(Trimmed);
 }
 
@@ -538,7 +576,25 @@ bool UCompanionRuntimeSubsystem::SubmitUserText(const FString& Text)
 	}
 
 	Companion->SubmitUserText(Text);
+	bAwaitingReply = true;
 	return true;
+}
+
+ECompanionPresence UCompanionRuntimeSubsystem::GetPresence() const
+{
+	if (bAudioReady && PendingAudioSeconds > 0.0f && FPlatformTime::Seconds() - AudioStartRealTime < PendingAudioSeconds)
+	{
+		return ECompanionPresence::Speaking;
+	}
+	if (bAwaitingReply)
+	{
+		return ECompanionPresence::Thinking;
+	}
+	if (Hud.IsValid() && !Hud->GetInputText().TrimStartAndEnd().IsEmpty())
+	{
+		return ECompanionPresence::Listening;
+	}
+	return ECompanionPresence::Idle;
 }
 
 void UCompanionRuntimeSubsystem::Deinitialize()
@@ -590,6 +646,7 @@ void UCompanionRuntimeSubsystem::Deinitialize()
 
 void UCompanionRuntimeSubsystem::HandleCompanionError(const FString& Message)
 {
+	bAwaitingReply = false;
 	UE_LOG(LogCompanionRuntime, Warning, TEXT("Conversation error surfaced to the HUD: %s"), *Message);
 
 	if (Hud.IsValid())
@@ -649,6 +706,7 @@ void UCompanionRuntimeSubsystem::CancelUtterance()
 
 void UCompanionRuntimeSubsystem::ResetForNextViewer()
 {
+	bAwaitingReply = false;
 	// The mouth, the alignment in flight and the grace timer: the reply being spoken is for nobody.
 	CancelUtterance();
 
@@ -850,6 +908,15 @@ void UCompanionRuntimeSubsystem::HandleSpeechAudioReady(const FString& Text, flo
 	AudioStartRealTime = FPlatformTime::Seconds();
 	bAudioReady = true;
 
+	// The stage frames long replies tighter (the CLOSE punch-in) from the moment they are heard.
+	if (UWorld* World = GetWorld())
+	{
+		if (UCompanionStageDirector* Stage = World->GetSubsystem<UCompanionStageDirector>())
+		{
+			Stage->OnReplyAudioStarted(Text, DurationSeconds);
+		}
+	}
+
 	DriveOrWaitForAlignment();
 }
 
@@ -1012,6 +1079,7 @@ void UCompanionRuntimeSubsystem::DriveMouthFromBestSource()
 
 void UCompanionRuntimeSubsystem::HandleCompanionSpoke(const FString& Text)
 {
+	bAwaitingReply = false;
 	UE_LOG(LogCompanionRuntime, Log, TEXT("Companion replied (%d chars): %s"), Text.Len(), *Text.Left(160));
 
 	if (Hud.IsValid())

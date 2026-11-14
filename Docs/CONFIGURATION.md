@@ -117,7 +117,8 @@ implies — verified by probe against a running instance, not assumed.
 |---|---|---|
 | `MHLLM_COMPANION` | *(unset = on)* | `0` disables the whole conversational brain |
 | `MHLLM_HUD` | *(unset = on)* | `0` suppresses the chat HUD |
-| `MHLLM_CONSOLE` | `0` | `1` opens the operator console at startup. `/console` toggles it live |
+| `MHLLM_CONSOLE` | `0` | `1` opens the operator console at startup. `/console` toggles it live where the command is allowed (`MHLLM_CONSOLE_COMMAND`) |
+| `MHLLM_CONSOLE_COMMAND` | auto | Whether `/console` (or `/settings`) typed in the chat box opens the operator console. Unset: yes in a native window or a kiosk, no in a process that streams to visitors (any visitor types into that box). `1` gives it to a stream operator; `0` takes it away everywhere |
 | `MHLLM_GREETING` | `none` | An LLM-generated opening turn on a 5 s timer. **Default `none`** because the opening is now scripted, and two greetings collide |
 | `MHLLM_FACE_PROFILE` | *(empty)* | `CC` = Reallusion Character Creator; `ARKit` = MetaHuman. **The two share no curve names** — anything unrecognised silently becomes `CC`. Empty means *the rig the map declares*: the resident's `FaceProfile=` tag (`ARKit` on the opt-in MetaHuman, `CC` on Nia), and `CC` for a map authored before that tag existed or for the default mannequin, which has no rig and resolves nothing either way. It used to be a hard-coded `CC` |
 | `MHLLM_FACE_SELFTEST` | `0` (hard-coded) | Cycles all 15 visemes. Off deliberately: with it on the mouth moves whether or not the LLM ever replies, masking the exact failure the deployment exists to expose |
@@ -150,11 +151,15 @@ would be silently ignored on every machine that had already held one conversatio
 
 | Variable | Compose default | Effect |
 |---|---|---|
-| `MHLLM_OPENING_SHOT` | `1` | Plays the datacenter tour on level load, then lands on the resident. Set `0`/`false` for a static call frame; empty/unset uses the tour default |
-| `MHLLM_OPENING_LINE` | `Welcome to Companion Intelligence. I'm Eliza, an AI. How can I help you?` | Spoken **verbatim**, never generated |
-| `MHLLM_OPENING_DELAY` | `3.0` | Held before the move. Pixel Streaming clients take ~10 s to negotiate |
-| `MHLLM_FLY_SECONDS` | `11.0` | Flythrough duration |
-| `MHLLM_OPENING_REPLAY` | `0` | Attract-loop period in seconds; `0` = once only |
+| `MHLLM_OPENING_SHOT` | `1` | The opening each session plays: the lobby still, a cut inside, the ARRIVAL walk-in, the HOME framing (Docs/STAGE-DESIGN.md). Set `0`/`false` for the reduced-motion path: the lobby still, one cut to HOME, the greeting and the line after it, no breathing; empty/unset uses the default |
+| `MHLLM_OPENING_TRIGGER` | auto | What starts a session. `viewer`: the first Pixel Streaming viewer's data channel opening (the room holds the lobby still, silent, until then, and returns to it when the last viewer leaves). `load`: the level load (a kiosk or a native window). Unset: `viewer` when the command line names a Pixel Streaming server (`-PixelStreamingURL=`), else `load`. A key, click or Esc in the lobby also starts one |
+| `MHLLM_OPENING_LINE` | `Welcome to Companion Intelligence. I'm Eliza, an AI. How can I help you?` | Spoken **verbatim**, never generated. Unset or empty (a process started without the face stack's compose file: a native window, a kiosk, an editor capture), the stage director speaks its built-in line, the same words (`UCompanionStageDirector::DefaultOpeningLine`; `CompanionStageSpec` fails if the two drift apart) |
+| `MHLLM_OPENING_DELAY` | `3.0` | How long the lobby still is held after a session starts, before the cut inside (overrides `HoldSeconds` from the stage layout). It counts from the viewer's arrival on a stream, so it no longer has to cover the ~10 s a Pixel Streaming client takes to negotiate; a key or click in the lobby makes it 0.3 s |
+| `MHLLM_FLY_SECONDS` | `11.0` | A cap on the opening move's derived duration (the stage layout's 8 s otherwise). It never shortens the move below its comfort floor: a cap under it is logged and ignored, so the compose default of 11 changes nothing. With no stage section in `DefaultGame.ini` it is the built-in flythrough's duration, as before |
+| `MHLLM_STAGE_DOF` | `1` | Depth of field on the stage CineCamera (manual focus on her eyes at the shot's aperture). `0` disables it if the stream host cannot afford it |
+| `MHLLM_STAGE_SHIFT_SIGN` | `1` | `-1` flips the sign of the sensor shift that holds her eyes at their screen position, if a captured frame shows them on the wrong side (the default was confirmed over a local Pixel Streaming connection on 13 November 2026: horizon at 0.333-0.338 of the frame height, verticals within 0.06 degrees) |
+| `MHLLM_OPENING_REPLAY` | `0` | Kiosk reset: replay the opening after this many seconds without input, and only with no stream viewer connected (never during a session); `0` = off |
+| `MHLLM_STAGE_BREATHING` | `1` | `0` stops the rotation-only breathing of the held shots (the lobby still, HOME, CLOSE; at most 0.15 deg). Reduced motion turns it off too |
 | `MHLLM_FREE_LOOK` | `0` | **Opt-in.** `1` hands input to the `DefaultPawn` — and then any stream viewer can drag the shot off the subject. Note it also has to move the *view target*: un-ignoring input while the view stays welded to a static camera actor is why this switch once read as inert |
 
 ---
@@ -171,6 +176,7 @@ would be silently ignored on every machine that had already held one conversatio
 | `MHLLM_AUDIO_DIR` | `/audio` | `Deployment\audio` |
 | `MHLLM_GEN_DIR` | `MHLLM_GLB_DIR` | `Deployment\generated` |
 | `MHLLM_AUTHOR_RESULT` | `/out/AUTHOR_RESULT.txt` | `Saved\AUTHOR_RESULT.txt`. Either way every line also goes to `Content/AUTHOR_RESULT.txt`, beside the map, for the image builds' `CHECK_MAP` and `-SkipAuthoring` |
+| `MHLLM_STAGE_LAYOUT` | `stage_layout.json` beside the script | `Deployment\stage_layout.json`. The set, its shots and its beats; `Deployment/stage_layout.py` writes the shots and beats into `Config/DefaultGame.ini` for the stage director |
 | `MHLLM_NIA_CONTENT` | — | `..\CharacterCreatorNia\Content\CC_ControlRig_Nia` or `-NiaContent`; read only with `-Resident Nia` |
 
 ---
