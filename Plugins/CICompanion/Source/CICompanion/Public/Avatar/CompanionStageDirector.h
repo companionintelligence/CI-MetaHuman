@@ -183,6 +183,16 @@ public:
 	// -PixelStreamingSignallingURL=) and LOAD when it does not.
 	static EStageTrigger ResolveTrigger(TFunctionRef<FString(const TCHAR*)> Lookup, const TCHAR* CommandLine);
 
+	// The line she speaks as the stage hands over to live conversation, verbatim and never
+	// generated. Where MHLLM_OPENING_LINE is unset or empty it is this one: the face stack's compose
+	// default word for word (docker-compose.face.yml), so it says she is an AI (EU AI Act Art. 50(1))
+	// however the process was started.
+	static constexpr const TCHAR* DefaultOpeningLine = TEXT("Welcome to Companion Intelligence. I'm Eliza, an AI. How can I help you?");
+
+	// MHLLM_OPENING_LINE as given, else DefaultOpeningLine.
+	static FString ResolveOpeningLine(TFunctionRef<FString(const TCHAR*)> Lookup);
+	static FString ResolveOpeningLine();
+
 	// Design 3.2: what one input does in one phase. SecondsUntilGreeting is how far off "Oh, hello."
 	// still is (negative: already given, or none).
 	static FStageInputResponse RespondToInput(EStagePhase Phase, EStageInput Input, float SecondsUntilGreeting);

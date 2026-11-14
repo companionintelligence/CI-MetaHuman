@@ -13,6 +13,8 @@
 #include "Engine/TargetPoint.h"
 #include "Engine/World.h"
 #include "GameFramework/DefaultPawn.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
 #include "UObject/Package.h"
 #include "UObject/UnrealType.h"
 
@@ -210,6 +212,47 @@ void FCompanionStageSpec::Define()
 			Env.Add(TEXT("MHLLM_OPENING_SHOT"), TEXT("1"));
 			TestTrue("shot on", UCompanionStageDirector::ShouldPlayOpeningShot(MakeLookup(Env)));
 			TestFalse("look still locked", UCompanionStageDirector::ShouldAllowFreeLook(MakeLookup(Env)));
+		});
+	});
+
+	// The line she speaks as the stage hands over. She introduces herself with a human name, so the
+	// line says what she is (EU AI Act Art. 50(1)) wherever it comes from: the face stack's compose
+	// default, or the director's own when a process is started without MHLLM_OPENING_LINE (a native
+	// window, a kiosk, an editor capture). The two are the same words.
+	Describe("the opening line", [this, MakeLookup]()
+	{
+		It("says she is an AI when nothing is configured", [this, MakeLookup]()
+		{
+			TMap<FString, FString> Env;
+			const FString Line = UCompanionStageDirector::ResolveOpeningLine(MakeLookup(Env));
+			TestEqual("the built-in line, word for word", Line,
+				FString(TEXT("Welcome to Companion Intelligence. I'm Eliza, an AI. How can I help you?")));
+			TestEqual("is the named default", Line, FString(UCompanionStageDirector::DefaultOpeningLine));
+
+			// A compose file interpolates an unset key to an empty string.
+			Env.Add(TEXT("MHLLM_OPENING_LINE"), TEXT(""));
+			TestEqual("empty is unset", UCompanionStageDirector::ResolveOpeningLine(MakeLookup(Env)), Line);
+		});
+
+		It("speaks MHLLM_OPENING_LINE verbatim", [this, MakeLookup]()
+		{
+			TMap<FString, FString> Env;
+			Env.Add(TEXT("MHLLM_OPENING_LINE"), TEXT("Hello. I'm an AI at the front desk."));
+			TestEqual("the operator's line", UCompanionStageDirector::ResolveOpeningLine(MakeLookup(Env)),
+				FString(TEXT("Hello. I'm an AI at the front desk.")));
+		});
+
+		It("is the face stack's compose default", [this]()
+		{
+			const FString Compose = FPaths::Combine(FPaths::ProjectDir(), TEXT("Deployment/docker-compose.face.yml"));
+			FString Source;
+			if (!FFileHelper::LoadFileToString(Source, *Compose))
+			{
+				AddInfo(FString::Printf(TEXT("%s is not here; the literal above pins the words instead."), *Compose));
+				return;
+			}
+			TestTrue("the compose default and the built-in line say the same thing",
+				Source.Contains(FString::Printf(TEXT("${MHLLM_OPENING_LINE:-%s}"), UCompanionStageDirector::DefaultOpeningLine)));
 		});
 	});
 

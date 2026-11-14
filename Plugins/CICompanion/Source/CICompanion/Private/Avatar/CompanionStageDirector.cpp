@@ -209,6 +209,19 @@ bool UCompanionStageDirector::ShouldAllowFreeLook()
 	return ShouldAllowFreeLook(Env);
 }
 
+FString UCompanionStageDirector::ResolveOpeningLine(TFunctionRef<FString(const TCHAR*)> Lookup)
+{
+	// Verbatim: an operator's line is spoken as written, padding and all (CICompanionEnv::Get's rule).
+	const FString Value = Lookup(TEXT("MHLLM_OPENING_LINE"));
+	return Value.IsEmpty() ? FString(DefaultOpeningLine) : Value;
+}
+
+FString UCompanionStageDirector::ResolveOpeningLine()
+{
+	auto Env = [](const TCHAR* Name) { return FPlatformMisc::GetEnvironmentVariable(Name); };
+	return ResolveOpeningLine(Env);
+}
+
 EStageTrigger UCompanionStageDirector::ResolveTrigger(TFunctionRef<FString(const TCHAR*)> Lookup, const TCHAR* CommandLine)
 {
 	const FString Value = Lookup(TEXT("MHLLM_OPENING_TRIGGER")).TrimStartAndEnd();
@@ -1154,7 +1167,7 @@ void UCompanionStageDirector::FinishOpening()
 		}
 		else
 		{
-			SpokenLine = CICompanionEnv::Get(TEXT("MHLLM_OPENING_LINE"), TEXT("Welcome to Companion Intelligence, I'm Eliza. How can I help you?"));
+			SpokenLine = ResolveOpeningLine();
 			Speak(SpokenLine, TEXT("Opening line"));
 		}
 	}
