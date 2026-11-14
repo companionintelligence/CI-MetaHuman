@@ -16,8 +16,8 @@ connects, a kiosk starts at load, and any key, click or Esc follows design 3.2 (
 the room already answers her state (the INQUIRY lamp, a 3420's reels, the clock on host time;
 section 10). Still designed but not built: the CI lobby page and its "Step inside" gesture, the DOM
 captions, the rest of the set's responses, her head look-at (section 10). The opening has been
-watched over a local Pixel Streaming connection (section 11); the stream does not reach 60 fps yet,
-and the sign-off step is still a 60 fps capture.
+watched over a local Pixel Streaming connection (section 11): the stream does not reach 60 fps yet,
+in portrait the chat HUD covers her face, and the sign-off step is still a 60 fps capture.
 
 ## 1. The idea
 
@@ -418,18 +418,29 @@ HOME capture puts it. Three faults showed only there, and are fixed: the HUD's b
 garbage collected a minute after load, which crashed the game at her greeting; GameModeBase's
 DefaultPawn stood at the PlayerStart on the HOME camera, a grey ball in the lobby still and in the lens
 at the end of the move; and a viewer's "Match viewport resolution" turned the game portrait without
-the director taking the portrait shots. Depth of field costs less than the frame-to-frame noise of
-`stat unit` (GPU 2.8-3.0 ms with it, 3.0-3.4 ms without, at the 72.9 % render resolution, 1400 x 788,
-the project's desktop screen percentage gives a 1080p frame). The stream does not reach 60 fps: on a
-loopback connection the VP8 software encoder spends 17-25 Mbit/s at quantizer 0 and delivers 26-51 fps
-in the lobby still, 10-35 during the move and 6-23 on HOME; capping the encoder's quality at 80 from
-the player gave 47-54 fps on HOME. In landscape the floor never enters the move's frame; the
-perforated panels read flat in the lobby still and keep their grid without moire in the portrait move.
+the director taking the portrait shots. A fourth is open: in portrait the HUD's chat panel, about
+58 % of the frame's width, covers her face in every phase (the lobby still, the move and HOME), and
+the HUD is on by default in the streamed deployment (no compose file sets `MHLLM_HUD`). It stays so
+until the DOM UI's per-shot zones (section 10) are built. The readings do not resolve what depth of
+field costs: two runs with the HUD off (`MHLLM_HUD=0`), one `stat unit` frame read at each of seven
+moments (one in the lobby still, three in the move, three on HOME) at the 72.9 % render resolution
+(1400 x 788) the project's desktop screen percentage gives a 1080p frame, show a GPU time of 2.61 ms
+in the lobby still, 2.76, 2.85 and 2.93 ms in the move and 2.94, 2.95 and 2.95 ms on HOME with it,
+and 4.52, 2.99, 3.05, 3.07, 3.06, 3.35 and 3.12 ms at about the same moments without it. Every
+reading without it is the higher one, so the difference between the two runs hides whatever it
+costs. The stream does not reach 60 fps: on a loopback connection the VP8 software encoder spends
+17-25 Mbit/s at quantizer 0 and delivers 26-51 fps in the lobby still, 10-35 during the move and
+6-23 on HOME. Setting the player's max bitrate to 40000 and its max quality to 80, the two together
+(the encoder then held quantizer 12), gave 29-54 fps on HOME over the 20 s it ran (median 42), about
+30-38 once settled. The perforated panels read flat in the lobby still and kept their grid without
+moire in the portrait move, which ran at quantizer 4 to 0.
 
-Not verified: the CLOSE punch-in (it needs a voice), the cost of reflections, a cooked Shipping build,
-and the real 3420, 3803, 729, 1402, 1403, 1406, 1407 and 029 meshes. **Before sign-off, capture a 60
-fps loop of ARRIVAL and HOME from the real stream, watch it full screen, and check VITRINE and HOME
-against the previz's VITRINE and HOME frames.**
+Not verified: the input routing on a live stream (a key or click in the lobby, Esc during the move:
+unit-tested, but no stream run sent one), the CLOSE punch-in (it needs a voice), VP8 artefacts on the
+moving floor under a bandwidth cap, the cost of reflections, a cooked Shipping build, and the real
+3420, 3803, 729, 1402, 1403, 1406, 1407 and 029 meshes. **Before sign-off, capture a 60 fps loop of
+ARRIVAL and HOME from the real stream, watch it full screen, and check VITRINE and HOME against the
+previz's VITRINE and HOME frames.**
 
 Open owner decisions: the crane (+54 cm, default off); when to enable the cutaways and FRIEZE; the
 GDD amendments in the design record; rendering the lobby still at build time; the character and
