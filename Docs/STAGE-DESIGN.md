@@ -158,7 +158,9 @@ portrait. The camera stays level (pitch 0, roll 0) and composes her eyes with se
 resident-frame key is (r, theta, dz): r from her eye anchor E, theta from her home facing toward her
 left, dz above her eyes; r and dz scale with stature. The director picks `<SHOT>_PORTRAIT` when the
 viewport is portrait, and re-solves the plan when the viewport turns at runtime (a stream viewer's
-"Match viewport resolution" resizes the game long after BeginPlay).
+"Match viewport resolution" resizes the game long after BeginPlay), re-framing the lobby still, the
+move or the held HOME or CLOSE with a flagged cut. `CompanionStageSpec` drives that re-plan in the
+lobby, mid-move and in CLOSE.
 
 | Shot | Lens | Camera | Eyes on screen | Use |
 |---|---|---|---|---|
@@ -397,8 +399,8 @@ stands upright with a light front panel, the mouse is whole and wooden, and the 
 string's street end is lit. Recaptured with the props at full detail: the 1401 console beside her
 shoulder in HOME and CLOSE shows square lamps in rows and round knobs, the 3277's knob is round and
 its indicator a bar, and the 1401 nameplate is a clean plate (before, the Nanite fallback drew
-triangles, pinwheels, a pentagon, a wedge and a smear). The specs pass in the editor (49
-`MetaHumanLocalLLM.Frontend.CompanionStage` specs, 373 of 373 plugin specs). The perforated panels'
+triangles, pinwheels, a pentagon, a wedge and a smear). The specs pass in the editor (52
+`MetaHumanLocalLLM.Frontend.CompanionStage` specs, 385 of 385 plugin specs). The perforated panels'
 3 cm grid was checked for aliasing: at full contrast the panels a few metres out aliased into a moire
 in a still capture, so the holes are a mid grey and `M_StageTile` fades a grid finer than about five
 pixels to its average; in a recapture the near panels keep their perforation and the far ones read

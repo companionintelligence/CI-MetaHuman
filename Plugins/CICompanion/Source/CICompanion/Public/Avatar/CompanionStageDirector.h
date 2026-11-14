@@ -221,6 +221,10 @@ public:
 	// area (a viewport not laid out yet) keeps the current answer.
 	static bool IsPortraitViewport(const FVector2D& Size, bool bCurrent);
 
+	// CompanionStageSpec drives ReplanForViewport on a director begun in a bare game world, and reads
+	// the camera and the state the re-plan changes.
+	friend class FCompanionStageSpec;
+
 private:
 	void LockPlayerView();
 	// HideStandInPawn on the local player's pawn, retried briefly while the pawn has not arrived.

@@ -2,9 +2,15 @@
 #include "Avatar/CompanionStageDirector.h"
 #include "Avatar/CompanionStagePath.h"
 #include "Avatar/CompanionSetState.h"
+#include "Avatar/CompanionFaceSubsystem.h"
 #include "Avatar/CompanionRuntimeSubsystem.h"
 #include "Avatar/TapeReelSpinner.h"
 #include "Settings/CompanionStageSettings.h"
+#include "CineCameraActor.h"
+#include "CineCameraComponent.h"
+#include "Components/SceneComponent.h"
+#include "Engine/Engine.h"
+#include "Engine/TargetPoint.h"
 #include "Engine/World.h"
 #include "GameFramework/DefaultPawn.h"
 #include "UObject/Package.h"
@@ -71,16 +77,50 @@ namespace
 		const FVector NB = B.GetSafeNormal();
 		return FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(FVector::DotProduct(NA, NB), -1.0, 1.0)));
 	}
+
+	// A director begun in a bare game world the way the authored map begins one: the StageMark.Home
+	// TargetPoint on the 1979 room's mark (650, -500, 0) facing 170, and a resident tagged CompanionFace
+	// standing on it with no skeleton or bounds to measure, so the director takes its default eye line
+	// (158.1 cm: the 170 cm reference). There is no player controller and no game viewport, so the
+	// specs read the director's own camera and state. DestroyWorld deinitializes the director.
+	UCompanionStageDirector* StageSpecBeginDirector(UWorld*& OutWorld)
+	{
+		OutWorld = UWorld::CreateWorld(EWorldType::Game, /*bInformEngineOfWorld*/ false);
+		if (!OutWorld)
+		{
+			return nullptr;
+		}
+		const FVector MarkAt(650.0, -500.0, 0.0);
+		ATargetPoint* Mark = OutWorld->SpawnActor<ATargetPoint>(MarkAt, FRotator(0.0, 170.0, 0.0));
+		AActor* Resident = OutWorld->SpawnActor<AActor>();
+		if (!Mark || !Resident)
+		{
+			return nullptr;
+		}
+		Mark->Tags.Add(UCompanionStageDirector::StageMarkTag);
+		USceneComponent* Root = NewObject<USceneComponent>(Resident, TEXT("Root"));
+		Resident->SetRootComponent(Root);
+		Root->RegisterComponent();
+		Resident->SetActorLocationAndRotation(MarkAt, FRotator(0.0, 80.0, 0.0));
+		Resident->Tags.Add(UCompanionFaceSubsystem::ResidentTag);
+		UCompanionStageDirector* Director = OutWorld->GetSubsystem<UCompanionStageDirector>();
+		if (Director)
+		{
+			Director->OnWorldBeginPlay(*OutWorld);
+		}
+		return Director;
+	}
 }
 
 // The camera policy (whether the shot moves, whether the pawn may move it), and the data-driven
 // stage camera: config parsing, the built-in fallback, and the move's continuity, comfort and beats.
 //
-// The director itself needs a game world, a tagged resident and a player controller, none of which
-// exist under -nullrhi, so everything it decides is factored into pure functions that take a
-// settings object, a subject and an env lookup: CompanionStage::BuildPlan, FCompanionStagePath and
-// UCompanionStageDirector::BeatAt. Same pattern as EnvConfigSpec: an injected lookup rather than real
-// process-environment mutation, so tests cannot leak state into each other or into the editor.
+// What the director decides is factored into pure functions that take a settings object, a subject
+// and an env lookup: CompanionStage::BuildPlan, FCompanionStagePath and UCompanionStageDirector::BeatAt.
+// Same pattern as EnvConfigSpec: an injected lookup rather than real process-environment mutation, so
+// tests cannot leak state into each other or into the editor. The re-plan on a turned viewport changes
+// the director's own camera and state, so those specs begin a real director in a bare game world (a
+// tagged resident on her mark; no player controller, which -nullrhi does not give).
 void FCompanionStageSpec::Define()
 {
 	auto MakeLookup = [](const TMap<FString, FString>& Env)
@@ -190,6 +230,185 @@ void FCompanionStageSpec::Define()
 				TestFalse("a second call changes nothing", UCompanionStageDirector::HideStandInPawn(Pawn));
 			}
 			TestFalse("no pawn, nothing to hide", UCompanionStageDirector::HideStandInPawn(nullptr));
+			if (World)
+			{
+				World->DestroyWorld(/*bInformEngineOfWorld*/ false);
+			}
+		});
+	});
+
+	// A stream viewer's MatchViewportRes turns the game portrait or landscape long after BeginPlay. The
+	// director then re-solves its plan for the new orientation (ReplanForViewport, called from Tick) and
+	// re-frames what is on screen with a flagged cut: the lobby still, the held HOME or CLOSE, or the new
+	// move from the same moment. Driven here on a real director in each of those states.
+	Describe("a turned viewport", [this]()
+	{
+		const FVector2D Portrait(1080.0, 1920.0);
+		const FVector2D Landscape(1920.0, 1080.0);
+
+		// The framing the director holds, and its CineCamera showing it: place, lens and filmback.
+		auto CheckHolds = [this](UCompanionStageDirector* Director, const FCompanionStageFraming& Framing, const FString& What)
+		{
+			ACineCameraActor* Cine = Cast<ACineCameraActor>(Director->Camera.Get());
+			if (!TestNotNull(*(What + TEXT(": the stage camera")), Cine))
+			{
+				return;
+			}
+			const UCineCameraComponent* Lens = Cine->GetCineCameraComponent();
+			TestTrue(*(What + TEXT(": the framing held")), Director->Held.bValid && Director->Held.Location.Equals(Framing.Location, 0.1));
+			TestTrue(*(What + TEXT(": the camera on it")), Cine->GetActorLocation().Equals(Framing.Location, 0.1));
+			TestEqual(*(What + TEXT(": focal length")), Lens->CurrentFocalLength, Framing.FocalMm, 0.01f);
+			TestEqual(*(What + TEXT(": filmback width")), (double)Lens->Filmback.SensorWidth, Framing.FilmbackMm.X, 0.01);
+			TestEqual(*(What + TEXT(": filmback height")), (double)Lens->Filmback.SensorHeight, Framing.FilmbackMm.Y, 0.01);
+		};
+
+		// The director's Tick follows the game viewport when there is one; these specs turn it by hand,
+		// so they tick only where there is none (-nullrhi, no PIE).
+		auto CanTick = [this]()
+		{
+			if (GEngine && GEngine->GameViewport)
+			{
+				AddInfo(TEXT("Skipped: a game viewport is open, and the director's Tick would re-plan for its size."));
+				return false;
+			}
+			return true;
+		};
+
+		It("re-frames the lobby still while it waits for a session", [this, CheckHolds, Portrait, Landscape]()
+		{
+			UWorld* World = nullptr;
+			UCompanionStageDirector* Director = StageSpecBeginDirector(World);
+			if (TestNotNull("a director begun in a game world", Director) && TestTrue("a data-driven plan", Director->GetPlan().bFromConfig))
+			{
+				Director->RestageLobby();
+				TestTrue("waiting for a session", Director->IsAwaitingSession());
+				const FCompanionStageFraming LandscapeLobby = Director->GetPlan().Lobby;
+				CheckHolds(Director, LandscapeLobby, TEXT("the landscape lobby still"));
+
+				Director->LastCutAt = -1000.0f;
+				Director->ReplanForViewport(true, Portrait);
+				const FCompanionStageFraming PortraitLobby = Director->GetPlan().Lobby;
+				TestTrue("the plan re-solved for portrait", Director->bPlanPortrait);
+				TestTrue("the portrait lobby still on a 9:16 filmback", PortraitLobby.FilmbackMm.X < PortraitLobby.FilmbackMm.Y);
+				CheckHolds(Director, PortraitLobby, TEXT("the portrait lobby still"));
+				TestEqual("a flagged cut", Director->LastCutAt, Director->Clock);
+				TestTrue("still waiting for a session", Director->IsAwaitingSession());
+				TestTrue("still the lobby beat", Director->GetBeat() == EStageBeat::Flythrough);
+
+				Director->ReplanForViewport(false, Landscape);
+				TestFalse("the plan re-solved for landscape", Director->bPlanPortrait);
+				CheckHolds(Director, LandscapeLobby, TEXT("the landscape lobby still again"));
+			}
+			if (World)
+			{
+				World->DestroyWorld(/*bInformEngineOfWorld*/ false);
+			}
+		});
+
+		It("re-solves the move and goes on from the same moment", [this, CanTick, Portrait]()
+		{
+			if (!CanTick())
+			{
+				return;
+			}
+			UWorld* World = nullptr;
+			UCompanionStageDirector* Director = StageSpecBeginDirector(World);
+			if (TestNotNull("a director begun in a game world", Director) && TestTrue("a data-driven plan", Director->GetPlan().bFromConfig))
+			{
+				// The move whatever MHLLM_OPENING_SHOT and MHLLM_OPENING_REPLAY say in this process.
+				Director->bOpeningShot = true;
+				Director->ReplayEvery = 0.0f;
+				Director->RestageLobby();
+				Director->BeginSession(0.0f);
+				const float Dt = 1.0f / 60.0f;
+				for (int32 Frame = 0; Frame < 30; ++Frame)
+				{
+					Director->Tick(Dt);
+				}
+				// No hold in this session, so the move's clock is the session's.
+				const float MoveTime = Director->Elapsed;
+				TestTrue("half a second into the move, before the greeting",
+					Director->bMoveStarted && Director->GetBeat() == EStageBeat::Flythrough && MoveTime < Director->GetPlan().GreetingAt);
+				TestTrue("on the landscape move", Director->Camera->GetActorLocation().Equals(Director->GetPlan().Opening.PositionAt(MoveTime), 0.1));
+
+				Director->LastCutAt = -1000.0f;
+				Director->ReplanForViewport(true, Portrait);
+				const FCompanionStagePlan& Plan = Director->GetPlan();
+				TestTrue("the plan re-solved for portrait", Director->bPlanPortrait);
+				TestTrue("the portrait move's lens on a 9:16 filmback", Plan.FilmbackMm.X < Plan.FilmbackMm.Y);
+				TestEqual("a flagged cut", Director->LastCutAt, Director->Clock);
+				TestEqual("the move's clock kept", Director->Elapsed, MoveTime);
+				TestFalse("nothing held: the camera is moving", Director->Held.bValid);
+
+				// The next frame is the new move at the same moment.
+				Director->Tick(Dt);
+				const float Next = Director->Elapsed;
+				ACineCameraActor* Cine = Cast<ACineCameraActor>(Director->Camera.Get());
+				if (TestNotNull("the stage camera", Cine))
+				{
+					const UCineCameraComponent* Lens = Cine->GetCineCameraComponent();
+					TestTrue("on the portrait move", Cine->GetActorLocation().Equals(Plan.Opening.PositionAt(Next), 0.1));
+					TestEqual("the portrait move's focal length", Lens->CurrentFocalLength, Plan.FocalMm, 0.01f);
+					TestEqual("the portrait move's filmback width", (double)Lens->Filmback.SensorWidth, Plan.FilmbackMm.X, 0.01);
+					TestEqual("the portrait move's filmback height", (double)Lens->Filmback.SensorHeight, Plan.FilmbackMm.Y, 0.01);
+				}
+				TestTrue("still moving", Director->GetBeat() == EStageBeat::Flythrough && !Director->IsAwaitingSession());
+			}
+			if (World)
+			{
+				World->DestroyWorld(/*bInformEngineOfWorld*/ false);
+			}
+		});
+
+		It("holds CLOSE through the turn", [this, CheckHolds, CanTick, Portrait, Landscape]()
+		{
+			if (!CanTick())
+			{
+				return;
+			}
+			UWorld* World = nullptr;
+			UCompanionStageDirector* Director = StageSpecBeginDirector(World);
+			if (TestNotNull("a director begun in a game world", Director) && TestTrue("a CLOSE in the plan", Director->GetPlan().Close.bValid))
+			{
+				Director->ReplayEvery = 0.0f;
+				Director->RestageLobby();
+				// Straight to the live conversation with nothing spoken (SkipToLive drops both lines).
+				Director->SkipToLive();
+				const UCompanionStageSettings* Settings = GetDefault<UCompanionStageSettings>();
+				const float Dt = 1.0f / 30.0f;
+				// Automatic cuts stay CutSpacingSeconds apart, counted from the cut to HOME.
+				for (float T = 0.0f; T < Settings->CutSpacingSeconds + 0.5f; T += Dt)
+				{
+					Director->Tick(Dt);
+				}
+				// A 12 s reply whose first sentence ends 1.9 s in (by its share of the characters): the
+				// punch-in comes there.
+				const FString Reply = TEXT("One short opening line. Then the rest of a reply that goes on for a good while longer, ")
+					TEXT("with nothing that ends a sentence until the very end of it.");
+				Director->OnReplyAudioStarted(Reply, 12.0f);
+				for (float T = 0.0f; T < 4.0f && !Director->bInClose; T += Dt)
+				{
+					Director->Tick(Dt);
+				}
+				if (TestTrue("punched in to CLOSE", Director->bInClose))
+				{
+					CheckHolds(Director, Director->GetPlan().Close, TEXT("the landscape CLOSE"));
+
+					Director->LastCutAt = -1000.0f;
+					Director->ReplanForViewport(true, Portrait);
+					const FCompanionStageFraming PortraitClose = Director->GetPlan().Close;
+					TestTrue("the plan re-solved for portrait", Director->bPlanPortrait);
+					TestTrue("the portrait CLOSE on a 9:16 filmback", PortraitClose.FilmbackMm.X < PortraitClose.FilmbackMm.Y);
+					TestTrue("still in CLOSE", Director->bInClose);
+					CheckHolds(Director, PortraitClose, TEXT("the portrait CLOSE"));
+					TestEqual("a flagged cut", Director->LastCutAt, Director->Clock);
+					TestTrue("still live", Director->GetBeat() == EStageBeat::Live);
+
+					Director->ReplanForViewport(false, Landscape);
+					TestTrue("still in CLOSE", Director->bInClose);
+					CheckHolds(Director, Director->GetPlan().Close, TEXT("the landscape CLOSE again"));
+				}
+			}
 			if (World)
 			{
 				World->DestroyWorld(/*bInformEngineOfWorld*/ false);
