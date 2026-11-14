@@ -78,6 +78,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "MetaHumanLLM")
 	void FocusChatInput();
 
+	// The words of the permanent "she is an AI" line (SCompanionAiNotice), empty when there is none.
+	// It exists whenever the companion does, whatever MHLLM_HUD or the console say.
+	FString GetAiNoticeText() const;
+
 	// Clears what one viewer's session left behind, so the next viewer starts a fresh conversation:
 	// the companion's history (re-seeded with the system prompt; with MHLLM_MEMORY=1 the saved
 	// transcript too), the reply in flight, the voice and the mouth, any listening, and the chat log
@@ -162,6 +166,12 @@ private:
 	// but it leaves an empty placeholder slot in the viewport for every world that ever ran.
 	TSharedPtr<class SWidget> HudSlot;
 	TSharedPtr<class SWidget> SettingsPanelSlot;
+
+	// The permanent AI notice and its viewport wrapper. Built before the HUD and independent of it,
+	// and stacked above it and the console, so that nothing that hides or covers them hides it.
+	void CreateAiNotice();
+	TSharedPtr<class SCompanionAiNotice> AiNotice;
+	TSharedPtr<class SWidget> AiNoticeSlot;
 
 	// Pushes changed settings to the systems that own them. Only the subsystems the diff marks
 	// dirty are touched: rebinding the face or restarting audio on every edit would hitch a live

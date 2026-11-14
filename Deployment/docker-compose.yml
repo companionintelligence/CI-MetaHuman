@@ -11,6 +11,18 @@
 # its ports published on loopback only; the OIDC proxy is the only browser entry point.
 # (:8095, not :8080 — :8080 is already in use on core-2 by the CI marketplace stack.)
 
+# Connection logs. coturn, the signalling server and the OIDC gate log viewers' network addresses,
+# and the gate the signed-in email address; the privacy policy keeps such logs 14 days at most.
+# The "local" driver keeps each service's log with its container (5 files of 20 MB at most) on any
+# host, whatever the daemon's default driver, so recreating the container deletes it, and with it
+# the signalling server's own server-YYYY-MM-DD.log files, which live in the container too.
+# systemd/ci-metahuman-log-purge@.timer recreates the three weekly (README.md, "Connection logs").
+x-connection-logs: &connection-logs
+  driver: "local"
+  options:
+    max-size: "20m"
+    max-file: "5"
+
 services:
 
   # WebRTC TURN relay. Needs TCP/UDP 3478 and the UDP relay range 49152-65535 reachable, plus TCP
@@ -31,6 +43,7 @@ services:
     image: "coturn/coturn:4.6.2"
     init: true
     network_mode: "host"
+    logging: *connection-logs
     entrypoint: ["/bin/sh", "/etc/coturn/ci/entrypoint.sh"]
     command: []
     environment:
@@ -64,6 +77,7 @@ services:
       args:
         PIXEL_STREAMING_INFRASTRUCTURE_REF: "${PIXEL_STREAMING_INFRASTRUCTURE_REF:-289b9542159a6ee6a5d0f62834f1f27a472397b6}"
     init: true
+    logging: *connection-logs
     entrypoint: ["bash", "/SignallingWebServer/SignallingWebServer/platform_scripts/bash/start.sh", "--nosudo"]
     command: []
     environment:
@@ -105,6 +119,7 @@ services:
     image: "quay.io/oauth2-proxy/oauth2-proxy:v7.6.0"
     init: true
     network_mode: "host"
+    logging: *connection-logs
     command: ["--config=/etc/oauth2-proxy.cfg"]
     volumes:
       - "./oauth2-proxy.cfg:/etc/oauth2-proxy.cfg:ro"

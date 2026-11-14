@@ -70,7 +70,8 @@ The deployment target is an **AMD/ROCm** host. It does **not** require an NVIDIA
   and an upward planning aversion while the model is thinking — so latency reads as thought.
 - **Has a face.** Reply text drives a sustained brow/cheek/eye expression composited over the
   visemes, plus involuntary blinking.
-- **Can remember you**, opt-in via `MHLLM_MEMORY=1`.
+- **Says she is an AI**, in a line that stays in the frame and on the player page for as long as
+  the stream runs, and in the face stack's opening line.
 - **Runs against anything.** `IChatBackend` covers native Ollama `/api/chat` and any
   OpenAI-compatible `/v1/chat/completions` (LM Studio, Lemonade, vLLM, a gateway) by config alone.
 
@@ -154,7 +155,6 @@ precedence rules, which have bitten before.
 OLLAMA_BASE_URL=http://127.0.0.1:11434   OLLAMA_MODEL=llama3.2
 KOKORO_SERVER_URL=http://127.0.0.1:13305 WHISPER_SERVER_URL=http://127.0.0.1:13305
 WHISPER_MODEL=Whisper-Base               # REQUIRED by the OpenAI shape; blank omits the field
-MHLLM_MEMORY=1                           # opt-in: persists transcripts to disk
 ```
 
 ## Deploy
@@ -166,8 +166,9 @@ See [`Deployment/README.md`](Deployment/README.md) and
 
 [`Docs/ROADMAP.md`](Docs/ROADMAP.md) is the authority. The largest remaining items are
 **observability** (turn latency and failure rate are visible only by reading container logs over
-SSH), **head motion and gesture**, **tool calling**, and **auth** — the OIDC gate has never worked
-and `:8090` is open on the tailnet.
+SSH), **head motion and gesture**, **tool calling**, and **auth** — the OIDC gate now denies by
+default and `:8090`, `:8888`, `:8889` and `:8095` listen on loopback only, but nobody has signed in
+through the gate yet, so nothing may rely on it until a live sign-in has been tested.
 
 **The default resident has no face.** Epic's mannequin is a licence-clean placeholder with no facial
 rig, so a default build has no lip-sync, expression or gaze; the face driver binds and logs 0 resolved

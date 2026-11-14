@@ -21,6 +21,9 @@ RUN git init . \
     && git checkout --detach FETCH_HEAD
 
 COPY patch_pixelstreaming_player.py /usr/local/bin/patch-pixelstreaming-player.py
+# The Privacy link in the player's AI notice. Empty keeps the script's default, the policy that
+# covers this preview; an operator whose deployment has its own policy passes its https:// URL.
+ARG PRIVACY_POLICY_URL=
 RUN python3 /usr/local/bin/patch-pixelstreaming-player.py \
     /src/Frontend/implementations/typescript/src/player.html
 

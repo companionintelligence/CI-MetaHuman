@@ -136,7 +136,7 @@ and appear in no compose file and no `.env.example`, so in practice they are alw
 | Variable | Default | Effect |
 |---|---|---|
 | `MHLLM_MAX_TURNS` | `24` | Retained user+assistant **pairs**, excluding the system prompt. `0` = unlimited. `/api/chat` has no server-side session, so the entire transcript is re-sent every turn: uncapped, each turn costs more than the last until the request overruns the context window, at which point the server truncates **from the front** and the first thing lost is the persona. She does not error — she stops being Eliza |
-| `MHLLM_MEMORY` | `0` | `1` persists the conversation across sessions. **Opt-in, deliberately**: turning it on writes everything anyone says to this companion to disk in plain text, indefinitely. Reasonable for an operator to choose, unreasonable to choose on their behalf — a kiosk must not quietly accumulate transcripts of its visitors. Over Pixel Streaming the conversation is reset when the last viewer disconnects (`UCompanionRuntimeSubsystem::ResetForNextViewer`), and with this on the saved transcript is overwritten too: the stream cannot tell one visitor from the next, so it does not carry one's conversation into another's |
+| `MHLLM_MEMORY` | `0` | `1` persists the conversation across sessions. **Opt-in, deliberately**: turning it on writes everything anyone says to this companion to disk in plain text, indefinitely. Reasonable for an operator to choose, unreasonable to choose on their behalf — a kiosk must not quietly accumulate transcripts of its visitors. Over Pixel Streaming the conversation is reset when the last viewer disconnects (`UCompanionRuntimeSubsystem::ResetForNextViewer`), and with this on the saved transcript is overwritten too: the stream cannot tell one visitor from the next, so it does not carry one's conversation into another's. **Keep it `0` on any deployment other people use** until a crisis protocol exists and counsel has confirmed that the AI notice (in the frame and on the player page) meets the "not a human" notice rules: a companion that remembers its users needs both under New York GBL Art. 47 and California SB 243, and the hosted preview's privacy policy says memory is off |
 | `MHLLM_MEMORY_PATH` | *(empty)* | Absolute path for that transcript. Blank uses `Saved/Companion/Conversation.json`, which survives a cook and is never packaged into one |
 | `MHLLM_CHAT_TIMEOUT` | `180` | Seconds before a chat request is abandoned. `0` keeps the engine default. Neither client set a timeout at all, so a backend that accepted the connection and then went quiet left the HUD on `thinking...` for the rest of the session, with no error and no way back short of a restart |
 
@@ -151,7 +151,7 @@ would be silently ignored on every machine that had already held one conversatio
 | Variable | Compose default | Effect |
 |---|---|---|
 | `MHLLM_OPENING_SHOT` | `1` | Plays the datacenter tour on level load, then lands on the resident. Set `0`/`false` for a static call frame; empty/unset uses the tour default |
-| `MHLLM_OPENING_LINE` | `Welcome to Companion Intelligence, I'm Eliza. How can I help you?` | Spoken **verbatim**, never generated |
+| `MHLLM_OPENING_LINE` | `Welcome to Companion Intelligence. I'm Eliza, an AI. How can I help you?` | Spoken **verbatim**, never generated |
 | `MHLLM_OPENING_DELAY` | `3.0` | Held before the move. Pixel Streaming clients take ~10 s to negotiate |
 | `MHLLM_FLY_SECONDS` | `11.0` | Flythrough duration |
 | `MHLLM_OPENING_REPLAY` | `0` | Attract-loop period in seconds; `0` = once only |
