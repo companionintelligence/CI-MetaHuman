@@ -288,7 +288,18 @@ comments explain each case.
   containers, that `systemctl list-timers` (with `--user` for rootless) shows the next run, and,
   after a run, that `docker ps` shows the three created at that time. Logs kept outside these
   containers are the host's: if `journalctl -u tailscaled` holds per-request viewer details, set
-  journald's `MaxRetentionSec=13day`.
+  journald's `MaxRetentionSec=13day` and `MaxFileSec=1day`. Both: journald never deletes the file
+  it is writing to, which collects up to `MaxFileSec` of lines (a month by default) before it is
+  archived, and it deletes an archived file once its oldest line is past `MaxRetentionSec`. So the
+  retention alone keeps some lines about a month; with daily files none outlives 14 days. They
+  apply to the whole host journal:
+
+  ```bash
+  sudo mkdir -p /etc/systemd/journald.conf.d
+  printf '[Journal]\nMaxRetentionSec=13day\nMaxFileSec=1day\n' \
+    | sudo tee /etc/systemd/journald.conf.d/ci-metahuman-retention.conf
+  sudo systemctl restart systemd-journald
+  ```
 - **The AI notice.** The resident introduces herself with a human name, so the stream says what she
   is (EU AI Act Art. 50(1)): a line in the frame from its first frame (`SCompanionAiNotice`), the
   same words on the player page with a Privacy link (`patch_pixelstreaming_player.py`, built into
