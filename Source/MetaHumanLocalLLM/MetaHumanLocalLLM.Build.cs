@@ -28,5 +28,10 @@ public class MetaHumanLocalLLM : ModuleRules
 		{
 			RuntimeDependencies.Add("$(ProjectDir)/" + LegalFile, StagedFileType.NonUFS);
 		}
+
+		// The Montserrat font faces ship too (Config/DefaultGame.ini always-cooks /Game/Fonts), and
+		// the SIL Open Font License wants its text with every copy of the fonts, so NOTICE.md asks
+		// every packaged build to carry it: <archive>/MetaHumanLocalLLM/Content/Fonts/OFL-Montserrat.txt.
+		RuntimeDependencies.Add("$(ProjectDir)/Content/Fonts/OFL-Montserrat.txt", StagedFileType.NonUFS);
 	}
 }
