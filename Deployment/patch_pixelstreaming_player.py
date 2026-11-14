@@ -118,6 +118,14 @@ AI_NOTICE_MARKER = "ci-companion-ai-notice-v1"
 # video): the video says it to anyone watching, this says it before the first frame arrives and
 # holds the link a video cannot. Fixed just under the Credits link, so the strip the HUD keeps
 # clear holds both; the link opens in a new tab, like Credits, so the stream keeps running.
+#
+# Clear of Epic's controls at every width. The player's control column (fullscreen, settings,
+# stats; settings first on an iPhone, which gets no fullscreen button) hangs from the top left at 2%
+# of the width and is 3rem wide (PixelStreamingApplicationStyles), so the line keeps an inset of
+# 2vw + 3.5rem on both sides and stays centred: on a phone it wraps beside the column instead of
+# lying over the fullscreen button. And only its link takes a pointer, so a tap anywhere else on it
+# reaches whatever is underneath. It is outside the element Epic's fullscreen button enlarges, so in
+# fullscreen only the frame's own notice shows.
 AI_NOTICE_TEXT = "Eliza is an AI. Her replies are generated and can be wrong."
 # The policy that covers this preview, and its "If you run it yourself" section for anyone else.
 # An operator with a policy of their own builds the image with --build-arg PRIVACY_POLICY_URL=...
@@ -127,11 +135,11 @@ HTTPS_URL = re.compile(r"https://[^\s\"'<>`]+")
 AI_NOTICE = (
     '<p data-ci-companion="ci-companion-ai-notice-v1" role="note" style="position: fixed; top: 32px;'
     ' left: 50%; transform: translateX(-50%); z-index: 2147483647; box-sizing: border-box; width: max-content;'
-    ' max-width: calc(100vw - 24px); margin: 0; padding: 2px 10px; border-radius: 10px;'
+    ' max-width: calc(96vw - 7rem); margin: 0; padding: 2px 10px; border-radius: 10px;'
     ' background: rgba(0, 0, 0, 0.55); color: rgba(255, 255, 255, 0.92); text-align: center;'
     " font: 600 12px/1.5 'Montserrat', system-ui, -apple-system, 'Segoe UI', Roboto, Arial,"
-    ' sans-serif;">{text} <a href="{url}" target="_blank" rel="noopener" style="color: inherit;">'
-    "Privacy</a></p>\n"
+    ' sans-serif; pointer-events: none;">{text} <a href="{url}" target="_blank" rel="noopener"'
+    ' style="color: inherit; pointer-events: auto;">Privacy</a></p>\n'
 )
 
 

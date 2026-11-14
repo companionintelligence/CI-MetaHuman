@@ -306,6 +306,8 @@ comments explain each case.
   the signalling image), "an AI" in the chat box's idle status, and the face stack's opening line.
   The link defaults to the policy that covers the hosted preview; an operator whose deployment has
   its own policy builds the signalling image with `--build-arg PRIVACY_POLICY_URL=https://...`.
+  In fullscreen only the in-frame notice shows: Epic's fullscreen button enlarges the player (the
+  video itself on an iPad), and the page's notice and Credits link are outside it.
 - **Pixel Streaming 2** is the plugin enabled in the `.uproject`
   (`-PixelStreamingUrl=ws://127.0.0.1:8888`). For the legacy Pixel Streaming plugin, substitute
   `-PixelStreamingIP`/`-PixelStreamingPort`.

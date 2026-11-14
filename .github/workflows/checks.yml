@@ -103,6 +103,9 @@ jobs:
           for page in "$work/player.html" Deployment/pixelstreaming/player.html; do
             test "$(grep -c 'data-ci-companion="ci-companion-ai-notice-v1"' "$page")" -eq 1
             grep -qF ">$notice <a href=\"https://ci.computer/privacy/companion-presence\"" "$page"
+            # Never a tap meant for Epic's controls: the line lets pointers through, its link takes them.
+            grep -F 'data-ci-companion="ci-companion-ai-notice-v1"' "$page" | grep -F 'pointer-events: none;">' \
+              | grep -qF 'style="color: inherit; pointer-events: auto;">Privacy</a>'
           done
           printf '<html><head><title>Pixel Streaming</title></head><body></body></html>\n' > "$work/stock.html"
           cp "$work/stock.html" "$work/own-policy.html"
