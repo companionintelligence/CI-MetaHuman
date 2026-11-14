@@ -131,7 +131,19 @@ namespace CIBrand
 			{
 				return *Found;
 			}
-			const UFontFace* Face = LoadObject<UFontFace>(nullptr, Path);
+			UFontFace* Face = LoadObject<UFontFace>(nullptr, Path);
+			if (Face)
+			{
+				// ROOTED, because nothing else holds it. The composite below keeps the face in an
+				// FFontData the garbage collector never sees, and RF_Standalone keeps an asset loaded
+				// only in the editor. In -game and in a packaged build the first collection after the
+				// load (gc.TimeBetweenPurgingPendingKillObjects, 61 s) freed all three faces, and the
+				// next text needing a glyph not yet cached called into a freed face
+				// (FFontData::GetHinting): "Pure virtual function being called" in the Slate prepass.
+				// On the stream that was her greeting, the first chat line after a viewer who
+				// connected two minutes after load.
+				Face->AddToRoot();
+			}
 			Cache.Add(Path, Face);
 			return Face;
 		}

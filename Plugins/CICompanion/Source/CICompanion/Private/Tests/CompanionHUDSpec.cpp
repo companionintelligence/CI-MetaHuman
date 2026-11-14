@@ -1,4 +1,6 @@
 #include "Misc/AutomationTest.h"
+#include "Fonts/CompositeFont.h"
+#include "UI/CIBrandStyle.h"
 #include "UI/SCompanionHUD.h"
 
 BEGIN_DEFINE_SPEC(FCompanionHUDSpec, "MetaHumanLocalLLM.Frontend.CompanionHUD", EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
@@ -262,5 +264,31 @@ void FCompanionHUDSpec::Define()
 		TestEqual("one entry after clear and refill", HUD->NumChatEntries(), 1);
 		TestEqual("one row after clear and refill", HUD->NumVisibleChatEntries(), 1);
 		TestEqual("and it is the new one", HUD->GetChatEntries()[0].Text, TEXT("Still here"));
+	});
+
+	// The streamed game crashed at her greeting ("Pure virtual function being called" in the Slate
+	// prepass): nothing the garbage collector can see held the Montserrat faces, so a game's first
+	// collection freed them and the first new glyph called into a freed face. The editor never shows
+	// it (RF_Standalone keeps assets loaded there), so this checks the cause, not the crash.
+	It("keeps the brand font faces alive through a game's garbage collection", [this]()
+	{
+		const FSlateFontInfo Body = CIBrand::BodyFont();
+		const FCompositeFont* Composite = Body.GetCompositeFont();
+		int32 Faces = 0;
+		if (Composite)
+		{
+			for (const FTypefaceEntry& Entry : Composite->DefaultTypeface.Fonts)
+			{
+				if (const UObject* Face = Entry.Font.GetFontFaceAsset())
+				{
+					++Faces;
+					TestTrue(FString::Printf(TEXT("the %s face is rooted"), *Entry.Name.ToString()), Face->IsRooted());
+				}
+			}
+		}
+		if (Faces == 0)
+		{
+			AddInfo(TEXT("The Montserrat faces are not in this checkout; the HUD falls back to Roboto."));
+		}
 	});
 }
