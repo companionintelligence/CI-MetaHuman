@@ -1,0 +1,119 @@
+#pragma once
+
+#include "CoreMinimal.h"
+#include "Templates/SharedPointer.h"
+
+class FJsonObject;
+class FJsonValue;
+class FMcpBridgeWebSocket;
+class IMcpGameFeaturesProvider;
+class UEngineWireSubsystem;
+struct FModuleContextInfo;
+namespace McpPackageJobs { struct FJob; }
+
+namespace McpSystemControlHandlers {
+
+using FSystemControlSocket = TSharedPtr<FMcpBridgeWebSocket>;
+
+// The material usage flags an asset's meshes need and their materials lack: a Nanite static mesh's slots, a
+// skeletal mesh's, and a Blueprint's mesh components (Nanite, instanced, spline or skeletal). Each as {material,
+// usage, property (the flag to set true on the material), unsaved (set in the editor, not on disk), component
+// (Blueprints)}. The editor sets a missing flag only when it draws the mesh outside play, so a mesh only ever spawned
+// in play renders the default material there and in a cooked game. McpSystemMaterialUsage.cpp.
+TArray<TSharedPtr<FJsonValue>> McpMissingMaterialUsage(UObject* Asset);
+// Starts or stops recording the usage flags the editor sets on 5.8 material instances, which the engine's own record
+// of flags awaiting a save leaves out. The subsystem's lifetime; nothing on earlier engines.
+void McpWatchMaterialUsage(bool bWatch);
+
+bool HandleValidateAssets(UEngineWireSubsystem* Self,
+                          const FString& RequestId,
+                          const TSharedPtr<FJsonObject>& Payload,
+                          FSystemControlSocket RequestingSocket);
+bool HandleRunUbt(UEngineWireSubsystem* Self,
+                  const FString& RequestId,
+                  const TSharedPtr<FJsonObject>& Payload,
+                  FSystemControlSocket RequestingSocket);
+bool HandleRunTests(UEngineWireSubsystem* Self,
+                    const FString& RequestId,
+                    const TSharedPtr<FJsonObject>& Payload,
+                    FSystemControlSocket RequestingSocket);
+bool HandlePackageProject(UEngineWireSubsystem* Self,
+                          const FString& RequestId,
+                          const TSharedPtr<FJsonObject>& Payload,
+                          FSystemControlSocket RequestingSocket);
+// package_project executableName: Source/<Name>.Target.cs, a copy of the project's own game target under the new
+// name, made when the project has no target of that name. False with OutError and OutCode when it cannot be had.
+bool McpEnsureGameTarget(const FString& Name, FString& OutFile, bool& bOutCreated, FString& OutError,
+                         FString& OutCode);
+bool HandlePackageStatus(UEngineWireSubsystem* Self,
+                         const FString& RequestId,
+                         const TSharedPtr<FJsonObject>& Payload,
+                         FSystemControlSocket RequestingSocket);
+bool HandleLaunchBuild(UEngineWireSubsystem* Self,
+                       const FString& RequestId,
+                       const TSharedPtr<FJsonObject>& Payload,
+                       FSystemControlSocket RequestingSocket);
+// Adds a launch_build job's game-log evidence to a package_status reply.
+void AppendLaunchStatus(const McpPackageJobs::FJob& Job, const TSharedPtr<FJsonObject>& Result);
+bool HandleExecutePython(UEngineWireSubsystem* Self,
+                         const FString& RequestId,
+                         const TSharedPtr<FJsonObject>& Payload,
+                         FSystemControlSocket RequestingSocket);
+// list_output_files / delete_output_file: the files the MCP itself writes
+// (screenshots, snapshots), and nothing outside those folders.
+bool HandleListOutputFiles(UEngineWireSubsystem* Self,
+                           const FString& RequestId,
+                           const TSharedPtr<FJsonObject>& Payload,
+                           FSystemControlSocket RequestingSocket);
+bool HandleDeleteOutputFile(UEngineWireSubsystem* Self,
+                            const FString& RequestId,
+                            const TSharedPtr<FJsonObject>& Payload,
+                            FSystemControlSocket RequestingSocket);
+// list_save_games / edit_save_game: the game's SaveGame slots (Saved/SaveGames), loaded as the game loads them.
+bool HandleListSaveGames(UEngineWireSubsystem* Self,
+                         const FString& RequestId,
+                         const TSharedPtr<FJsonObject>& Payload,
+                         FSystemControlSocket RequestingSocket);
+bool HandleEditSaveGame(UEngineWireSubsystem* Self,
+                        const FString& RequestId,
+                        const TSharedPtr<FJsonObject>& Payload,
+                        FSystemControlSocket RequestingSocket);
+bool HandleManagePlugins(UEngineWireSubsystem* Self,
+                         const FString& RequestId,
+                         const FString& SubAction,
+                         const TSharedPtr<FJsonObject>& Payload,
+                         FSystemControlSocket RequestingSocket);
+// get_plugin_info: one plugin's descriptor, modules, dependencies and dependents (Plugins/McpPluginInfo.cpp).
+bool HandlePluginInfo(UEngineWireSubsystem* Self, const FString& RequestId, const TSharedPtr<FJsonObject>& Payload,
+                      FSystemControlSocket RequestingSocket);
+// create_plugin and remove_plugin: a content-only plugin made, or one taken out of the project (Plugins/McpPluginCreate.cpp).
+bool HandleCreatePlugin(UEngineWireSubsystem* Self, const FString& RequestId, const TSharedPtr<FJsonObject>& Payload,
+                        FSystemControlSocket RequestingSocket);
+bool HandleRemovePlugin(UEngineWireSubsystem* Self, const FString& RequestId, const TSharedPtr<FJsonObject>& Payload,
+                        FSystemControlSocket RequestingSocket);
+// The game feature adapter (module EngineWireGameFeatures) where the project enables the GameFeatures plugin, else null.
+IMcpGameFeaturesProvider* GameFeaturesProvider();
+// The refusal when no adapter answered: GAME_FEATURES_DISABLED, GAME_FEATURES_UNAVAILABLE where this build has no adapter
+// module, ENGINE_VERSION_UNSUPPORTED on 5.0; Tail is appended.
+void SendGameFeaturesMissing(UEngineWireSubsystem* Self, const FString& RequestId, FSystemControlSocket RequestingSocket,
+                             const TCHAR* Tail);
+// list_game_features and set_game_feature_active, through the game feature adapter module (Plugins/McpGameFeatures.cpp).
+bool HandleGameFeatures(UEngineWireSubsystem* Self, const FString& RequestId, const FString& SubAction,
+                        const TSharedPtr<FJsonObject>& Payload, FSystemControlSocket RequestingSocket);
+// create_cpp_class: a header and .cpp from a parent class in a project module, the editor's New C++ Class.
+bool HandleCreateCppClass(UEngineWireSubsystem* Self,
+                          const FString& RequestId,
+                          const TSharedPtr<FJsonObject>& Payload,
+                          FSystemControlSocket RequestingSocket);
+// remove_cpp_class: a project module's class files deleted once nothing uses the class (McpSystemCppClassRemove.cpp).
+bool HandleRemoveCppClass(UEngineWireSubsystem* Self,
+                          const FString& RequestId,
+                          const TSharedPtr<FJsonObject>& Payload,
+                          FSystemControlSocket RequestingSocket);
+// Shared by both: a C++ identifier (letters, digits, _, not leading with a digit, at most 64); the project module of
+// that name (or, with none asked for, the one named after the project, else its first runtime module); their names.
+bool McpIsCppIdentifier(const FString& Name);
+const FModuleContextInfo* McpFindProjectModule(const FString& Wanted);
+FString McpProjectModuleNames();
+
+}

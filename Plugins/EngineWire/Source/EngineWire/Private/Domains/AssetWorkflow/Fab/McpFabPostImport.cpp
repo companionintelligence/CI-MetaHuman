@@ -1,0 +1,86 @@
+// Copyright (c) 2024 EngineWire Contributors
+
+#include "Domains/AssetWorkflow/Fab/McpFabPostImport.h"
+#include "Domains/AssetWorkflow/Fab/McpFabRelocate.h"
+#include "Safety/McpSafeOperations.h"
+
+#include "Materials/MaterialInstance.h"
+#include "Misc/PackageName.h"
+#include "UObject/Package.h"
+#include "UObject/UObjectGlobals.h"
+
+namespace McpFabPostImport
+{
+namespace
+{
+// Fab's importers leave what they create in memory. Five Megascans surface adds left 24 dirty texture
+// and material-instance packages that existed only until the editor closed, and one import was lost
+// outright when the editor had to be shut. A unreal-engine pack is copied from disk, never loaded, and
+// so is not dirty: it is left alone rather than loaded just to be written back out.
+void SaveImported(FMcpFabAddResult& Result, const TArray<FString>& ImportedPaths)
+{
+	TSet<FString> Seen;
+	for (const FString& ObjectPath : ImportedPaths)
+	{
+		const FString PackageName = FPackageName::ObjectPathToPackageName(ObjectPath);
+		if (Seen.Contains(PackageName))
+		{
+			continue;
+		}
+		Seen.Add(PackageName);
+		UPackage* Package = FindPackage(nullptr, *PackageName);
+		if (Package == nullptr || !Package->IsDirty())
+		{
+			continue;
+		}
+		if (McpSafeOperations::McpSafeAssetSave(Package))
+		{
+			++Result.SavedCount;
+		}
+		else
+		{
+			Result.UnsavedPackages.Add(PackageName);
+		}
+	}
+	Result.bSaveRan = true;
+}
+
+// Fab's importer parents each material instance to master materials it first copies into the project, from the folders
+// its settings name. When those are gone the copy fails, and the instance is left with no parent and draws the engine's
+// default grid, with nothing in the reply to say so. Only what the import holds in memory is read: a unreal-engine
+// pack is copied from disk and is not loaded just to look.
+void NoteParentless(FMcpFabAddResult& Result, const TArray<FString>& ImportedPaths)
+{
+	Result.ParentlessInstances.Reset();
+	for (const FString& ObjectPath : ImportedPaths)
+	{
+		const UMaterialInstance* Instance = FindObject<UMaterialInstance>(nullptr, *ObjectPath);
+		if (Instance != nullptr && Instance->Parent.Get() == nullptr)
+		{
+			Result.ParentlessInstances.Add(ObjectPath);
+		}
+	}
+}
+} // namespace
+
+void Run(FMcpFabAddResult& Result, TArray<FString>& ImportedPaths, const FString& DestinationFolder,
+	const FString& AssetName)
+{
+	// Moved first, so what is saved is what is left at the new paths and not the redirectors behind it.
+	if (!DestinationFolder.IsEmpty() || !AssetName.IsEmpty())
+	{
+		McpFabRelocate::Apply(DestinationFolder, AssetName, Result, ImportedPaths);
+	}
+	SaveImported(Result, ImportedPaths);
+	NoteParentless(Result, ImportedPaths);
+}
+
+void SaveAgain(FMcpFabAddResult& Result, const TArray<FString>& ImportedPaths)
+{
+	// A package that failed before and is dirty still fails again and is listed again; one that saved is not.
+	Result.UnsavedPackages.Reset();
+	SaveImported(Result, ImportedPaths);
+	// Read again too: the engine may finish an instance after the registry went quiet.
+	NoteParentless(Result, ImportedPaths);
+}
+} // namespace McpFabPostImport

@@ -22,7 +22,7 @@ services:
       # Facial expression. UEmotionMapper reads the reply text and the face holds the result as a
       # sustained brow/cheek/eye bias COMPOSITED OVER the visemes -- it never competes with them for
       # the mouth. ON unless explicitly set to 0: an expressionless face is the regression, so the
-      # kill switch is opt-OUT (unlike MHLLM_OPENING_SHOT, where a moving camera is the surprise).
+      # kill switch is opt-OUT; the opening camera tour now runs by default on level load.
       # Set to 0 to isolate a lip-sync problem from an expression problem in a capture.
       MHLLM_EMOTION: "${MHLLM_EMOTION:-1}"
 
@@ -102,11 +102,9 @@ services:
       # has no other way to show its opening to someone who connects late.
       MHLLM_OPENING_REPLAY: "${MHLLM_OPENING_REPLAY:-0}"
 
-      # The camera is STATIC unless the opening move is explicitly asked for. It used to be the
-      # other way round, which meant the flythrough was what every run got whether or not anyone
-      # wanted a moving camera, and the solved call framing needed an undocumented env var. Set
-      # MHLLM_OPENING_SHOT=1 here to restore the eleven-second flythrough for a launch stream.
-      MHLLM_OPENING_SHOT: "${MHLLM_OPENING_SHOT:-0}"
+      # Tour the datacenter on level load, then settle on the resident. Set to 0 for a static
+      # call frame; an explicit 1 also enables the tour.
+      MHLLM_OPENING_SHOT: "${MHLLM_OPENING_SHOT:-1}"
 
       # Free-look is opt-in for the same reason: with it on, the GameModeBase DefaultPawn turns
       # every mouse move into camera yaw/pitch, so any viewer of the stream can drag the shot off

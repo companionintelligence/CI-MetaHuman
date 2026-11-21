@@ -38,13 +38,13 @@ sequenceDiagram
     V->>PG: open :8090
     PG->>PG: force HoveringMouse=true before player.js parses
     PG->>PS: negotiate, ~10s
-    Note over SD: MHLLM_OPENING_DELAY holds 3s<br/>so the shot is not delivered to an empty room
-    alt MHLLM_OPENING_SHOT=1
-        SD->>SD: Flythrough — 11s down the machine hall
+    Note over SD: MHLLM_OPENING_DELAY holds 3s<br/>before the first-load tour
+    alt MHLLM_OPENING_SHOT is unset or 1
+        SD->>SD: Six-key cubic tour — 11s through the hall
         SD->>SD: Turn — settle into the call framing
         SD->>E: SpeakLiteral, the fixed brand line
         SD->>SD: Live
-    else default, opt-out
+    else MHLLM_OPENING_SHOT=0
         SD->>SD: park on the solved framing immediately, Live
     end
     V->>PG: types with no click at all
@@ -60,7 +60,7 @@ sequenceDiagram
 
 | Beat | What happens |
 |---|---|
-| `Flythrough` | camera runs a 4-key path down the hall, `MHLLM_FLY_SECONDS` (default 11.0) |
+| `Flythrough` | camera follows a six-key cubic path from the glass entry, through the cabinet rows, to the resident; `MHLLM_FLY_SECONDS` defaults to 11.0 |
 | `Turn` | settles into the solved call framing |
 | `Speak` | calls `SpeakLiteral(MHLLM_OPENING_LINE)` |
 | `Live` | camera parks; ordinary conversation from here |
@@ -78,15 +78,9 @@ Three deliberate choices:
   handler directly. That drove the visemes perfectly and skipped `TextToSpeech->Speak` entirely, so
   the opening mouthed the brand line while the audio track carried digital silence.
   *"Same handler" was true of the face and false of the voice.*
-- **The camera move is opt-in, not opt-out.**
-
-  > It used to be the other way round […] which meant every plain `run the app` began with an
-  > eleven-second camera move nobody asked for, and the only way to get the framing the set was
-  > solved for was to know an undocumented env var. **A camera that moves is the special case, so
-  > it is the one that has to be requested.**
-
-  Unset, empty, `0` or a typo all mean static. `MHLLM_OPENING_REPLAY=N` turns it into an attract
-  loop, which is the only way a live stream can show its opening to someone who connects late.
+- **The camera tours on first load.** `MHLLM_OPENING_SHOT` defaults on so a new level opens with
+  the storefront-to-resident move. Set it to `0` for a static call frame; a typo also fails closed
+  to static. `MHLLM_OPENING_REPLAY=N` remains an optional attract loop for late stream viewers.
 - Typing a turn calls `Stage->SkipToLive()` — a visitor who starts talking wins over the cinematic.
 
 ### 2.2 What a visitor can actually do
