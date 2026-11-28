@@ -6,6 +6,24 @@
 > [`PRODUCT-GAPS.md`](PRODUCT-GAPS.md) (product-level, 2026-07-30) and marks which of their rows
 > have since changed.
 
+## Companion Avatar MetaHuman edition (2026-11-27)
+
+Reviewed against `main` at `9ba8260`. Eliza's MPFB variant has recorded in-game checks for face motion
+and rig binding. The in-house MetaHuman variant already has a runtime path through Live Link and
+an opt-in stage authoring path. The expected Eliza staging area on core-2 had no manifest at review
+time. The older Seo exports are present for the legacy opt-in resident. [Eliza verification](verification-2026-11-13-eliza/README.md),
+[resident and asset details](SCENE-AUTHORING.md#the-resident).
+
+| Step | Completion evidence |
+| --- | --- |
+| Assemble Eliza in UE 5.8 | Use the existing VibeMetaHumans editor plugin to author Eliza with the full joints and blendshapes rig and downloaded texture sources. Confirm the licensee's terms acceptance and cloud run approval recorded in the project notice. Keep the editable source and its export in the private asset store. [Editor setup](EDITOR-AI-TOOLS.md), [owner prerequisites](../NOTICE.md#still-open), [Epic assembly docs](https://dev.epicgames.com/documentation/en-us/metahuman/creating-a-character). |
+| Author the map | Stage the Eliza folder with `eliza_manifest.json` declaring `id: eliza` and `variant: metahuman`. Its asset references need the assembled Blueprint, retargeted body idle and all attached garments. Run the Windows build with `-Resident Eliza -ElizaContent <folder> -ElizaVariant metahuman` or the equivalent Linux author run with `MHLLM_RESIDENT=eliza` and `MHLLM_ELIZA_VARIANT=metahuman`. Require `resident: ELIZA placed (variant=metahuman`, a matching map hash and `SUCCESS` in the authoring result. [Build and deploy](BUILD-AND-DEPLOY.md), [resident authoring](SCENE-AUTHORING.md#the-resident). |
+| Verify the cooked face | In a Development package check the `ARKitMH` mapping resolves 38/38 profile curves, Live Link subject `Eliza` drives `ABP_MH_LiveLink`, and the jaw-open survival probe moves the RigLogic control. Capture a fixed utterance with P/B/M closures, a pause and interruption. Confirm visible mouth and eye motion, silence at rest and attached garments in the output. [Face pipeline](FACE-PIPELINE.md#332-elizas-metahuman-variant-arkitmh-over-live-link). |
+| Deliver a private Avatar preview | Build the Linux Pixel Streaming image with `RESIDENT=eliza` using the verified authored tree. Test a checked voice turn, cancellation, and reconnect from desktop and mobile browsers in a separate preview session. Record stream startup, time to first audio, and audio-to-face timing using the same utterance fixtures as Unity Avatar. [Companion Avatar work](https://github.com/companionintelligence/companion-unity/pull/9). |
+
+VibeMetaHumans audio-driven animation can supply a reference clip during authoring. The packaged
+stream uses the existing utterance clock, face compositor and Live Link sink for live turns.
+
 ---
 
 ## 1. Where the product is
